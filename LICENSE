@@ -1,0 +1,121 @@
+# Лицензия KeenGuard / KeenGuard License
+# PolyForm Noncommercial License 1.0.0
+
+==============================================================================
+РУССКАЯ ВЕРСИЯ (RUSSIAN VERSION)
+==============================================================================
+
+## Некоммерческая лицензия PolyForm 1.0.0 (PolyForm Noncommercial License 1.0.0)
+Официальный текст: <https://polyformproject.org/licenses/noncommercial/1.0.0>
+
+Авторские права (c) 2026 Авторы и контрибьюторы проекта KeenGuard (KeenGuard Authors)
+
+### 1. Назначение и цель (Purpose)
+Настоящая лицензия позволяет вам бесплатно использовать данное программное обеспечение исключительно в некоммерческих целях, но требует отдельной коммерческой лицензии для любого коммерческого использования.
+
+### 2. Соглашение (Agreement)
+Чтобы получить права по настоящей лицензии, вы обязаны согласиться с её условиями. Данные правила являются одновременно условиями соглашения и обязательными условиями предоставления лицензий на авторские и патентные права каждым лицензиаром.
+
+### 3. Уведомления (Notices)
+Вы обязаны обеспечить, чтобы каждый, кто получает от вас копию любой части данного программного обеспечения (с изменениями или без таковых), также получал полный текст настоящей лицензии или прямую ссылку на <https://polyformproject.org/licenses/noncommercial/1.0.0>.
+
+### 4. Некоммерческая лицензия (Noncommercial License)
+Каждый лицензиар предоставляет вам лицензию на авторские права для использования данного программного обеспечения исключительно в некоммерческих целях.
+
+### 5. Некоммерческие цели и запрет извлечения прибыли (Noncommercial Purposes)
+• Некоммерческая цель — это любая цель, которая не является коммерческой.
+• Коммерческая цель — это любое использование, имеющее своей целью или направленное на получение коммерческой выгоды или денежного вознаграждения (commercial advantage or monetary compensation).
+
+К запрещенному коммерческому использованию относится, в том числе, но не ограничиваясь:
+1. Продажа, платная дистрибуция, возмездное лицензирование или сублицензирование ПО, его частей или производных продуктов;
+2. Предоставление платных услуг, SaaS, облачного мониторинга или платной техподдержки на базе данного ПО;
+3. Встраивание ПО или его алгоритмов в коммерческие аппаратные устройства, коммерческие прошивки роутеров или платные пакеты программ;
+4. Оказание платных услуг коммерческого аудита сетевой безопасности для третьих лиц с использованием наработок проекта.
+
+Для коммерческого использования требуется отдельное письменное соглашение с правообладателем.
+
+### 6. Патентная лицензия (Patent License)
+Каждый лицензиар предоставляет вам патентную лицензию на данное программное обеспечение исключительно для некоммерческих целей. Патентная лицензия распространяется на патентные формулы, которые лицензиар вправе лицензировать и которые реализованы в данном ПО.
+
+### 7. Некоммерческая патентная цель (Noncommercial Patent Purpose)
+Патентная лицензия покрывает только использование ПО в некоммерческих целях. Если ПО используется в коммерческих целях, патентная лицензия на такое использование не распространяется.
+
+### 8. Добросовестное использование (Fair Use)
+Вы можете обладать правами «добросовестного использования» ПО в соответствии с применимым законодательством. Настоящая лицензия не ограничивает эти права.
+
+### 9. Отсутствие иных прав (No Other Rights)
+Настоящая лицензия не распространяется на патентные претензии, возникающие вследствие внесения изменений в ПО или объединения ПО с другим программным или аппаратным обеспечением. Лицензия не предоставляет прав на использование товарных знаков, логотипов или наименований правообладателей.
+
+### 10. Устранение нарушений (Clean Up)
+При нарушении условий соглашения ваши права по лицензии от всех лицензиаров прекращаются немедленно. Однако права могут быть восстановлены:
+1. Если вы получили письменное уведомление о нарушении от правообладателя, права восстанавливаются при устранении нарушения в течение 30 дней с момента получения уведомления.
+2. Если письменного уведомления не поступало, права восстанавливаются при устранении нарушения в течение 30 дней с момента, когда вы впервые узнали о допущенном нарушении.
+
+### 11. Автоматическое повторное предоставление прав (Automatic Re-grant)
+При устранении нарушения лицензии восстанавливаются ретроспективно с даты их прекращения. Однако при повторном нарушении или неустранении нарушения в течение 30 дней права прекращаются окончательно и безвозвратно.
+
+### 12. Сохранение претензий (No Defense)
+Восстановление лицензии не лишает лицензиара права требовать возмещения убытков за нарушение соглашения или патентов за период, пока действие лицензии было прекращено.
+
+### 13. Коммерческая тайна и декомпиляция (Trade Secrets)
+Часть ПО может распространяться в виде исходного кода, а часть — в скомпилированном или бинарном виде. Данная лицензия не дает вам права на обратную разработку (reverse engineering), декомпиляцию или дизассемблирование бинарных форм ПО, за исключением случаев, когда такой запрет прямо не допускается законом.
+
+### 14. Отказ от ответственности («КАК ЕСТЬ» / AS IS)
+В той мере, в какой это допускается законом, программное обеспечение предоставляется по принципу «КАК ЕСТЬ» (AS IS), без каких-либо явных или подразумеваемых гарантий или условий. Ни один из лицензиаров, авторов или разработчиков не несет ответственности перед кем-либо за любые убытки любого рода (прямые, косвенные, случайные или штрафные) и по любой причине, в соответствии с любой правовой теорией, возникающие из настоящего соглашения или использования данного программного обеспечения. Пользователь принимает на себя все риски, связанные с функционированием сети, роутера и подключенных устройств.
+
+==============================================================================
+ENGLISH VERSION (OFFICIAL TEXT)
+==============================================================================
+
+## PolyForm Noncommercial License 1.0.0
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
+
+Copyright (c) 2026 KeenGuard Project Authors
+
+## Purpose
+This license allows you to use the software for noncommercial purposes for free, but requires a commercial license for any commercial use.
+
+## Agreement
+In order to receive this license, you have to agree to its rules. Those rules are both terms of that agreement and conditions to each of the licenses for copyright and patent by each licensor.
+
+## Notices
+You must ensure that everyone who gets a copy of any part of this software from you, with or without changes, also gets the text of this license or a link to <https://polyformproject.org/licenses/noncommercial/1.0.0>.
+
+## Noncommercial License
+Each licensor grants you a copyright license to use the software for noncommercial purposes.
+
+## Noncommercial Purposes
+A noncommercial purpose is a purpose that is not a commercial purpose.
+
+A commercial purpose is any use that has as its purpose, or that is directed towards, commercial advantage or monetary compensation.
+
+## Patent License
+Each licensor grants you a patent license for the software for noncommercial purposes. The patent license covers each patent claim the licensor can license, or becomes able to license, that the software implements.
+
+## Noncommercial Patent Purpose
+The patent license covers only your use of the software for noncommercial purposes. For example, if you use the software for a commercial purpose, the patent license does not cover that use.
+
+## Fair Use
+You may have "fair use" rights for the software under the law. These licenses do not affect those rights.
+
+## No Other Rights
+These licenses do not cover any patent claims you infringe by changes to the software, or by combinations of the software with other software or hardware. These licenses do not cover any trademarks, names, or logos of any licensor.
+
+## Clean Up
+If you violate this agreement, your licenses from all licensors end immediately. However, if you're willing to clean up the violation, you can get the licenses back:
+
+1. If you get a written notice from a licensor or anyone else who gets the software from a licensor about the violation, you can get the licenses back by cleaning up the violation within 30 days of receiving the notice.
+
+2. If you don't get any written notice about the violation, you can get the licenses back by cleaning up the violation within 30 days of when you first recognized the violation.
+
+## Automatic Re-grant
+If you clean up a violation, your licenses will be reinstated retroactive to the date the licenses ended. However, if you violate this agreement again, or if you violate this agreement for more than 30 days after you first learn of the violation, your licenses end permanently.
+
+## No Defense
+Reinstatement of the licenses does not affect any claim of a licensor for breach of agreement or patent infringement for the period that the licenses were ended.
+
+## Trade Secrets
+Some software protected by this license may be provided in source code form, and some may be provided in compiled or binary form. These licenses give you no right to reverse engineer, decompile, or disassemble any binary form of the software, except to the extent that you can't be prohibited by law.
+
+## Disclaimer
+As far as the law allows, the software comes as is, without any warranty or condition, and no licensor will be liable to anyone for any damages of any kind or for any reason, under any legal theory, arising out of this agreement or the use of the software.

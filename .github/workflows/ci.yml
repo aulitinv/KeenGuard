@@ -1,0 +1,44 @@
+name: KeenGuard CI
+
+on:
+  push:
+    branches: [ master, "release/*" ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  audit-and-test:
+    name: Audit & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify No Sensitive Files or DBs Tracked
+        run: |
+          TRACKED=$(git ls-files)
+          echo "$TRACKED" | grep -iE '\.(db|sqlite|sqlite3|pcap|pcapng|env)$' && { echo "ERROR: Prohibited database or secret file tracked in git!"; exit 1; } || true
+          echo "$TRACKED" | grep -iE '^(data/|private_tests/|\.agents/|AGENTS\.md)' && { echo "ERROR: Private directory or agent file tracked in git!"; exit 1; } || true
+          echo "Repository file tree is clean of databases, secrets, and private directories."
+
+      - name: Run Public Unit & Integration Tests
+        run: |
+          pytest tests/ -v

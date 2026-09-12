@@ -1,0 +1,140 @@
+/* Custom styles for KeenGuard */
+.tab-btn {
+    color: #94a3b8;
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tab-btn:hover {
+    color: #f8fafc;
+    background-color: rgba(255, 255, 255, 0.06);
+}
+.tab-btn.active {
+    color: #ffffff;
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.18) 0%, rgba(99, 102, 241, 0.06) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    box-shadow: 0 2px 10px -2px rgba(99, 102, 241, 0.25);
+}
+
+/* Sidebar Layout and Smooth Collapse Transition */
+#app-sidebar {
+    width: 15rem; /* 240px */
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#app-sidebar.sidebar-collapsed {
+    width: 4.25rem !important; /* 68px */
+}
+
+/* Hide text labels, title, and badges when collapsed */
+#app-sidebar.sidebar-collapsed .sidebar-title,
+#app-sidebar.sidebar-collapsed .tab-label,
+#app-sidebar.sidebar-collapsed .tab-badge,
+#app-sidebar.sidebar-collapsed .sidebar-footer-text,
+#app-sidebar.sidebar-collapsed #security-count-badge,
+#app-sidebar.sidebar-collapsed #device-count-badge,
+#app-sidebar.sidebar-collapsed #smarthome-count-badge,
+#app-sidebar.sidebar-collapsed #lan-count-badge,
+#app-sidebar.sidebar-collapsed #packets-count-badge,
+#app-sidebar.sidebar-collapsed #alerts-count-badge,
+#app-sidebar.sidebar-collapsed #audits-active-badge,
+#app-sidebar.sidebar-collapsed #settings-submenu,
+#app-sidebar.sidebar-collapsed #settings-chevron {
+    display: none !important;
+}
+
+/* Center icons when collapsed */
+#app-sidebar.sidebar-collapsed .tab-btn {
+    justify-content: center !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+}
+
+#app-sidebar.sidebar-collapsed .sidebar-header-box {
+    justify-content: center !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+}
+
+#app-sidebar.sidebar-collapsed #sidebar-toggle-btn {
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Floating Tooltip in Collapsed Mode */
+#app-sidebar.sidebar-collapsed .tab-btn[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    z-index: 100;
+    border: 1px solid #334155;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+    animation: fadeInTooltip 0.15s ease-out forwards;
+}
+
+#app-sidebar.sidebar-collapsed .tab-btn[data-tooltip]:hover::before {
+    content: '';
+    position: absolute;
+    left: calc(100% + 4px);
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent #334155 transparent transparent;
+    z-index: 100;
+    pointer-events: none;
+    animation: fadeInTooltip 0.15s ease-out forwards;
+}
+
+@keyframes fadeInTooltip {
+    from {
+        opacity: 0;
+        transform: translateY(-50%) translateX(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+    }
+}
+
+/* Responsive sidebar for mobile */
+@media (max-width: 1023px) {
+    #app-sidebar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 40;
+        box-shadow: 10px 0 30px -5px rgba(0, 0, 0, 0.7);
+    }
+    #app-sidebar.sidebar-collapsed {
+        transform: translateX(-100%);
+        width: 15rem !important;
+    }
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+}

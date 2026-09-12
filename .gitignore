@@ -1,0 +1,44 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Database & PCAP Data
+data/
+*.pcap
+*.db
+*.sqlite
+*.sqlite3
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Scratch, Temporary & Internal Specs
+scratch/
+.agents/
+AGENTS.md
+NEXTDNS_INTEGRATION_PLAN.md
+PACKET_INSPECTOR_ARCH.md
+docs/ARCHITECTURE_EVENT_DRIVEN_MONITORING.md
+
+# Private Local Tests & Diagnostics
+private_tests/
+run_tests.bat
+
+# IDE & OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+.DS_Store
