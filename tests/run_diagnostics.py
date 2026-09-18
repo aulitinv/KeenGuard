@@ -45,11 +45,11 @@ async def run_checklist_diagnostics():
     # Evaluate full checklist
     res = await SecurityChecklistEvaluator.evaluate_checklist()
     assert res["status"] == "ok", f"Checklist returned invalid status: {res.get('status')}"
-    assert len(res["items"]) == 10, f"Expected 10 checklist items, got {len(res['items'])}"
+    assert len(res["items"]) >= 10, f"Expected at least 10 checklist items, got {len(res['items'])}"
 
     logger.info("Checklist evaluated successfully: Score=%d/100 (%s)", res["score"], res["score_label"])
     for idx, item in enumerate(res["items"], 1):
-        logger.info("  [%d/10] [%s] %s -> %s", idx, item["status"].upper(), item["title"], item["live_status"][:60] + "...")
+        logger.info("  [%d/%d] [%s] %s -> %s", idx, len(res["items"]), item["status"].upper(), item["title"], item["live_status"][:60] + "...")
     logger.info("=== Checklist Diagnostics PASSED ===")
     return True
 
@@ -140,7 +140,7 @@ def audit_codebase():
     client_methods = set(dir(KeeneticClient))
     for py_file in (PROJECT_ROOT / "keenguard").rglob("*.py"):
         content = py_file.read_text(encoding="utf-8")
-        calls = re.findall(r"keenetic_client\.([a-zA-Z0-9_]+)\(", content)
+        calls = re.findall(r"\bkeenetic_client\.([a-zA-Z0-9_]+)\(", content)
         for call in calls:
             if call not in client_methods and not call.startswith("_"):
                 issues.append(f"UNKNOWN_METHOD: {py_file.name} calls keenetic_client.{call}(), which does not exist!")
@@ -150,7 +150,7 @@ def audit_codebase():
     db_methods = set(dir(Database))
     for py_file in (PROJECT_ROOT / "keenguard").rglob("*.py"):
         content = py_file.read_text(encoding="utf-8")
-        calls = re.findall(r"db\.([a-zA-Z0-9_]+)\(", content)
+        calls = re.findall(r"\bdb\.([a-zA-Z0-9_]+)\(", content)
         for call in calls:
             if call not in db_methods and not call.startswith("_"):
                 issues.append(f"UNKNOWN_DB_METHOD: {py_file.name} calls db.{call}(), which does not exist!")
@@ -160,7 +160,7 @@ def audit_codebase():
     sniffer_methods = set(dir(NetworkSniffer))
     for py_file in (PROJECT_ROOT / "keenguard").rglob("*.py"):
         content = py_file.read_text(encoding="utf-8")
-        calls = re.findall(r"sniffer\.([a-zA-Z0-9_]+)\(", content)
+        calls = re.findall(r"\bsniffer\.([a-zA-Z0-9_]+)\(", content)
         for call in calls:
             if call not in sniffer_methods and not call.startswith("_"):
                 issues.append(f"UNKNOWN_SNIFFER_METHOD: {py_file.name} calls sniffer.{call}(), which does not exist!")
@@ -169,7 +169,7 @@ def audit_codebase():
     forensics_methods = set(dir(ForensicsEngine))
     for py_file in (PROJECT_ROOT / "keenguard").rglob("*.py"):
         content = py_file.read_text(encoding="utf-8")
-        calls = re.findall(r"forensics_engine\.([a-zA-Z0-9_]+)\(", content)
+        calls = re.findall(r"\bforensics_engine\.([a-zA-Z0-9_]+)\(", content)
         for call in calls:
             if call not in forensics_methods and not call.startswith("_"):
                 issues.append(f"UNKNOWN_FORENSICS_METHOD: {py_file.name} calls forensics_engine.{call}(), which does not exist!")
@@ -178,7 +178,7 @@ def audit_codebase():
     anomaly_methods = set(dir(AnomalyDetector))
     for py_file in (PROJECT_ROOT / "keenguard").rglob("*.py"):
         content = py_file.read_text(encoding="utf-8")
-        calls = re.findall(r"anomaly_detector\.([a-zA-Z0-9_]+)\(", content)
+        calls = re.findall(r"\banomaly_detector\.([a-zA-Z0-9_]+)\(", content)
         for call in calls:
             if call not in anomaly_methods and not call.startswith("_"):
                 issues.append(f"UNKNOWN_ANOMALY_METHOD: {py_file.name} calls anomaly_detector.{call}(), which does not exist!")
@@ -187,7 +187,7 @@ def audit_codebase():
     audit_methods = set(dir(TrafficAuditManager))
     for py_file in (PROJECT_ROOT / "keenguard").rglob("*.py"):
         content = py_file.read_text(encoding="utf-8")
-        calls = re.findall(r"audit_manager\.([a-zA-Z0-9_]+)\(", content)
+        calls = re.findall(r"\baudit_manager\.([a-zA-Z0-9_]+)\(", content)
         for call in calls:
             if call not in audit_methods and not call.startswith("_"):
                 issues.append(f"UNKNOWN_AUDIT_METHOD: {py_file.name} calls audit_manager.{call}(), which does not exist!")

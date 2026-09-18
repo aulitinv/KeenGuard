@@ -11,6 +11,45 @@ let deviceTrafficChart = null;
 let currentRouterInfo = null;
 
 // ==========================================
+// DOM Safe Guards & Fault-Tolerant Helpers
+// ==========================================
+function safeSetText(id, text) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.textContent = text !== null && text !== undefined ? text : '';
+        return true;
+    }
+    return false;
+}
+
+function safeSetHtml(id, html) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.innerHTML = html !== null && html !== undefined ? html : '';
+        return true;
+    }
+    return false;
+}
+
+function safeSetValue(id, val) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.value = val;
+        return true;
+    }
+    return false;
+}
+
+function safeToggleClass(id, className, condition) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.classList.toggle(className, Boolean(condition));
+        return true;
+    }
+    return false;
+}
+
+// ==========================================
 // Multi-Column Table Sorting System
 // ==========================================
 const tableSortState = {
@@ -977,27 +1016,24 @@ async function loadStatus() {
         }
 
         // WAN IP
-        const wanEl = document.getElementById('router-wan-ip');
-        if (wanEl) wanEl.textContent = data.router.wan_ip || '—';
+        safeSetText('router-wan-ip', data.router.wan_ip || '—');
 
         // KeeneticOS version
-        const osEl = document.getElementById('router-os-version');
-        if (osEl) osEl.textContent = data.router.version || '—';
+        const osVer = data.router.version || '—';
+        safeSetText('router-os-version', osVer);
+        safeSetText('router-card-version', osVer);
 
         // Live Sniffer Mode
-        const sniffEl = document.getElementById('sniffer-active-mode');
-        if (sniffEl) sniffEl.textContent = data.sniffer?.mode === 'active' ? 'ACTIVE (Pcap/Raw)' : 'INACTIVE';
+        safeSetText('sniffer-active-mode', data.sniffer?.mode === 'active' ? 'ACTIVE (Pcap/Raw)' : 'INACTIVE');
 
         // Memory usage
-        const memEl = document.getElementById('router-mem-usage');
-        if (memEl && data.router.memory) {
-            memEl.textContent = `${data.router.memory.used_mb} / ${data.router.memory.total_mb} МБ`;
+        if (data.router.memory) {
+            safeSetText('router-mem-usage', `${data.router.memory.used_mb} / ${data.router.memory.total_mb} МБ`);
         }
 
         // Active Devices Count
-        const devCountEl = document.getElementById('router-active-devices');
-        if (devCountEl && data.router.active_hosts !== undefined) {
-            devCountEl.textContent = data.router.active_hosts;
+        if (data.router.active_hosts !== undefined) {
+            safeSetText('router-active-devices', data.router.active_hosts);
         }
 
         // Night mode
@@ -3609,18 +3645,11 @@ async function loadDnsQueries() {
         allDnsQueries = await res.json();
         const sinkData = await sinkRes.json();
         activeDnsSinkholes = (sinkData && sinkData.sinkholes) || [];
-        const sinkCnt = document.getElementById('dns-active-sinkholes-count');
-        if (sinkCnt) sinkCnt.textContent = activeDnsSinkholes.length;
-
-        // Synchronize badges across subtabs
-        const subtabLogBadge = document.getElementById('dns-subtab-log-badge');
-        if (subtabLogBadge) subtabLogBadge.textContent = allDnsQueries.length;
-        const subtabFilterBadge = document.getElementById('dns-subtab-filter-badge');
-        if (subtabFilterBadge) subtabFilterBadge.textContent = activeDnsSinkholes.length;
-        const shortcutCount = document.getElementById('dns-log-shortcut-active-count');
-        if (shortcutCount) shortcutCount.textContent = activeDnsSinkholes.length;
-        const filterCount = document.getElementById('dns-filter-active-count');
-        if (filterCount) filterCount.textContent = activeDnsSinkholes.length;
+        safeSetText('dns-active-sinkholes-count', activeDnsSinkholes.length);
+        safeSetText('dns-subtab-log-badge', allDnsQueries.length);
+        safeSetText('dns-subtab-filter-badge', activeDnsSinkholes.length);
+        safeSetText('dns-log-shortcut-active-count', activeDnsSinkholes.length);
+        safeSetText('dns-filter-active-count', activeDnsSinkholes.length);
 
         updateDnsCategoryCounters(allDnsQueries);
         applyDnsFilterAndRender();

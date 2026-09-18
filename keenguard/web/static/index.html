@@ -319,6 +319,7 @@
                         <h3 class="font-semibold text-sm text-slate-200 flex items-center space-x-2">
                             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                             <span>Эфир широковещательного трафика (Zero-Traffic Sniffer)</span>
+                            <span id="sniffer-active-mode" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">L2 Broadcast</span>
                         </h3>
                         <div class="flex items-center space-x-2">
                             <div class="flex items-center bg-surface-950 p-0.5 rounded-lg border border-slate-800 text-[11px]" title="Формат отображения устройств в эфире">
@@ -402,6 +403,19 @@
                             <div class="flex justify-between py-1 border-b border-slate-800/60">
                                 <span class="text-slate-400">Текущая версия:</span>
                                 <span id="router-card-version" class="font-mono text-indigo-300">5.1.4</span>
+                                <span id="router-os-version" class="hidden">5.1.4</span>
+                            </div>
+                            <div class="flex justify-between py-1 border-b border-slate-800/60">
+                                <span class="text-slate-400">WAN IP:</span>
+                                <span id="router-wan-ip" class="font-mono text-slate-300">—</span>
+                            </div>
+                            <div class="flex justify-between py-1 border-b border-slate-800/60">
+                                <span class="text-slate-400">Память (ОЗУ):</span>
+                                <span id="router-mem-usage" class="font-mono text-slate-300">—</span>
+                            </div>
+                            <div class="flex justify-between py-1 border-b border-slate-800/60">
+                                <span class="text-slate-400">Активных устройств:</span>
+                                <span id="router-active-devices" class="font-bold text-emerald-400">—</span>
                             </div>
                             <div class="flex justify-between py-1 border-b border-slate-800/60">
                                 <span class="text-slate-400">Канал обновления:</span>
@@ -1733,6 +1747,7 @@
                             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                             <span class="text-slate-400">Активно правил:</span>
                             <span id="dns-filter-active-count" class="font-mono font-bold text-emerald-400">0</span>
+                            <span id="dns-active-sinkholes-count" class="hidden">0</span>
                         </div>
                         <button type="button" onclick="loadDnsFilterTab()" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Обновить список правил">
                             <i data-lucide="rotate-cw" class="w-4 h-4"></i>
