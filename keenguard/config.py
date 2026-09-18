@@ -44,6 +44,50 @@ def save_env_telegram_settings(token: str, chat_id: str, enabled: bool, api_url:
     except Exception as e:
         logger.warning("Failed to persist Telegram settings to .env: %s", e)
 
+def save_env_dns_provider_settings(
+    provider: str,
+    sync_interval: int = 60,
+    auto_sync: bool = False,
+    nextdns_api_key: Optional[str] = None,
+    nextdns_profile_id: Optional[str] = None,
+    controld_api_key: Optional[str] = None,
+    controld_device_id: Optional[str] = None,
+    adguard_url: Optional[str] = None,
+    adguard_username: Optional[str] = None,
+    adguard_password: Optional[str] = None,
+    pihole_url: Optional[str] = None,
+    pihole_api_token: Optional[str] = None,
+    pihole_password: Optional[str] = None,
+):
+    """Persists DNS security provider settings to .env."""
+    try:
+        ENV_FILE.touch(exist_ok=True)
+        set_key(str(ENV_FILE), "DNS_SECURITY_PROVIDER", provider or "none")
+        set_key(str(ENV_FILE), "DNS_SECURITY_SYNC_INTERVAL", str(sync_interval or 60))
+        set_key(str(ENV_FILE), "DNS_SECURITY_AUTO_SYNC", "true" if auto_sync else "false")
+        if nextdns_api_key is not None:
+            set_key(str(ENV_FILE), "NEXTDNS_API_KEY", nextdns_api_key)
+        if nextdns_profile_id is not None:
+            set_key(str(ENV_FILE), "NEXTDNS_PROFILE_ID", nextdns_profile_id)
+        if controld_api_key is not None:
+            set_key(str(ENV_FILE), "CONTROLD_API_KEY", controld_api_key)
+        if controld_device_id is not None:
+            set_key(str(ENV_FILE), "CONTROLD_DEVICE_ID", controld_device_id)
+        if adguard_url is not None:
+            set_key(str(ENV_FILE), "ADGUARD_URL", adguard_url)
+        if adguard_username is not None:
+            set_key(str(ENV_FILE), "ADGUARD_USERNAME", adguard_username)
+        if adguard_password is not None:
+            set_key(str(ENV_FILE), "ADGUARD_PASSWORD", adguard_password)
+        if pihole_url is not None:
+            set_key(str(ENV_FILE), "PIHOLE_URL", pihole_url)
+        if pihole_api_token is not None:
+            set_key(str(ENV_FILE), "PIHOLE_API_TOKEN", pihole_api_token)
+        if pihole_password is not None:
+            set_key(str(ENV_FILE), "PIHOLE_PASSWORD", pihole_password)
+    except Exception as e:
+        logger.warning("Failed to persist DNS provider settings to .env: %s", e)
+
 class Settings(BaseModel):
     # Web server configuration (User selected port 9989)
     web_host: str = Field(default="0.0.0.0", description="Web interface bind host")
@@ -129,6 +173,21 @@ class Settings(BaseModel):
     iot_payload_capture_enabled: bool = Field(default=True, description="Continuous capture of IoT payload data")
     iot_payload_max_storage_gb: float = Field(default=1.0, description="Max disk storage for IoT payloads in GB")
     iot_payload_retention_days: int = Field(default=7, description="Automatically delete IoT payload logs older than N days")
+
+    # External DNS security provider settings (NextDNS, Control D, AdGuard Home, Pi-hole)
+    dns_security_provider: str = Field(default=os.getenv("DNS_SECURITY_PROVIDER", "none"), description="'none', 'nextdns', 'controld', 'adguard_home', or 'pihole'")
+    dns_security_sync_interval: int = Field(default=int(os.getenv("DNS_SECURITY_SYNC_INTERVAL", "60")), description="Seconds between external DNS sync")
+    dns_security_auto_sync: bool = Field(default=os.getenv("DNS_SECURITY_AUTO_SYNC", "false").lower() in ("true", "1", "yes"))
+    nextdns_api_key: str = Field(default=os.getenv("NEXTDNS_API_KEY", ""))
+    nextdns_profile_id: str = Field(default=os.getenv("NEXTDNS_PROFILE_ID", ""))
+    controld_api_key: str = Field(default=os.getenv("CONTROLD_API_KEY", ""))
+    controld_device_id: str = Field(default=os.getenv("CONTROLD_DEVICE_ID", ""))
+    adguard_url: str = Field(default=os.getenv("ADGUARD_URL", ""))
+    adguard_username: str = Field(default=os.getenv("ADGUARD_USERNAME", ""))
+    adguard_password: str = Field(default=os.getenv("ADGUARD_PASSWORD", ""))
+    pihole_url: str = Field(default=os.getenv("PIHOLE_URL", ""))
+    pihole_api_token: str = Field(default=os.getenv("PIHOLE_API_TOKEN", ""))
+    pihole_password: str = Field(default=os.getenv("PIHOLE_PASSWORD", ""))
 
 settings = Settings()
 

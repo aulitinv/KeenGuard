@@ -588,18 +588,26 @@ class DomainAnalyzer:
         domain: str,
         ip: Optional[str] = None,
         is_blocked: Optional[bool] = None,
-        blocked_reason: Optional[str] = None
+        blocked_reason: Optional[str] = None,
+        blocked_by_provider: Optional[str] = None,
+        filter_list: Optional[str] = None,
+        tracker_category: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronously analyzes a domain using local signatures, custom overrides, and heuristics."""
         if is_blocked is None:
             is_blocked = self.is_sinkhole_ip(ip)
         if is_blocked and not blocked_reason:
-            blocked_reason = "Заблокирован DNS-фильтром (0.0.0.0)"
+            if blocked_by_provider:
+                blocked_reason = f"Заблокирован {blocked_by_provider} (0.0.0.0)"
+            else:
+                blocked_reason = "Заблокирован DNS-фильтром (0.0.0.0)"
 
         if not domain:
             return self._build_verdict(
                 "unknown", domain or "", ip=ip,
-                is_blocked=is_blocked, blocked_reason=blocked_reason
+                is_blocked=is_blocked, blocked_reason=blocked_reason,
+                blocked_by_provider=blocked_by_provider, filter_list=filter_list,
+                tracker_category=tracker_category,
             )
 
         clean_d = domain.lower().strip().strip(".")
@@ -616,7 +624,10 @@ class DomainAnalyzer:
                 ip=ip,
                 is_custom=True,
                 is_blocked=is_blocked,
-                blocked_reason=blocked_reason
+                blocked_reason=blocked_reason,
+                blocked_by_provider=blocked_by_provider,
+                filter_list=filter_list,
+                tracker_category=tracker_category,
             )
 
         # 2. Check dynamic database signatures (e.g. from online updates)
@@ -630,7 +641,10 @@ class DomainAnalyzer:
                 risk_level=sig.get("risk_level"),
                 ip=ip,
                 is_blocked=is_blocked,
-                blocked_reason=blocked_reason
+                blocked_reason=blocked_reason,
+                blocked_by_provider=blocked_by_provider,
+                filter_list=filter_list,
+                tracker_category=tracker_category,
             )
 
         # 3. Exact or suffix match against built-in curated catalog
@@ -643,7 +657,10 @@ class DomainAnalyzer:
                     risk_level=risk,
                     ip=ip,
                     is_blocked=is_blocked,
-                    blocked_reason=blocked_reason
+                    blocked_reason=blocked_reason,
+                    blocked_by_provider=blocked_by_provider,
+                    filter_list=filter_list,
+                    tracker_category=tracker_category,
                 )
 
         # 4. Heuristic token inspection on subdomains
@@ -656,7 +673,10 @@ class DomainAnalyzer:
                     risk_level=risk,
                     ip=ip,
                     is_blocked=is_blocked,
-                    blocked_reason=blocked_reason
+                    blocked_reason=blocked_reason,
+                    blocked_by_provider=blocked_by_provider,
+                    filter_list=filter_list,
+                    tracker_category=tracker_category,
                 )
 
         # 5. Fallback heuristics: IP or unknown
@@ -668,7 +688,10 @@ class DomainAnalyzer:
                 risk_level="warning",
                 ip=clean_d,
                 is_blocked=is_blocked,
-                blocked_reason=blocked_reason
+                blocked_reason=blocked_reason,
+                blocked_by_provider=blocked_by_provider,
+                filter_list=filter_list,
+                tracker_category=tracker_category,
             )
 
         # Default unknown
@@ -679,7 +702,10 @@ class DomainAnalyzer:
             risk_level="neutral",
             ip=ip,
             is_blocked=is_blocked,
-            blocked_reason=blocked_reason
+            blocked_reason=blocked_reason,
+            blocked_by_provider=blocked_by_provider,
+            filter_list=filter_list,
+            tracker_category=tracker_category,
         )
 
     def _build_verdict(
@@ -692,7 +718,10 @@ class DomainAnalyzer:
         ip: Optional[str] = None,
         is_custom: bool = False,
         is_blocked: bool = False,
-        blocked_reason: Optional[str] = None
+        blocked_reason: Optional[str] = None,
+        blocked_by_provider: Optional[str] = None,
+        filter_list: Optional[str] = None,
+        tracker_category: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Constructs a complete diagnostic verdict structure for the domain."""
         cat_meta = CATEGORIES.get(category_id, CATEGORIES["unknown"])
@@ -723,7 +752,19 @@ class DomainAnalyzer:
         # Keenetic security recommendation tip
         keenetic_tip = ""
         if is_blocked:
-            keenetic_tip = "Домен уже заблокирован и перенаправлен в 0.0.0.0 сетевым фильтром (NextDNS). Запросы от клиентов не выходят в интернет."
+            if blocked_by_provider:
+                provider_display_names = {
+                    "nextdns": "NextDNS",
+                    "controld": "Control D",
+                    "adguard_home": "AdGuard Home",
+                    "pihole": "Pi-hole",
+                    "keenetic_sinkhole": "Keenetic 0.0.0.0",
+                }
+                p_name = provider_display_names.get(blocked_by_provider, blocked_by_provider)
+                rule_info = f" ({filter_list})" if filter_list else ""
+                keenetic_tip = f"Запрос заблокирован провайдером безопасности {p_name}{rule_info}. Обращение к узлу перехвачено на DNS-уровне, пакеты не выходили в интернет."
+            else:
+                keenetic_tip = "Домен заблокирован и перенаправлен в 0.0.0.0 сетевым фильтром. Запросы от клиентов не выходят в интернет."
         elif actual_risk in ("ad", "telemetry"):
             keenetic_tip = "Для блокировки: перейдите в веб-интерфейс Keenetic -> 'Сетевые правила' -> 'Интернет-фильтр' и назначьте профиль AdGuard DNS / NextDNS, либо добавьте домен в чёрный список."
         elif actual_risk in ("danger", "warning"):
@@ -780,6 +821,9 @@ class DomainAnalyzer:
             "is_blocked": is_blocked,
             "blocked_badge": "🛡️ Заблокирован (0.0.0.0)" if is_blocked else "",
             "blocked_reason": blocked_reason or ("Заблокирован DNS-фильтром (0.0.0.0)" if is_blocked else ""),
+            "blocked_by_provider": blocked_by_provider,
+            "filter_list": filter_list,
+            "tracker_category": tracker_category,
             "external_links": {
                 "virustotal": vt_url,
                 "whois": whois_url,

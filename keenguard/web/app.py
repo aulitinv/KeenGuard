@@ -15,10 +15,11 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from keenguard.config import settings, save_env_router_credentials, save_env_telegram_settings
+from keenguard.config import settings, save_env_router_credentials, save_env_telegram_settings, save_env_dns_provider_settings
 from keenguard.db.database import db
 from keenguard.db.models import DeviceRecord, SecurityEvent, IotPayloadRecord, LanCommunicationRecord, LanPolicyPreset
 from keenguard.core.keenetic import keenetic_client, is_host_lan_isolated, is_unsafe_ip_for_blackhole
+from keenguard.core.dns_providers import dns_security_manager
 from keenguard.core.classifier import DeviceClassifier
 from keenguard.core.profiles import profile_manager, policy_manager, PROFILE_TEMPLATES
 from keenguard.core.forensics import forensics
@@ -741,7 +742,28 @@ async def lifespan(app: FastAPI):
         except Exception as ex:
             logger.error("Error executing audit auto-quarantine for %s: %s", mac, ex)
 
-    audit_manager.set_suspicious_callback(on_audit_suspicious_device)
+    # 11. Load DNS Security Provider settings from DB / sync with settings
+    saved_dns_prov = await db.get_setting("dns_security_provider")
+    if saved_dns_prov:
+        settings.dns_security_provider = saved_dns_prov
+    saved_dns_interval = await db.get_setting("dns_security_sync_interval")
+    if saved_dns_interval:
+        try:
+            settings.dns_security_sync_interval = int(saved_dns_interval)
+        except ValueError:
+            pass
+    saved_dns_auto = await db.get_setting("dns_security_auto_sync")
+    if saved_dns_auto is not None:
+        settings.dns_security_auto_sync = saved_dns_auto.lower() in ("true", "1")
+    for key in [
+        "nextdns_api_key", "nextdns_profile_id",
+        "controld_api_key", "controld_device_id",
+        "adguard_url", "adguard_username", "adguard_password",
+        "pihole_url", "pihole_api_token", "pihole_password"
+    ]:
+        val = await db.get_setting(key)
+        if val:
+            setattr(settings, key, val)
 
     # 8. Start services
     global _poller_running, _poller_task
@@ -755,12 +777,19 @@ async def lifespan(app: FastAPI):
     if settings.telegram_enabled and settings.telegram_bot_token and settings.telegram_chat_id:
         create_tracked_task(telegram_bot_worker.start())
 
+    # Initialize and start DNS security manager worker
+    dns_security_manager.set_ws_broadcast(ws_manager.broadcast)
+    dns_security_manager.reload_from_config()
+    if settings.dns_security_auto_sync and settings.dns_security_provider != "none":
+        dns_security_manager.start_background_sync(settings.dns_security_sync_interval)
+
     yield
 
     # Shutdown
     _poller_running = False
     if _poller_task and not _poller_task.done():
         _poller_task.cancel()
+    dns_security_manager.stop_background_sync()
     await telegram_bot_worker.stop()
     sniffer.stop()
     scheduler.stop()
@@ -2329,8 +2358,14 @@ async def get_dns_queries(limit: int = 100):
         q_ip = q.get("ip")
         resolved_sink = sinkhole_map.get(dom)
 
+        db_blocked = bool(q.get("is_blocked"))
+        db_provider = q.get("blocked_by_provider")
+        db_reason = q.get("blocked_reason")
+        db_filter = q.get("filter_list")
+        db_tracker = q.get("tracker_category")
+
         is_static_sinkhole = clean_dom in active_static_sinkholes
-        is_blocked = is_static_sinkhole or domain_analyzer.is_sinkhole_ip(q_ip) or domain_analyzer.is_sinkhole_ip(resolved_sink)
+        is_blocked = is_static_sinkhole or db_blocked or domain_analyzer.is_sinkhole_ip(q_ip) or domain_analyzer.is_sinkhole_ip(resolved_sink)
 
         devs = devices_by_domain.get(dom, [])
         if not devs and q.get("mac"):
@@ -2353,9 +2388,15 @@ async def get_dns_queries(limit: int = 100):
 
         if is_static_sinkhole:
             blocked_reason = "Заблокирован на Keenetic (0.0.0.0)"
+            effective_provider = "keenetic_sinkhole"
+        elif db_provider and is_blocked:
+            effective_provider = db_provider
+            blocked_reason = db_reason or f"Заблокирован {db_provider} (0.0.0.0)"
         elif is_blocked:
+            effective_provider = ""
             blocked_reason = "Заблокирован DNS-фильтром (0.0.0.0)"
         else:
+            effective_provider = ""
             blocked_reason = ""
 
         effective_ip = "0.0.0.0" if (is_blocked and not q_ip) else q_ip
@@ -2364,7 +2405,10 @@ async def get_dns_queries(limit: int = 100):
             dom,
             ip=effective_ip,
             is_blocked=is_blocked,
-            blocked_reason=blocked_reason
+            blocked_reason=blocked_reason,
+            blocked_by_provider=effective_provider,
+            filter_list=db_filter,
+            tracker_category=db_tracker,
         )
 
         item = dict(q)
@@ -2372,6 +2416,9 @@ async def get_dns_queries(limit: int = 100):
         item["is_blocked"] = is_blocked
         item["is_static_sinkhole"] = is_static_sinkhole
         item["blocked_reason"] = blocked_reason
+        item["blocked_by_provider"] = effective_provider
+        item["filter_list"] = db_filter
+        item["tracker_category"] = db_tracker
         item["analysis"] = analysis
         item["devices"] = devs
         enriched.append(item)
@@ -2729,6 +2776,285 @@ async def unblock_all_dns_sinkholes_api():
         "failed_count": len(failed),
         "domains": unblocked,
         "message": f"Разблокировано {len(unblocked)} доменов на Keenetic"
+    }
+
+
+# --- External DNS Security Providers Endpoints (NextDNS, Control D, AdGuard Home, Pi-hole) ---
+
+class DnsProviderConfigUpdate(BaseModel):
+    provider: Optional[str] = None
+    dns_security_provider: Optional[str] = None
+    sync_interval: Optional[int] = None
+    dns_security_sync_interval: Optional[int] = None
+    auto_sync: Optional[bool] = None
+    dns_security_auto_sync: Optional[bool] = None
+    nextdns_api_key: Optional[str] = None
+    nextdns_profile_id: Optional[str] = None
+    controld_api_key: Optional[str] = None
+    controld_device_id: Optional[str] = None
+    adguard_url: Optional[str] = None
+    adguard_username: Optional[str] = None
+    adguard_password: Optional[str] = None
+    pihole_url: Optional[str] = None
+    pihole_api_token: Optional[str] = None
+    pihole_password: Optional[str] = None
+
+class DnsProviderTestRequest(BaseModel):
+    provider: str
+    config_override: Optional[Dict[str, Any]] = None
+
+def _mask_secret(val: Optional[str]) -> str:
+    if not val:
+        return ""
+    if len(val) <= 4:
+        return "••••"
+    return "••••••••"
+
+@app.get("/api/dns/provider/config")
+async def get_dns_provider_config_api():
+    """Returns the current DNS security provider configuration with masked credentials."""
+    return {
+        "provider": getattr(settings, "dns_security_provider", "none") or "none",
+        "dns_security_provider": getattr(settings, "dns_security_provider", "none") or "none",
+        "sync_interval": getattr(settings, "dns_security_sync_interval", 60),
+        "dns_security_sync_interval": getattr(settings, "dns_security_sync_interval", 60),
+        "auto_sync": getattr(settings, "dns_security_auto_sync", False),
+        "dns_security_auto_sync": getattr(settings, "dns_security_auto_sync", False),
+        "nextdns_api_key": _mask_secret(getattr(settings, "nextdns_api_key", "")),
+        "nextdns_profile_id": getattr(settings, "nextdns_profile_id", "") or "",
+        "nextdns_api_key_set": bool(getattr(settings, "nextdns_api_key", "")),
+        "controld_api_key": _mask_secret(getattr(settings, "controld_api_key", "")),
+        "controld_device_id": getattr(settings, "controld_device_id", "") or "",
+        "controld_api_key_set": bool(getattr(settings, "controld_api_key", "")),
+        "adguard_url": getattr(settings, "adguard_url", "") or "",
+        "adguard_username": getattr(settings, "adguard_username", "") or "",
+        "adguard_password": _mask_secret(getattr(settings, "adguard_password", "")),
+        "adguard_password_set": bool(getattr(settings, "adguard_password", "")),
+        "pihole_url": getattr(settings, "pihole_url", "") or "",
+        "pihole_api_token": _mask_secret(getattr(settings, "pihole_api_token", "")),
+        "pihole_api_token_set": bool(getattr(settings, "pihole_api_token", "")),
+        "pihole_password": _mask_secret(getattr(settings, "pihole_password", "")),
+        "pihole_password_set": bool(getattr(settings, "pihole_password", "")),
+    }
+
+@app.post("/api/dns/provider/config")
+async def save_dns_provider_config_api(req: DnsProviderConfigUpdate):
+    """Saves DNS security provider configuration to settings, .env and SQLite."""
+    valid_providers = {"none", "nextdns", "controld", "adguard_home", "pihole"}
+    raw_prov = req.provider or req.dns_security_provider or settings.dns_security_provider
+    prov = (raw_prov or "none").strip().lower()
+    if prov not in valid_providers:
+        raise HTTPException(status_code=400, detail=f"Недопустимый провайдер: {raw_prov}. Допустимые: {', '.join(valid_providers)}")
+
+    settings.dns_security_provider = prov
+    sync_interval = req.sync_interval if req.sync_interval is not None else req.dns_security_sync_interval
+    if sync_interval is not None:
+        settings.dns_security_sync_interval = max(int(sync_interval), 15)
+    auto_sync = req.auto_sync if req.auto_sync is not None else req.dns_security_auto_sync
+    if auto_sync is not None:
+        settings.dns_security_auto_sync = bool(auto_sync)
+
+    def _is_new_secret(val: Optional[str]) -> bool:
+        return val is not None and val.strip() != "" and not val.strip().startswith("••")
+
+    if _is_new_secret(req.nextdns_api_key):
+        settings.nextdns_api_key = req.nextdns_api_key.strip()
+    if req.nextdns_profile_id is not None:
+        settings.nextdns_profile_id = req.nextdns_profile_id.strip()
+
+    if _is_new_secret(req.controld_api_key):
+        settings.controld_api_key = req.controld_api_key.strip()
+    if req.controld_device_id is not None:
+        settings.controld_device_id = req.controld_device_id.strip()
+
+    if req.adguard_url is not None:
+        settings.adguard_url = req.adguard_url.strip().rstrip("/")
+    if req.adguard_username is not None:
+        settings.adguard_username = req.adguard_username.strip()
+    if _is_new_secret(req.adguard_password):
+        settings.adguard_password = req.adguard_password.strip()
+
+    if req.pihole_url is not None:
+        settings.pihole_url = req.pihole_url.strip().rstrip("/")
+    if _is_new_secret(req.pihole_api_token):
+        settings.pihole_api_token = req.pihole_api_token.strip()
+    if _is_new_secret(req.pihole_password):
+        settings.pihole_password = req.pihole_password.strip()
+
+    # Save to SQLite app_settings
+    await db.save_setting("dns_security_provider", settings.dns_security_provider)
+    await db.save_setting("dns_security_sync_interval", str(settings.dns_security_sync_interval))
+    await db.save_setting("dns_security_auto_sync", "true" if settings.dns_security_auto_sync else "false")
+    await db.save_setting("nextdns_api_key", settings.nextdns_api_key)
+    await db.save_setting("nextdns_profile_id", settings.nextdns_profile_id)
+    await db.save_setting("controld_api_key", settings.controld_api_key)
+    await db.save_setting("controld_device_id", settings.controld_device_id)
+    await db.save_setting("adguard_url", settings.adguard_url)
+    await db.save_setting("adguard_username", settings.adguard_username)
+    await db.save_setting("adguard_password", settings.adguard_password)
+    await db.save_setting("pihole_url", settings.pihole_url)
+    await db.save_setting("pihole_api_token", settings.pihole_api_token)
+    await db.save_setting("pihole_password", settings.pihole_password)
+
+    # Persist to .env
+    save_env_dns_provider_settings(
+        provider=settings.dns_security_provider,
+        sync_interval=settings.dns_security_sync_interval,
+        auto_sync=settings.dns_security_auto_sync,
+        nextdns_api_key=settings.nextdns_api_key,
+        nextdns_profile_id=settings.nextdns_profile_id,
+        controld_api_key=settings.controld_api_key,
+        controld_device_id=settings.controld_device_id,
+        adguard_url=settings.adguard_url,
+        adguard_username=settings.adguard_username,
+        adguard_password=settings.adguard_password,
+        pihole_url=settings.pihole_url,
+        pihole_api_token=settings.pihole_api_token,
+        pihole_password=settings.pihole_password,
+    )
+
+    # Reload manager and restart background worker if necessary
+    dns_security_manager.reload_from_config()
+    if settings.dns_security_auto_sync and settings.dns_security_provider != "none":
+        dns_security_manager.start_background_sync(settings.dns_security_sync_interval)
+    else:
+        dns_security_manager.stop_background_sync()
+
+    await ws_manager.broadcast({
+        "type": "dns_provider_config_saved",
+        "provider": settings.dns_security_provider,
+        "auto_sync": settings.dns_security_auto_sync,
+    })
+
+    return {
+        "status": "ok",
+        "provider": settings.dns_security_provider,
+        "message": f"Настройки провайдера '{settings.dns_security_provider}' сохранены"
+    }
+
+@app.post("/api/dns/provider/test")
+async def test_dns_provider_api(req: DnsProviderTestRequest):
+    """Tests connection to a specified DNS security provider."""
+    cfg = dict(req.config_override or {})
+    if cfg.get("nextdns_api_key", "").startswith("••"):
+        cfg["nextdns_api_key"] = settings.nextdns_api_key
+    if cfg.get("controld_api_key", "").startswith("••"):
+        cfg["controld_api_key"] = settings.controld_api_key
+    if cfg.get("adguard_password", "").startswith("••"):
+        cfg["adguard_password"] = settings.adguard_password
+    if cfg.get("pihole_api_token", "").startswith("••"):
+        cfg["pihole_api_token"] = settings.pihole_api_token
+
+    status = await dns_security_manager.test_provider(req.provider, config_override=cfg if cfg else None)
+    return {
+        "ok": status.is_connected,
+        "is_connected": status.is_connected,
+        "provider_name": status.provider_name,
+        "profile_or_version": status.profile_or_version,
+        "active_filters_count": status.active_filters_count,
+        "error_message": status.error_message,
+        "message": f"Подключено к {status.provider_name}: {status.profile_or_version}" if status.is_connected else (status.error_message or "Ошибка связи"),
+        "error": status.error_message if not status.is_connected else None,
+    }
+
+@app.post("/api/dns/provider/sync")
+async def sync_dns_provider_now_api():
+    """Triggers an immediate synchronization of blocked queries from the active provider."""
+    res = await dns_security_manager.sync_blocked_logs()
+    return {
+        "ok": res.get("success", False),
+        "synced": res.get("count", 0),
+        **res
+    }
+
+@app.get("/api/dns/provider/status")
+async def get_dns_provider_status_api():
+    """Returns active DNS security provider state, last sync metadata, and connection info."""
+    active_prov = dns_security_manager.active_provider_id
+    meta = await db.get_dns_provider_sync_meta(active_prov) if active_prov != "none" else None
+    provider_obj = dns_security_manager.get_active_provider()
+
+    return {
+        "provider": active_prov,
+        "active_provider": active_prov,
+        "display_name": provider_obj.display_name if provider_obj else "Отключено",
+        "is_cloud": provider_obj.is_cloud if provider_obj else False,
+        "auto_sync": getattr(settings, "dns_security_auto_sync", False),
+        "sync_interval": getattr(settings, "dns_security_sync_interval", 60),
+        "last_sync": meta.get("last_sync_time") if meta else None,
+        "last_sync_time": meta.get("last_sync_time") if meta else None,
+        "total_blocked_queries_synced": meta.get("total_blocked_synced", 0) if meta else 0,
+        "total_blocked_synced": meta.get("total_blocked_synced", 0) if meta else 0,
+        "status": meta.get("last_status") if meta else "idle",
+        "last_status": meta.get("last_status") if meta else "idle",
+        "last_error": meta.get("last_error") if meta else None,
+    }
+
+@app.get("/api/dns/provider/helpers")
+async def get_dns_provider_helpers_api():
+    """
+    Returns actionable network assistance and remediation guides for the user
+    addressing DoH/DoT hardcoded bypass, in-stream video ads, and device attribution.
+    """
+    return {
+        "doh_dot_bypass": {
+            "title": "Защита от DoH/DoT обхода на Smart TV и смартфонах",
+            "problem": "Некоторые устройства (китайские ТВ-приставки, телевизоры, Chromecast) имеют жестко прошитые DNS-серверы (8.8.8.8) или напрямую отправляют шифрованный DoH/DoT трафик в обход DNS роутера.",
+            "solutions": [
+                {
+                    "step": 1,
+                    "title": "Перенаправление стандартного DNS (порт 53)",
+                    "description": "В веб-интерфейсе Keenetic перейдите в «Сетевые правила» → «Переадресация портов» и создайте правило перенаправления входящих пакетов UDP/TCP 53 на локальный DNS-прокси роутера.",
+                    "cli_cmd": "ip static tcp 53 192.168.1.1 53 !WAN\nip static udp 53 192.168.1.1 53 !WAN"
+                },
+                {
+                    "step": 2,
+                    "title": "Аппаратная блокировка DoT (порт 853 TCP)",
+                    "description": "Устройства не смогут использовать шифрованный DNS-over-TLS и принудительно переключатся на стандартный фильтруемый DNS роутера.",
+                    "cli_cmd": "ip firewall rule deny tcp * * 853"
+                },
+                {
+                    "step": 3,
+                    "title": "Включение NextDNS / Control D в профиле Keenetic",
+                    "description": "Настройте DoH-профиль в меню «Сетевые правила» → «Интернет-фильтр» KeeneticOS, чтобы все исходящие запросы шли в ваш профиль с шифрованием."
+                }
+            ]
+        },
+        "streaming_ads": {
+            "title": "Ограничения DNS: реклама внутри видео (YouTube / RuTube)",
+            "problem": "Встроенная реклама в видеороликах раздается с тех же самых CDN-серверов, что и сам видеопоток (например, *.googlevideo.com).",
+            "technical_realism": "Блокировка таких доменов по DNS физически невозможна без полной остановки воспроизведения видео.",
+            "recommended_tools": [
+                {
+                    "platform": "Android TV / Google TV / Приставки",
+                    "tool": "SmartTube (бесплатный open-source клиент с вырезкой рекламы и SponsorBlock)",
+                    "link": "https://smarttubeapp.github.io/"
+                },
+                {
+                    "platform": "Браузеры (Chrome, Firefox, Safari)",
+                    "tool": "uBlock Origin (блокировка на уровне DOM и HTTP-запросов страницы)",
+                    "link": "https://ublockorigin.com/"
+                }
+            ]
+        },
+        "device_attribution": {
+            "title": "Идентификация устройств в облачных сервисах (NextDNS / Control D)",
+            "problem": "Облачные провайдеры по умолчанию видят только ваш внешний WAN IP-адрес провайдера и объединяют все устройства дома в один поток.",
+            "solutions": [
+                {
+                    "provider": "NextDNS",
+                    "instruction": "В DoH-ссылке профиля Keenetic укажите имя роутера или используйте CLI NextDNS: https://dns.nextdns.io/{profile_id}/{deviceName}. Имя устройства автоматически сопоставится с базой KeenGuard."
+                },
+                {
+                    "provider": "Control D",
+                    "instruction": "Создайте отдельные устройства (Devices) в панели Control D и используйте уникальный Resolver ID для каждой политики или группы."
+                },
+                {
+                    "provider": "AdGuard Home / Pi-hole",
+                    "instruction": "При установке в локальной сети (LAN) идентификация происходит автоматически по реальному внутреннему IP-адресу клиента."
+                }
+            ]
+        }
     }
 
 

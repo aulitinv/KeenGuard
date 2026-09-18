@@ -242,7 +242,12 @@ class Database:
                     ip TEXT,
                     count INTEGER DEFAULT 1,
                     first_seen TEXT,
-                    last_seen TEXT
+                    last_seen TEXT,
+                    is_blocked INTEGER DEFAULT 0,
+                    blocked_by_provider TEXT,
+                    blocked_reason TEXT,
+                    filter_list TEXT,
+                    tracker_category TEXT
                 )
             """)
 
@@ -254,7 +259,40 @@ class Database:
                     count INTEGER DEFAULT 1,
                     first_seen TEXT,
                     last_seen TEXT,
+                    is_blocked INTEGER DEFAULT 0,
+                    blocked_by_provider TEXT,
+                    blocked_reason TEXT,
+                    filter_list TEXT,
+                    tracker_category TEXT,
                     PRIMARY KEY (domain, mac)
+                )
+            """)
+
+            # Migrations for DNS security columns
+            for col_def in [
+                "is_blocked INTEGER DEFAULT 0",
+                "blocked_by_provider TEXT",
+                "blocked_reason TEXT",
+                "filter_list TEXT",
+                "tracker_category TEXT",
+            ]:
+                try:
+                    await conn.execute(f"ALTER TABLE dns_queries ADD COLUMN {col_def}")
+                except Exception:
+                    pass
+                try:
+                    await conn.execute(f"ALTER TABLE dns_device_queries ADD COLUMN {col_def}")
+                except Exception:
+                    pass
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS dns_provider_sync_meta (
+                    provider TEXT PRIMARY KEY,
+                    last_sync_time TEXT,
+                    last_record_timestamp TEXT,
+                    total_blocked_synced INTEGER DEFAULT 0,
+                    last_status TEXT,
+                    last_error TEXT
                 )
             """)
 
@@ -871,11 +909,108 @@ class Database:
 
             await conn.commit()
 
+    async def record_blocked_dns_query(
+        self,
+        domain: str,
+        client_ip: Optional[str] = None,
+        mac: Optional[str] = None,
+        timestamp: Optional[str] = None,
+        provider: str = "",
+        block_reason: str = "",
+        filter_list: Optional[str] = None,
+        tracker_category: Optional[str] = None,
+    ):
+        """Records or updates a blocked DNS query from an external security provider."""
+        if not domain:
+            return
+        clean_domain = domain.lower().strip(".")
+        now_ts = timestamp or datetime.now(timezone.utc).isoformat()
+        mac_clean = mac.upper().strip() if mac else None
+
+        async with aiosqlite.connect(self.db_path) as conn:
+            # 1. Update or insert global domain entry
+            await conn.execute("""
+                INSERT INTO dns_queries (
+                    domain, mac, ip, count, first_seen, last_seen,
+                    is_blocked, blocked_by_provider, blocked_reason, filter_list, tracker_category
+                )
+                VALUES (?, ?, ?, 1, ?, ?, 1, ?, ?, ?, ?)
+                ON CONFLICT(domain) DO UPDATE SET
+                    count = count + 1,
+                    last_seen = excluded.last_seen,
+                    mac = COALESCE(excluded.mac, dns_queries.mac),
+                    ip = COALESCE(excluded.ip, dns_queries.ip),
+                    is_blocked = 1,
+                    blocked_by_provider = COALESCE(excluded.blocked_by_provider, dns_queries.blocked_by_provider),
+                    blocked_reason = COALESCE(excluded.blocked_reason, dns_queries.blocked_reason),
+                    filter_list = COALESCE(excluded.filter_list, dns_queries.filter_list),
+                    tracker_category = COALESCE(excluded.tracker_category, dns_queries.tracker_category)
+            """, (clean_domain, mac_clean, client_ip, now_ts, now_ts, provider, block_reason, filter_list, tracker_category))
+
+            # 2. Update or insert device-specific tracking if mac is known
+            if mac_clean:
+                await conn.execute("""
+                    INSERT INTO dns_device_queries (
+                        domain, mac, ip, count, first_seen, last_seen,
+                        is_blocked, blocked_by_provider, blocked_reason, filter_list, tracker_category
+                    )
+                    VALUES (?, ?, ?, 1, ?, ?, 1, ?, ?, ?, ?)
+                    ON CONFLICT(domain, mac) DO UPDATE SET
+                        count = count + 1,
+                        last_seen = excluded.last_seen,
+                        ip = COALESCE(excluded.ip, dns_device_queries.ip),
+                        is_blocked = 1,
+                        blocked_by_provider = COALESCE(excluded.blocked_by_provider, dns_device_queries.blocked_by_provider),
+                        blocked_reason = COALESCE(excluded.blocked_reason, dns_device_queries.blocked_reason),
+                        filter_list = COALESCE(excluded.filter_list, dns_device_queries.filter_list),
+                        tracker_category = COALESCE(excluded.tracker_category, dns_device_queries.tracker_category)
+                """, (clean_domain, mac_clean, client_ip, now_ts, now_ts, provider, block_reason, filter_list, tracker_category))
+
+            await conn.commit()
+
+    async def get_dns_provider_sync_meta(self, provider: str) -> Optional[Dict[str, Any]]:
+        """Retrieves synchronization metadata for a DNS security provider."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute("""
+                SELECT provider, last_sync_time, last_record_timestamp, total_blocked_synced, last_status, last_error
+                FROM dns_provider_sync_meta
+                WHERE provider = ?
+            """, (provider,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def update_dns_provider_sync_meta(
+        self,
+        provider: str,
+        last_sync_time: str,
+        last_record_timestamp: str,
+        total_synced: int,
+        last_status: str,
+        last_error: Optional[str] = None,
+    ):
+        """Updates or inserts synchronization metadata for a DNS security provider."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("""
+                INSERT INTO dns_provider_sync_meta (
+                    provider, last_sync_time, last_record_timestamp, total_blocked_synced, last_status, last_error
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(provider) DO UPDATE SET
+                    last_sync_time = excluded.last_sync_time,
+                    last_record_timestamp = excluded.last_record_timestamp,
+                    total_blocked_synced = excluded.total_blocked_synced,
+                    last_status = excluded.last_status,
+                    last_error = excluded.last_error
+            """, (provider, last_sync_time, last_record_timestamp, total_synced, last_status, last_error))
+            await conn.commit()
+
     async def get_top_dns_queries(self, limit: int = 50) -> List[Dict[str, Any]]:
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("""
-                SELECT domain, mac, ip, count, first_seen, last_seen
+                SELECT domain, mac, ip, count, first_seen, last_seen,
+                       is_blocked, blocked_by_provider, blocked_reason, filter_list, tracker_category
                 FROM dns_queries
                 ORDER BY count DESC, last_seen DESC LIMIT ?
             """, (limit,))
@@ -889,6 +1024,7 @@ class Database:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("""
                 SELECT dq.mac, dq.ip, dq.count, dq.first_seen, dq.last_seen,
+                       dq.is_blocked, dq.blocked_by_provider, dq.blocked_reason, dq.filter_list,
                        d.hostname, d.custom_name, d.profile, d.vendor
                 FROM dns_device_queries dq
                 LEFT JOIN devices d ON dq.mac = d.mac
@@ -907,6 +1043,7 @@ class Database:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute(f"""
                 SELECT dq.domain, dq.mac, dq.ip, dq.count, dq.last_seen,
+                       dq.is_blocked, dq.blocked_by_provider, dq.blocked_reason, dq.filter_list,
                        d.hostname, d.custom_name, d.profile, d.vendor
                 FROM dns_device_queries dq
                 LEFT JOIN devices d ON dq.mac = d.mac

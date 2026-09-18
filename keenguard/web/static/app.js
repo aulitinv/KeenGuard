@@ -237,9 +237,10 @@ function connectWebSocket() {
                 if (activeTab === 'audits') loadAuditReports();
             } else if (data.type === 'sniffer_event') {
                 appendSnifferFeed(data.event);
-            } else if (data.type === 'dns_sinkhole_updated' || data.type === 'dns_preset_applied' || data.type === 'dns_all_unblocked') {
+            } else if (data.type === 'dns_sinkhole_updated' || data.type === 'dns_preset_applied' || data.type === 'dns_all_unblocked' || data.type === 'dns_provider_synced') {
                 if (activeTab === 'tv_forensics') loadTvBrandPresets();
                 if (activeTab === 'dns' && typeof loadDnsQueries === 'function') loadDnsQueries();
+                if (typeof loadDnsProviderStatus === 'function') loadDnsProviderStatus();
             }
         } catch (e) {
             console.error('WS parse error', e);
@@ -2960,7 +2961,7 @@ async function navigateToSettingsSubTab(subtabId) {
 window.navigateToSettingsSubTab = navigateToSettingsSubTab;
 
 function switchSettingsSubTab(subtabId) {
-    const tabs = ['router', 'new-devices', 'cameras', 'telegram', 'tv-night', 'schedules', 'storage', 'presets'];
+    const tabs = ['router', 'new-devices', 'cameras', 'telegram', 'tv-night', 'schedules', 'storage', 'presets', 'dns-security'];
     if (!tabs.includes(subtabId)) subtabId = 'router';
 
     const subtabMeta = {
@@ -2972,6 +2973,7 @@ function switchSettingsSubTab(subtabId) {
         'schedules': { title: 'Расписание & Дайджест', desc: 'Ежедневный отчет безопасности и автоматический ночной экспресс-аудит' },
         'storage': { title: 'Хранилище & PCAP', desc: 'Управление дампом полезной нагрузки IoT и лимитами диска' },
         'presets': { title: 'Пресеты LAN', desc: 'Профили изоляции и надзора для устройств локальной сети' },
+        'dns-security': { title: 'DNS-безопасность', desc: 'Интеграция с NextDNS, Control D, AdGuard Home и Pi-hole, синхронизация заблокированных запросов' },
     };
 
     tabs.forEach(id => {
@@ -2994,6 +2996,11 @@ function switchSettingsSubTab(subtabId) {
     if (titleEl && subtabMeta[subtabId]) titleEl.textContent = subtabMeta[subtabId].title;
     const descEl = document.getElementById('settings-current-subtab-desc');
     if (descEl && subtabMeta[subtabId]) descEl.textContent = subtabMeta[subtabId].desc;
+
+    if (subtabId === 'dns-security') {
+        loadDnsProviderConfig();
+        loadDnsProviderStatus();
+    }
 
     try {
         localStorage.setItem('keenguard_settings_subtab', subtabId);
@@ -3133,6 +3140,9 @@ async function loadSettings() {
 
         // IoT and PCAP storage settings
         await loadIotStorageSettings();
+
+        // DNS Security provider settings
+        await loadDnsProviderConfig();
 
         // Restore active sub-tab (or default to 'router')
         try {
@@ -3604,6 +3614,324 @@ async function testKeeneticConnection() {
         alert(`Ошибка связи с сервером: ${e}`);
     }
 }
+
+// ==========================================
+// DNS Security Provider Management
+// ==========================================
+let currentSelectedDnsProvider = 'none';
+let currentLoadedDnsConfig = null;
+
+function selectDnsProviderCard(providerId) {
+    currentSelectedDnsProvider = providerId || 'none';
+    const providers = ['none', 'nextdns', 'controld', 'adguard_home', 'pihole'];
+
+    providers.forEach(p => {
+        const card = document.getElementById(`card-dns-prov-${p}`);
+        if (card) {
+            if (p === currentSelectedDnsProvider) {
+                card.className = 'dns-prov-card p-3.5 rounded-xl border-2 border-indigo-500 bg-indigo-500/10 text-left transition cursor-pointer shadow-sm';
+            } else {
+                card.className = 'dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer';
+            }
+        }
+        const fields = document.getElementById(`dns-fields-${p}`);
+        if (fields) {
+            fields.classList.toggle('hidden', p !== currentSelectedDnsProvider || p === 'none');
+        }
+    });
+
+    const statusBadge = document.getElementById('dns-provider-status-badge');
+    if (statusBadge) {
+        if (currentSelectedDnsProvider === 'none') {
+            statusBadge.textContent = 'Отключено';
+            statusBadge.className = 'px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700';
+        } else {
+            const names = {
+                'nextdns': 'NextDNS',
+                'controld': 'Control D',
+                'adguard_home': 'AdGuard Home',
+                'pihole': 'Pi-hole'
+            };
+            statusBadge.textContent = `${names[currentSelectedDnsProvider] || currentSelectedDnsProvider} (Выбран)`;
+            statusBadge.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+        }
+    }
+}
+window.selectDnsProviderCard = selectDnsProviderCard;
+
+async function loadDnsProviderConfig() {
+    try {
+        const res = await fetch('/api/dns/provider/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        currentLoadedDnsConfig = cfg;
+
+        selectDnsProviderCard(cfg.dns_security_provider || 'none');
+
+        // NextDNS
+        const nextProfile = document.getElementById('cfg-nextdns-profile-id');
+        if (nextProfile) nextProfile.value = cfg.nextdns_profile_id || '';
+        const nextKeySaved = document.getElementById('cfg-nextdns-key-saved');
+        if (nextKeySaved) {
+            nextKeySaved.classList.toggle('hidden', !cfg.nextdns_api_key || cfg.nextdns_api_key === '');
+        }
+
+        // Control D
+        const cdDevice = document.getElementById('cfg-controld-device-id');
+        if (cdDevice) cdDevice.value = cfg.controld_device_id || '';
+        const cdKeySaved = document.getElementById('cfg-controld-key-saved');
+        if (cdKeySaved) {
+            cdKeySaved.classList.toggle('hidden', !cfg.controld_api_key || cfg.controld_api_key === '');
+        }
+
+        // AdGuard Home
+        const adgUrl = document.getElementById('cfg-adguard-url');
+        if (adgUrl) adgUrl.value = cfg.adguard_url || '';
+        const adgUser = document.getElementById('cfg-adguard-username');
+        if (adgUser) adgUser.value = cfg.adguard_username || '';
+        const adgPassSaved = document.getElementById('cfg-adguard-pass-saved');
+        if (adgPassSaved) {
+            adgPassSaved.classList.toggle('hidden', !cfg.adguard_password || cfg.adguard_password === '');
+        }
+
+        // Pi-hole
+        const piUrl = document.getElementById('cfg-pihole-url');
+        if (piUrl) piUrl.value = cfg.pihole_url || '';
+        const piTokenSaved = document.getElementById('cfg-pihole-token-saved');
+        if (piTokenSaved) {
+            piTokenSaved.classList.toggle('hidden', !cfg.pihole_api_token || cfg.pihole_api_token === '');
+        }
+
+        // Auto-sync & interval
+        const autoSyncEl = document.getElementById('cfg-dns-auto-sync');
+        if (autoSyncEl) autoSyncEl.checked = Boolean(cfg.dns_security_auto_sync);
+        const intervalEl = document.getElementById('cfg-dns-sync-interval');
+        if (intervalEl && cfg.dns_security_sync_interval) {
+            intervalEl.value = String(cfg.dns_security_sync_interval);
+        }
+
+        await loadDnsProviderStatus();
+    } catch (e) {
+        console.error('Error loading DNS provider config', e);
+    }
+}
+window.loadDnsProviderConfig = loadDnsProviderConfig;
+
+async function loadDnsProviderStatus() {
+    try {
+        const res = await fetch('/api/dns/provider/status');
+        if (!res.ok) return;
+        const s = await res.json();
+
+        const dot = document.getElementById('dns-provider-sync-dot');
+        const statusText = document.getElementById('dns-provider-sync-status-text');
+        const lastSyncTime = document.getElementById('dns-provider-last-sync-time');
+        const totalCount = document.getElementById('dns-provider-total-synced-count');
+
+        if (totalCount) {
+            totalCount.textContent = s.total_blocked_queries_synced || 0;
+        }
+
+        if (lastSyncTime) {
+            lastSyncTime.textContent = s.last_sync ? formatHumanFullDateTime(s.last_sync) : 'Никогда';
+        }
+
+        if (statusText && dot) {
+            if (s.provider === 'none' || !s.provider) {
+                statusText.textContent = 'Отключено';
+                statusText.className = 'text-slate-400 font-semibold';
+                dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+            } else if (s.status === 'syncing') {
+                statusText.textContent = `Синхронизация (${s.provider})...`;
+                statusText.className = 'text-amber-400 font-semibold animate-pulse';
+                dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+            } else if (s.status === 'error') {
+                statusText.textContent = `Ошибка (${s.last_error || 'сбой'})`;
+                statusText.className = 'text-rose-400 font-semibold';
+                dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+            } else {
+                statusText.textContent = `Активен (${s.provider})`;
+                statusText.className = 'text-emerald-400 font-semibold';
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+            }
+        }
+    } catch (e) {
+        console.error('Error loading DNS provider status', e);
+    }
+}
+window.loadDnsProviderStatus = loadDnsProviderStatus;
+
+async function saveDnsProviderConfig() {
+    const btn = document.getElementById('btn-save-dns-provider-config');
+    if (btn) btn.disabled = true;
+
+    try {
+        const provider = currentSelectedDnsProvider || 'none';
+        const autoSync = Boolean(document.getElementById('cfg-dns-auto-sync')?.checked);
+        const syncInterval = parseInt(document.getElementById('cfg-dns-sync-interval')?.value || '60', 10);
+
+        const payload = {
+            dns_security_provider: provider,
+            dns_security_auto_sync: autoSync,
+            dns_security_sync_interval: syncInterval
+        };
+
+        const nextKeyVal = document.getElementById('cfg-nextdns-api-key')?.value?.trim();
+        if (nextKeyVal) payload.nextdns_api_key = nextKeyVal;
+        payload.nextdns_profile_id = document.getElementById('cfg-nextdns-profile-id')?.value?.trim() || '';
+
+        const cdKeyVal = document.getElementById('cfg-controld-api-key')?.value?.trim();
+        if (cdKeyVal) payload.controld_api_key = cdKeyVal;
+        payload.controld_device_id = document.getElementById('cfg-controld-device-id')?.value?.trim() || '';
+
+        const adgPassVal = document.getElementById('cfg-adguard-password')?.value;
+        if (adgPassVal && adgPassVal.trim()) payload.adguard_password = adgPassVal.trim();
+        payload.adguard_url = document.getElementById('cfg-adguard-url')?.value?.trim() || '';
+        payload.adguard_username = document.getElementById('cfg-adguard-username')?.value?.trim() || '';
+
+        const piTokenVal = document.getElementById('cfg-pihole-api-token')?.value?.trim();
+        if (piTokenVal) payload.pihole_api_token = piTokenVal;
+        payload.pihole_url = document.getElementById('cfg-pihole-url')?.value?.trim() || '';
+
+        const res = await fetch('/api/dns/provider/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            showToast('Настройки DNS-безопасности успешно сохранены');
+            // Clear secret inputs so they don't linger in DOM
+            ['cfg-nextdns-api-key', 'cfg-controld-api-key', 'cfg-adguard-password', 'cfg-pihole-api-token'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            await loadDnsProviderConfig();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(`Ошибка сохранения: ${err.detail || res.statusText}`, true);
+        }
+    } catch (e) {
+        showToast(`Ошибка сети: ${e.message}`, true);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+window.saveDnsProviderConfig = saveDnsProviderConfig;
+
+async function testDnsProviderConnection() {
+    const btn = document.getElementById('btn-test-dns-provider');
+    const resultBox = document.getElementById('dns-provider-test-result');
+
+    if (btn) btn.disabled = true;
+    if (resultBox) {
+        resultBox.classList.remove('hidden', 'bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-300', 'bg-rose-500/10', 'border-rose-500/30', 'text-rose-300');
+        resultBox.className = 'p-3.5 rounded-xl text-xs border bg-indigo-500/10 border-indigo-500/30 text-indigo-300 flex items-center space-x-2';
+        resultBox.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-indigo-400 shrink-0"></i><span>Выполняется запрос к API провайдера...</span>';
+        if (window.lucide) lucide.createIcons();
+    }
+
+    try {
+        const provider = currentSelectedDnsProvider || 'none';
+        const overrides = {
+            provider: provider
+        };
+
+        if (provider === 'nextdns') {
+            overrides.profile_id = document.getElementById('cfg-nextdns-profile-id')?.value?.trim();
+            const k = document.getElementById('cfg-nextdns-api-key')?.value?.trim();
+            if (k) overrides.api_key = k;
+        } else if (provider === 'controld') {
+            const k = document.getElementById('cfg-controld-api-key')?.value?.trim();
+            if (k) overrides.api_key = k;
+            overrides.device_id = document.getElementById('cfg-controld-device-id')?.value?.trim();
+        } else if (provider === 'adguard_home') {
+            overrides.url = document.getElementById('cfg-adguard-url')?.value?.trim();
+            overrides.username = document.getElementById('cfg-adguard-username')?.value?.trim();
+            const p = document.getElementById('cfg-adguard-password')?.value;
+            if (p && p.trim()) overrides.password = p.trim();
+        } else if (provider === 'pihole') {
+            overrides.url = document.getElementById('cfg-pihole-url')?.value?.trim();
+            const t = document.getElementById('cfg-pihole-api-token')?.value?.trim();
+            if (t) overrides.api_token = t;
+        }
+
+        const res = await fetch('/api/dns/provider/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(overrides)
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+            resultBox.className = 'p-3.5 rounded-xl text-xs border bg-emerald-500/10 border-emerald-500/30 text-emerald-300 space-y-1';
+            resultBox.innerHTML = `
+                <div class="flex items-center space-x-2 font-semibold">
+                    <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+                    <span>${escapeHtml(data.message || 'Подключение успешно!')}</span>
+                </div>
+                ${data.details ? `<div class="text-[11px] text-emerald-400/80 font-mono mt-1">${escapeHtml(JSON.stringify(data.details))}</div>` : ''}
+            `;
+        } else {
+            resultBox.className = 'p-3.5 rounded-xl text-xs border bg-rose-500/10 border-rose-500/30 text-rose-300 space-y-1';
+            resultBox.innerHTML = `
+                <div class="flex items-center space-x-2 font-semibold">
+                    <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+                    <span>Ошибка подключения: ${escapeHtml(data.error || 'Не удалось связаться с API')}</span>
+                </div>
+                ${data.details ? `<div class="text-[11px] text-rose-400/80 font-mono mt-1">${escapeHtml(JSON.stringify(data.details))}</div>` : ''}
+            `;
+        }
+    } catch (e) {
+        if (resultBox) {
+            resultBox.className = 'p-3.5 rounded-xl text-xs border bg-rose-500/10 border-rose-500/30 text-rose-300';
+            resultBox.innerHTML = `<span>Сетевой сбой при проверке: ${escapeHtml(e.message)}</span>`;
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+        if (window.lucide) lucide.createIcons();
+    }
+}
+window.testDnsProviderConnection = testDnsProviderConnection;
+
+async function syncDnsProviderNow() {
+    const btn = document.getElementById('btn-sync-dns-provider-now');
+    if (btn) btn.disabled = true;
+
+    try {
+        showToast('Запуск синхронизации с DNS-провайдером...');
+        const res = await fetch('/api/dns/provider/sync', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.ok) {
+            showToast(`Синхронизация завершена: импортировано ${data.synced || 0} заблокированных запросов`);
+            await loadDnsProviderStatus();
+            if (typeof loadDnsQueries === 'function') {
+                await loadDnsQueries();
+            }
+        } else {
+            showToast(`Ошибка синхронизации: ${data.error || 'Неизвестная ошибка'}`, true);
+        }
+    } catch (e) {
+        showToast(`Ошибка сети при синхронизации: ${e.message}`, true);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+window.syncDnsProviderNow = syncDnsProviderNow;
+
+function toggleDnsHelperAccordion(id) {
+    const content = document.getElementById(`acc-content-${id}`);
+    const icon = document.getElementById(`acc-icon-${id}`);
+    if (content) {
+        const isHidden = content.classList.contains('hidden');
+        content.classList.toggle('hidden', !isHidden);
+        if (icon) {
+            icon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+    }
+}
+window.toggleDnsHelperAccordion = toggleDnsHelperAccordion;
 
 // Wi-Fi Security Audit
 async function loadWifiAudit() {
@@ -5095,21 +5423,53 @@ function renderDnsQueriesTable(queries) {
             }
         }
 
+        const providerName = (q.blocked_by_provider || (analysis && analysis.blocked_by_provider) || '').toLowerCase();
+        let providerLabel = '';
+        let providerColorClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+        let providerIcon = 'shield-x';
+
+        if (providerName === 'nextdns') {
+            providerLabel = 'NextDNS';
+            providerColorClass = 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+            providerIcon = 'shield-check';
+        } else if (providerName === 'controld') {
+            providerLabel = 'Control D';
+            providerColorClass = 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
+            providerIcon = 'shield-check';
+        } else if (providerName === 'adguard_home' || providerName === 'adguard') {
+            providerLabel = 'AdGuard';
+            providerColorClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+            providerIcon = 'shield-check';
+        } else if (providerName === 'pihole') {
+            providerLabel = 'Pi-hole';
+            providerColorClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+            providerIcon = 'shield-check';
+        } else if (isStaticSinkhole) {
+            providerLabel = 'Keenetic 0.0.0.0';
+            providerColorClass = 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30';
+            providerIcon = 'shield-check';
+        } else if (isBlocked) {
+            providerLabel = '0.0.0.0 Блок';
+            providerColorClass = 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+            providerIcon = 'shield-x';
+        }
+
         const blockedPillHtml = isBlocked
-            ? `<span class="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isStaticSinkhole ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'} shrink-0 ml-1.5 shadow-sm" title="${isStaticSinkhole ? 'Заблокирован статическим правилом Keenetic (0.0.0.0)' : 'Заблокирован upstream DNS-фильтром (0.0.0.0)'}">
-                <i data-lucide="${isStaticSinkhole ? 'shield-check' : 'shield-x'}" class="w-3 h-3 ${isStaticSinkhole ? 'text-indigo-400' : 'text-rose-400'}"></i>
-                <span>${isStaticSinkhole ? 'Keenetic 0.0.0.0' : '0.0.0.0 Блок'}</span>
+            ? `<span class="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${providerColorClass} shrink-0 ml-1.5 shadow-sm" title="${providerLabel ? 'Заблокирован: ' + providerLabel : '0.0.0.0'}">
+                <i data-lucide="${providerIcon}" class="w-3 h-3"></i>
+                <span>${providerLabel}</span>
                </span>`
             : '';
 
+        const blockReasonDetail = q.filter_list || q.blocked_reason || (analysis && (analysis.filter_list || analysis.blocked_reason));
         const descText = isBlocked
-            ? `🛡️ ${q.blocked_reason || 'Заблокирован (0.0.0.0)'}${description ? ' • ' + description : (vendor ? ' • ' + vendor : '')}`
+            ? `🛡️ ${providerLabel ? providerLabel + ': ' : ''}${blockReasonDetail || 'Заблокирован (0.0.0.0)'}${description ? ' • ' + description : (vendor ? ' • ' + vendor : '')}`
             : (description || vendor || q.ip || '');
 
         const safetyBadgeHtml = isBlocked
-            ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${isStaticSinkhole ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'} cursor-help" title="${escapeHtml(impactExplanation)}">
-                <i data-lucide="${isStaticSinkhole ? 'shield-check' : 'shield-x'}" class="w-3 h-3"></i>
-                <span>${isStaticSinkhole ? 'Заблокирован роутером' : 'Заблокирован'}</span>
+            ? `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${providerColorClass} cursor-help" title="${escapeHtml(impactExplanation)}">
+                <i data-lucide="${providerIcon}" class="w-3 h-3"></i>
+                <span>${isStaticSinkhole ? 'Заблокирован роутером' : (providerLabel ? `Заблокирован (${providerLabel})` : 'Заблокирован')}</span>
                </span>`
             : `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${safetyColorClasses} cursor-help" title="${escapeHtml(impactExplanation)}">
                 <span>${escapeHtml(safetyLabel)}</span>
@@ -5268,16 +5628,27 @@ async function openDomainModal(domain) {
         const risk = analysis.risk_level || '';
 
         if (data.is_blocked || analysis.is_blocked) {
+            const providerName = (analysis.blocked_by_provider || data.blocked_by_provider || '').toLowerCase();
+            const providerLabels = {
+                'nextdns': 'NextDNS',
+                'controld': 'Control D',
+                'adguard_home': 'AdGuard Home',
+                'adguard': 'AdGuard Home',
+                'pihole': 'Pi-hole'
+            };
+            const pLabel = providerLabels[providerName] || (analysis.is_static_sinkhole ? 'Keenetic' : 'DNS');
+            const filterName = analysis.filter_list || analysis.blocked_reason || data.filter_list || data.blocked_reason || '';
+
             if (remBadge) {
                 remBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold border bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
-                remBadge.textContent = '🛡️ Заблокирован в DNS (0.0.0.0)';
+                remBadge.textContent = `🛡️ Заблокирован (${pLabel}${filterName ? ': ' + filterName : ''})`;
             }
             if (remImpact) {
-                remImpact.textContent = 'Домен успешно перехвачен и заблокирован интернет-фильтром (NextDNS / 0.0.0.0). При обращении возвращается 0.0.0.0 — устройства не могут связаться с сервером и слить данные.';
+                remImpact.textContent = `Домен заблокирован службой фильтрации (${pLabel}). При обращении возвращается 0.0.0.0 — устройства не могут связаться с сервером и передать данные.`;
             }
             const tipEl = document.getElementById('domain-modal-keenetic-tip');
             if (tipEl) {
-                tipEl.textContent = '✅ Домен уже находится в черном списке фильтрации и перенаправлен в 0.0.0.0. Дополнительных правил Keenetic не требуется.';
+                tipEl.textContent = analysis.keenetic_tip || `✅ Домен уже находится в черном списке фильтрации (${pLabel}) и перенаправлен в 0.0.0.0. Дополнительных правил Keenetic не требуется.`;
             }
         } else if (cat === 'telemetry' || cat === 'advertising' || risk === 'ad' || risk === 'telemetry') {
             if (remBadge) {

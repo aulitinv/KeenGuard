@@ -201,6 +201,10 @@
                             <i data-lucide="layers" class="w-3.5 h-3.5 text-sky-400"></i>
                             <span class="truncate">Пресеты LAN</span>
                         </button>
+                        <button type="button" onclick="navigateToSettingsSubTab('dns-security')" id="subtab-btn-dns-security" class="sidebar-subtab-btn settings-subtab-btn flex items-center space-x-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition w-full text-left text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
+                            <i data-lucide="shield" class="w-3.5 h-3.5 text-blue-400"></i>
+                            <span class="truncate">DNS-безопасность</span>
+                        </button>
                     </div>
                 </div>
             </nav>
@@ -3275,6 +3279,309 @@
                         </div>
                         <div id="settings-presets-list" class="space-y-2.5">
                             <div class="py-4 text-center text-slate-500 text-xs">Загрузка пресетов...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 8: DNS SECURITY PROVIDERS -->
+                <div id="settings-subpane-dns-security" class="settings-subpane hidden space-y-6">
+                    <!-- Card: Provider Selector -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5 shadow-sm">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="shield" class="w-5 h-5 text-blue-400"></i>
+                                    <span>Провайдеры DNS-безопасности</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Сбор журналов заблокированных доменов (NextDNS, Control D, AdGuard Home, Pi-hole)</p>
+                            </div>
+                            <span id="dns-provider-status-badge" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                                Отключено
+                            </span>
+                        </div>
+
+                        <!-- Provider Cards Selector -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-2">Выберите активную службу DNS-защиты</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-5 gap-3" id="dns-provider-cards-grid">
+                                <!-- Card: Disabled -->
+                                <button type="button" onclick="selectDnsProviderCard('none')" id="card-dns-prov-none" class="dns-prov-card p-3.5 rounded-xl border-2 border-indigo-500 bg-indigo-500/10 text-left transition cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="circle-slash" class="w-4 h-4 text-slate-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Отключено</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400">Только встроенный фильтр Keenetic</p>
+                                </button>
+                                <!-- Card: NextDNS -->
+                                <button type="button" onclick="selectDnsProviderCard('nextdns')" id="card-dns-prov-nextdns" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="cloud-lightning" class="w-4 h-4 text-blue-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">NextDNS</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Облачный DoH/DoT сервис</p>
+                                </button>
+                                <!-- Card: Control D -->
+                                <button type="button" onclick="selectDnsProviderCard('controld')" id="card-dns-prov-controld" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="globe" class="w-4 h-4 text-cyan-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Control D</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Облачные профили & политики</p>
+                                </button>
+                                <!-- Card: AdGuard Home -->
+                                <button type="button" onclick="selectDnsProviderCard('adguard_home')" id="card-dns-prov-adguard_home" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">AdGuard</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Локальный сервер / LAN</p>
+                                </button>
+                                <!-- Card: Pi-hole -->
+                                <button type="button" onclick="selectDnsProviderCard('pihole')" id="card-dns-prov-pihole" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="cpu" class="w-4 h-4 text-rose-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Pi-hole</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Локальный FTL / DNS-сервер</p>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Forms for Providers -->
+                        <!-- NextDNS Form -->
+                        <div id="dns-fields-nextdns" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Profile ID (Идентификатор профиля)</label>
+                                    <input type="text" id="cfg-nextdns-profile-id" placeholder="например: 1234ab" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Указан в URL панели NextDNS: https://my.nextdns.io/{profile_id}</span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">API Key (Ключ доступа к логам)</label>
+                                        <span id="cfg-nextdns-key-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Ключ сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-nextdns-api-key" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Создайте в профиле NextDNS: Account → API Keys</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Control D Form -->
+                        <div id="dns-fields-controld" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Device / Profile ID (Необязательно)</label>
+                                    <input type="text" id="cfg-controld-device-id" placeholder="Оставьте пустым для всех устройств" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Фильтр по конкретному устройству в панели Control D</span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">API Key (Bearer Token)</label>
+                                        <span id="cfg-controld-key-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Токен сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-controld-api-key" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Control D Manage → Account → API Access</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AdGuard Home Form -->
+                        <div id="dns-fields-adguard_home" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">URL сервера AdGuard Home</label>
+                                <input type="text" id="cfg-adguard-url" placeholder="http://192.168.1.1:3000 или http://192.168.1.5:80" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Сетевой адрес веб-интерфейса AdGuard Home в локальной сети</span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Имя пользователя</label>
+                                    <input type="text" id="cfg-adguard-username" placeholder="admin" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">Пароль</label>
+                                        <span id="cfg-adguard-pass-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Пароль сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-adguard-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pi-hole Form -->
+                        <div id="dns-fields-pihole" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">URL интерфейса Pi-hole</label>
+                                    <input type="text" id="cfg-pihole-url" placeholder="http://192.168.1.5/admin или http://192.168.1.5:80" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Адрес веб-панели Pi-hole v5 или REST API v6</span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">API Token / Password</label>
+                                        <span id="cfg-pihole-token-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Токен сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-pihole-api-token" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Pi-hole Settings → API / Web password hash</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sync Controls & Connection Test -->
+                        <div class="pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button type="button" onclick="testDnsProviderConnection()" id="btn-test-dns-provider" class="px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-2">
+                                    <i data-lucide="activity" class="w-3.5 h-3.5 text-blue-400"></i>
+                                    <span>Проверить подключение</span>
+                                </button>
+                                <button type="button" onclick="syncDnsProviderNow()" id="btn-sync-dns-provider-now" class="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white transition border border-blue-500/30 flex items-center space-x-2">
+                                    <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+                                    <span>Синхронизировать сейчас</span>
+                                </button>
+                                <button type="button" onclick="saveDnsProviderConfig()" id="btn-save-dns-provider-config" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    <span>Сохранить настройки</span>
+                                </button>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer select-none">
+                                    <input type="checkbox" id="cfg-dns-auto-sync" class="rounded border-slate-700 text-blue-600 focus:ring-blue-500 bg-slate-900 h-4 w-4">
+                                    <span>Автосинхронизация</span>
+                                </label>
+                                <select id="cfg-dns-sync-interval" class="bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                                    <option value="30">Каждые 30 сек</option>
+                                    <option value="60" selected>Каждую 1 мин</option>
+                                    <option value="300">Каждые 5 мин</option>
+                                    <option value="900">Каждые 15 мин</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Live Diagnostics & Sync Status Output Banner -->
+                        <div id="dns-provider-test-result" class="hidden p-3.5 rounded-xl text-xs border"></div>
+                        <div id="dns-provider-sync-meta-card" class="bg-surface-950 border border-slate-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-2 h-2 rounded-full bg-slate-500" id="dns-provider-sync-dot"></div>
+                                <span class="text-slate-400">Статус: <strong id="dns-provider-sync-status-text" class="text-slate-200">Отключено</strong></span>
+                                <span class="text-slate-600">|</span>
+                                <span class="text-slate-400">Последняя синхронизация: <strong id="dns-provider-last-sync-time" class="text-slate-200 font-mono">Никогда</strong></span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400">Всего импортировано блокировок: <strong id="dns-provider-total-synced-count" class="text-blue-400 font-mono">0</strong></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Interactive Network Assistance & Remediation Guides -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4 shadow-sm">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="help-circle" class="w-5 h-5 text-indigo-400"></i>
+                                    <span>Решение сетевых проблем и обходов фильтрации</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Пошаговые руководства и инженерные рекомендации для роутера Keenetic</p>
+                            </div>
+                        </div>
+
+                        <!-- Accordion 1: DoH / DoT Hardcoded bypass -->
+                        <div class="border border-slate-800 rounded-xl overflow-hidden bg-surface-950">
+                            <button type="button" onclick="toggleDnsHelperAccordion('doh-bypass')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
+                                <div class="flex items-center space-x-3">
+                                    <div class="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
+                                        <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">Как заблокировать обход DoH/DoT на Smart TV и Android (порт 853)</div>
+                                        <div class="text-[11px] text-slate-400">Перехват жестко зашитых DNS 8.8.8.8 и блокировка шифрованных каналов</div>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-down" id="acc-icon-doh-bypass" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+                            </button>
+                            <div id="acc-content-doh-bypass" class="hidden p-4 pt-0 border-t border-slate-800/60 text-xs text-slate-300 space-y-3 font-sans">
+                                <p class="mt-3 text-slate-400">
+                                    Некоторые устройства (китайские ТВ-боксы, Chromecast, умные телевизоры) игнорируют DHCP роутера и шлют запросы напрямую в 8.8.8.8 или через зашифрованный DoT.
+                                </p>
+                                <div class="bg-surface-900 p-3 rounded-lg border border-slate-800 space-y-2 font-mono text-[11px]">
+                                    <div class="text-indigo-400 font-semibold font-sans">Шаг 1. Перенаправление DNS-запросов (порт 53) на Keenetic:</div>
+                                    <div class="text-slate-300 select-all bg-slate-950 px-2 py-1 rounded">ip static tcp 53 192.168.1.1 53 !WAN</div>
+                                    <div class="text-slate-300 select-all bg-slate-950 px-2 py-1 rounded">ip static udp 53 192.168.1.1 53 !WAN</div>
+                                    <div class="text-indigo-400 font-semibold font-sans mt-2">Шаг 2. Аппаратная блокировка DoT (порт 853 TCP):</div>
+                                    <div class="text-slate-300 select-all bg-slate-950 px-2 py-1 rounded">ip firewall rule deny tcp * * 853</div>
+                                </div>
+                                <p class="text-[11px] text-slate-400">
+                                    После выполнения этих правил все обращения клиентов будут принудительно перехвачены встроенным DNS-прокси Keenetic и отправлены в ваш активный профиль безопасности.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Accordion 2: In-stream video ads -->
+                        <div class="border border-slate-800 rounded-xl overflow-hidden bg-surface-950">
+                            <button type="button" onclick="toggleDnsHelperAccordion('video-ads')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
+                                <div class="flex items-center space-x-3">
+                                    <div class="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
+                                        <i data-lucide="video" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">Почему DNS не блокирует рекламу внутри видео (YouTube / RuTube)</div>
+                                        <div class="text-[11px] text-slate-400">Технический реализм: архитектура CDN потокового вещания</div>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-down" id="acc-icon-video-ads" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+                            </button>
+                            <div id="acc-content-video-ads" class="hidden p-4 pt-0 border-t border-slate-800/60 text-xs text-slate-300 space-y-3 font-sans">
+                                <p class="mt-3 text-slate-400">
+                                    Потоковая видеореклама загружается с тех же самых CDN-серверов и хостов, что и сам видеоконтент (например, <code>*.googlevideo.com</code>). Блокировка таких доменов через DNS, AdGuard или NextDNS полностью останавливает воспроизведение роликов.
+                                </p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 font-sans">
+                                    <div class="bg-surface-900 p-3 rounded-lg border border-slate-800">
+                                        <div class="text-emerald-400 font-bold mb-1">Для Android TV / Приставок:</div>
+                                        <p class="text-[11px] text-slate-300">Используйте <strong>SmartTube</strong> — бесплатный открытый плеер со встроенной блокировкой рекламы и пропуском интеграций (SponsorBlock).</p>
+                                    </div>
+                                    <div class="bg-surface-900 p-3 rounded-lg border border-slate-800">
+                                        <div class="text-cyan-400 font-bold mb-1">Для ПК и Ноутбуков:</div>
+                                        <p class="text-[11px] text-slate-300">Используйте расширение <strong>uBlock Origin</strong> — оно вырезает рекламу на уровне веб-страницы и скриптов плеера, не ломая сеть.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Accordion 3: Local device attribution -->
+                        <div class="border border-slate-800 rounded-xl overflow-hidden bg-surface-950">
+                            <button type="button" onclick="toggleDnsHelperAccordion('device-id')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
+                                <div class="flex items-center space-x-3">
+                                    <div class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
+                                        <i data-lucide="devices" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">Как передавать имена устройств в NextDNS и Control D</div>
+                                        <div class="text-[11px] text-slate-400">Настройка DoH-профиля роутера для 100% точной привязки к устройствам</div>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-down" id="acc-icon-device-id" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+                            </button>
+                            <div id="acc-content-device-id" class="hidden p-4 pt-0 border-t border-slate-800/60 text-xs text-slate-300 space-y-3 font-sans">
+                                <p class="mt-3 text-slate-400">
+                                    По умолчанию облачный DNS видит только один внешний IP вашего роутера. Чтобы видеть в KeenGuard, какое именно устройство отправило заблокированный запрос:
+                                </p>
+                                <ul class="list-disc list-inside space-y-1.5 text-slate-300 text-[11px]">
+                                    <li><strong>NextDNS</strong>: в настройках Keenetic DoH укажите адрес в формате <code>https://dns.nextdns.io/{profile_id}/Keenetic</code> или используйте клиент NextDNS CLI на Keenetic (Entware).</li>
+                                    <li><strong>Control D</strong>: создайте отдельные профили под устройства и используйте уникальные DoH-адреса для разных сегментов.</li>
+                                    <li><strong>AdGuard Home / Pi-hole</strong>: локальные установки автоматически передают внутренние адреса (192.168.1.X), привязка к устройствам в KeenGuard работает из коробки.</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
