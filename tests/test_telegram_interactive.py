@@ -64,11 +64,13 @@ async def test_telegram_bot_authorized_actions():
              patch.object(notifier, "edit_message_text", new_callable=AsyncMock) as mock_edit, \
              patch("keenguard.core.keenetic.keenetic_client.add_dns_sinkhole", new_callable=AsyncMock) as mock_sinkhole, \
              patch("keenguard.core.keenetic.keenetic_client.delete_upnp_mapping", new_callable=AsyncMock) as mock_del_upnp, \
-             patch("keenguard.core.profiles.profile_manager.toggle_wan", new_callable=AsyncMock) as mock_wan:
+             patch("keenguard.core.profiles.profile_manager.quarantine_device", new_callable=AsyncMock) as mock_quar, \
+             patch("keenguard.core.profiles.profile_manager.trust_device", new_callable=AsyncMock) as mock_trust:
 
             mock_sinkhole.return_value = True
             mock_del_upnp.return_value = True
-            mock_wan.return_value = True
+            mock_quar.return_value = True
+            mock_trust.return_value = True
 
             # 1. Block DNS callback
             cb_sink = {
@@ -99,7 +101,17 @@ async def test_telegram_bot_authorized_actions():
                 "data": "quarantine:AA:BB:CC:DD:EE:FF"
             }
             await worker._handle_callback(cb_quar)
-            mock_wan.assert_called_once_with("AA:BB:CC:DD:EE:FF", True)
+            mock_quar.assert_called_once_with("AA:BB:CC:DD:EE:FF", reason="Telegram Bot Callback")
+
+            # 4. Trust callback
+            cb_trust = {
+                "id": "q_trust",
+                "from": {"id": "123456789"},
+                "message": {"chat": {"id": "123456789"}, "message_id": 104, "text": "New device warning"},
+                "data": "trust:AA:BB:CC:DD:EE:FF"
+            }
+            await worker._handle_callback(cb_trust)
+            mock_trust.assert_called_once_with("AA:BB:CC:DD:EE:FF")
 
 
 @pytest.mark.asyncio

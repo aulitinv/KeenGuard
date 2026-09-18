@@ -1613,6 +1613,13 @@ async function openDeviceModal(mac) {
             presetSelect.value = d.preset_id || '';
         }
 
+        const customPortsInput = document.getElementById('modal-custom-allowed-ports');
+        if (customPortsInput) {
+            customPortsInput.value = (d.custom_allowed_ports && Array.isArray(d.custom_allowed_ports)) 
+                ? d.custom_allowed_ports.join(', ') 
+                : '';
+        }
+
         const nvrGroup = document.getElementById('modal-nvr-group');
         const nvrInput = document.getElementById('modal-nvr-ip');
         if (nvrGroup && nvrInput) {
@@ -1776,13 +1783,7 @@ async function deleteCurrentDevice() {
 async function applyModalProfile() {
     if (!currentDeviceMac) return;
     const profileKey = document.getElementById('modal-profile-select').value;
-    await fetch(`/api/devices/${currentDeviceMac}/profile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile: profileKey })
-    });
-    await openDeviceModal(currentDeviceMac);
-    loadDevices();
+    await saveModalUnifiedPolicy(profileKey);
 }
 
 async function toggleModalWan(val) {
@@ -9098,6 +9099,53 @@ async function exitPcapMode() {
 // ==========================================
 // Device Modal: Granular Policy Handlers
 // ==========================================
+async function saveModalUnifiedPolicy(policyId) {
+    if (!currentDeviceMac) return;
+    try {
+        const res = await fetch(`/api/devices/${encodeURIComponent(currentDeviceMac)}/policy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ policy_id: policyId })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+            showToast('Политика безопасности устройства обновлена', 'success');
+            await openDeviceModal(currentDeviceMac);
+            loadDevices();
+        } else {
+            showToast(`Ошибка: ${data.detail || 'Не удалось обновить политику'}`, 'error');
+        }
+    } catch (e) {
+        console.error('Error saving unified policy', e);
+        showToast('Ошибка сети при обновлении политики', 'error');
+    }
+}
+window.saveModalUnifiedPolicy = saveModalUnifiedPolicy;
+
+async function saveModalCustomPorts(portsStr) {
+    if (!currentDeviceMac) return;
+    try {
+        const rawPorts = (portsStr || '').split(/[,; ]+/).filter(Boolean);
+        const validPorts = rawPorts.map(p => parseInt(p, 10)).filter(p => !isNaN(p) && p > 0 && p <= 65535);
+        const res = await fetch(`/api/devices/${encodeURIComponent(currentDeviceMac)}/lan-policy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ custom_allowed_ports: validPorts })
+        });
+        if (res.ok) {
+            showToast('Кастомные порты сохранены', 'success');
+            await refreshAllData();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(`Ошибка: ${err.detail || 'Не удалось сохранить порты'}`, 'error');
+        }
+    } catch (e) {
+        console.error('Error saving custom ports', e);
+        showToast('Ошибка сети при сохранении портов', 'error');
+    }
+}
+window.saveModalCustomPorts = saveModalCustomPorts;
+
 async function saveModalDevicePreset(presetId) {
     if (!currentDeviceMac) return;
     try {
@@ -9160,6 +9208,9 @@ async function saveModalAutoQuarantine(override) {
         showToast('Ошибка сети при сохранении режима', 'error');
     }
 }
+window.saveModalDevicePreset = saveModalDevicePreset;
+window.saveModalNvrIp = saveModalNvrIp;
+window.saveModalAutoQuarantine = saveModalAutoQuarantine;
 
 // ==========================================
 // LAN Policy Presets Subsystem
@@ -9226,7 +9277,7 @@ async function loadLanPresets() {
         const modalSelect = document.getElementById('modal-lan-preset-select');
         if (modalSelect) {
             const currentVal = modalSelect.value;
-            let opts = '<option value="">По умолчанию профиля</option>';
+            let opts = '<option value="">Автоматически (согласно политике)</option>';
             opts += allLanPresets.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
             modalSelect.innerHTML = opts;
             if (currentVal) modalSelect.value = currentVal;

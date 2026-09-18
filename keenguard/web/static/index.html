@@ -3246,32 +3246,56 @@
 
                 <!-- Tab 1: Policies & Access -->
                 <div id="modal-tab-policies" class="space-y-3">
-                    <!-- Profile Selector -->
+                    <!-- Unified Policy & Security Profile Selector -->
                     <div>
-                        <label class="block font-medium text-slate-300 mb-1">Профиль безопасности:</label>
-                        <select id="modal-profile-select" onchange="applyModalProfile()" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white">
-                            <option value="trusted">Доверенный (ПК / Смартфон)</option>
-                            <option value="smart_home_hub">Хаб умного дома (SprutHub / Home Assistant / Контроллер)</option>
-                            <option value="smart_tv">Smart TV (Асимметричный + AirPlay)</option>
-                            <option value="camera">Камера (Только NVR / Без интернета)</option>
-                            <option value="iot">IoT / Умный дом (Local-Only)</option>
-                            <option value="unassigned">Не назначен</option>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="font-medium text-slate-300 text-xs">Политика и профиль безопасности:</label>
+                            <button type="button" onclick="openDeviceWizard(currentDeviceMac)" class="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center space-x-1">
+                                <i data-lucide="sparkles" class="w-3 h-3"></i>
+                                <span>Мастер настройки</span>
+                            </button>
+                        </div>
+                        <select id="modal-profile-select" onchange="saveModalUnifiedPolicy(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <optgroup label="Стандартные политики безопасности">
+                                <option value="trusted">🖥️ Доверенный (ПК / Смартфон / Планшет)</option>
+                                <option value="smart_home_hub">🧠 Хаб умного дома (SprutHub / Home Assistant / Контроллер)</option>
+                                <option value="smart_tv">📺 Smart TV / Медиаплеер (AirPlay, DLNA, ночной аудит)</option>
+                                <option value="camera">📹 IP-камера (RTSP-видео, NVR / Ограничение интернета)</option>
+                                <option value="iot">🔌 Умный дом / IoT (Local-Only, без доступа в интернет)</option>
+                                <option value="iot_cloud">🌐 Умный дом (Облачный: пылесос, климат, шлюзы)</option>
+                                <option value="quarantine">🔒 Карантин (Выход в интернет полностью заблокирован)</option>
+                                <option value="guest">👤 Гостевое устройство (Изолировано от домашней сети)</option>
+                                <option value="unassigned">⚪ Не назначен (Базовый доступ без ограничений)</option>
+                            </optgroup>
                         </select>
                     </div>
 
-                    <!-- LAN Policy Preset Selector -->
-                    <div>
-                        <div class="flex items-center justify-between mb-1">
-                            <label class="font-medium text-slate-300">Пресет сетевых политик LAN:</label>
-                            <button type="button" onclick="openDeviceWizard(currentDeviceMac)" class="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center space-x-1">
-                                <i data-lucide="sparkles" class="w-3 h-3"></i>
-                                <span>Мастер</span>
-                            </button>
+                    <!-- Advanced Granular LAN Policy Accordion (100% preservation of flexibility) -->
+                    <details id="modal-advanced-lan-details" class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80 group">
+                        <summary class="flex items-center justify-between cursor-pointer list-none select-none text-slate-300 font-medium text-xs">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
+                                <span>Тонкая настройка: Пресет LAN и порты</span>
+                            </div>
+                            <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+                        </summary>
+                        <div class="mt-2.5 space-y-2.5 pt-2 border-t border-slate-800/80 text-xs">
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-slate-400 font-medium text-[11px]">Пресет инспекции портов LAN:</label>
+                                    <button type="button" onclick="navigateToSettingsSubTab('presets')" class="text-[10px] text-indigo-400 hover:underline">+ Создать свой пресет</button>
+                                </div>
+                                <select id="modal-lan-preset-select" onchange="saveModalDevicePreset(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs">
+                                    <option value="">Автоматически (согласно политике)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 font-medium text-[11px] mb-1">Индивидуальные разрешенные порты:</label>
+                                <input type="text" id="modal-custom-allowed-ports" placeholder="Например: 8080, 9000, 554" onchange="saveModalCustomPorts(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono">
+                                <span class="text-[10px] text-slate-500">Разрешенные порты устройства сверх стандартного пресета</span>
+                            </div>
                         </div>
-                        <select id="modal-lan-preset-select" onchange="saveModalDevicePreset(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
-                            <option value="">По умолчанию профиля</option>
-                        </select>
-                    </div>
+                    </details>
 
                     <!-- Designated NVR IP for Cameras -->
                     <div id="modal-nvr-group" class="hidden">

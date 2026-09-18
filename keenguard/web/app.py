@@ -20,7 +20,7 @@ from keenguard.db.database import db
 from keenguard.db.models import DeviceRecord, SecurityEvent, IotPayloadRecord, LanCommunicationRecord, LanPolicyPreset
 from keenguard.core.keenetic import keenetic_client, is_host_lan_isolated, is_unsafe_ip_for_blackhole
 from keenguard.core.classifier import DeviceClassifier
-from keenguard.core.profiles import profile_manager, PROFILE_TEMPLATES
+from keenguard.core.profiles import profile_manager, policy_manager, PROFILE_TEMPLATES
 from keenguard.core.forensics import forensics
 from keenguard.core.anomaly import anomaly_detector
 from keenguard.core.sniffer import sniffer
@@ -910,12 +910,44 @@ async def delete_all_offline_devices():
 class ProfileUpdate(BaseModel):
     profile: str
 
-@app.post("/api/devices/{mac}/profile")
-async def set_profile(mac: str, update: ProfileUpdate):
-    updated = await profile_manager.apply_profile(mac, update.profile)
+class DevicePolicyUpdateRequest(BaseModel):
+    policy_id: str
+    preset_id: Optional[str] = None
+    designated_nvr_ip: Optional[str] = None
+    auto_quarantine_override: Optional[str] = None
+    custom_allowed_ports: Optional[List[int]] = None
+    is_blocked_wan: Optional[bool] = None
+    tv_pre_record_seconds: Optional[int] = None
+    tv_post_record_seconds: Optional[int] = None
+    tv_day_mode: Optional[str] = None
+
+@app.post("/api/devices/{mac}/policy")
+async def set_device_policy_api(mac: str, req: DevicePolicyUpdateRequest):
+    clean_mac = mac.upper()
+    updated = await policy_manager.apply_policy(
+        mac=clean_mac,
+        policy_id=req.policy_id,
+        preset_id=req.preset_id,
+        designated_nvr_ip=req.designated_nvr_ip,
+        auto_quarantine_override=req.auto_quarantine_override,
+        custom_allowed_ports=req.custom_allowed_ports,
+        is_blocked_wan=req.is_blocked_wan,
+        tv_pre_record_seconds=req.tv_pre_record_seconds,
+        tv_post_record_seconds=req.tv_post_record_seconds,
+        tv_day_mode=req.tv_day_mode,
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Device not found")
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
+    return {"status": "ok", "device": updated.model_dump()}
+
+@app.post("/api/devices/{mac}/profile")
+async def set_profile(mac: str, update: ProfileUpdate):
+    clean_mac = mac.upper()
+    updated = await policy_manager.apply_policy(clean_mac, policy_id=update.profile)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Device not found")
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "device": updated.model_dump()}
 
 class ToggleRequest(BaseModel):
@@ -1054,26 +1086,20 @@ async def update_device_lan_policy(mac: str, req: DeviceLanPolicyRequest):
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
 
-    update_kwargs: Dict[str, Any] = {}
-    if req.preset_id is not None:
-        update_kwargs["preset_id"] = req.preset_id.strip() if (req.preset_id and req.preset_id.strip()) else None
-    if req.designated_nvr_ip is not None:
-        update_kwargs["designated_nvr_ip"] = req.designated_nvr_ip.strip() or None
-    if req.auto_quarantine_override is not None:
-        update_kwargs["auto_quarantine_override"] = req.auto_quarantine_override
-    if req.custom_allowed_ports is not None:
-        update_kwargs["custom_allowed_ports"] = req.custom_allowed_ports
-    if req.tv_pre_record_seconds is not None:
-        update_kwargs["tv_pre_record_seconds"] = req.tv_pre_record_seconds
-    if req.tv_post_record_seconds is not None:
-        update_kwargs["tv_post_record_seconds"] = req.tv_post_record_seconds
-    if req.tv_day_mode is not None:
-        update_kwargs["tv_day_mode"] = req.tv_day_mode
-
-    success = await db.update_device_policy(clean_mac, **update_kwargs)
-    updated_dev = await db.get_device(clean_mac)
+    pol_id = req.preset_id or dev.profile or "unassigned"
+    updated_dev = await policy_manager.apply_policy(
+        mac=clean_mac,
+        policy_id=pol_id,
+        preset_id=req.preset_id,
+        designated_nvr_ip=req.designated_nvr_ip,
+        auto_quarantine_override=req.auto_quarantine_override,
+        custom_allowed_ports=req.custom_allowed_ports,
+        tv_pre_record_seconds=req.tv_pre_record_seconds,
+        tv_post_record_seconds=req.tv_post_record_seconds,
+        tv_day_mode=req.tv_day_mode,
+    )
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
-    return {"status": "ok", "success": success, "device": updated_dev.model_dump() if updated_dev else None}
+    return {"status": "ok", "success": True, "device": updated_dev.model_dump() if updated_dev else None}
 
 @app.get("/api/wizard/device/{mac}")
 async def get_device_wizard_context(mac: str):
@@ -1142,28 +1168,22 @@ async def submit_device_wizard(mac: str, req: DeviceWizardSubmitRequest):
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
 
-    update_kwargs: Dict[str, Any] = {"wizard_completed": True}
     if req.custom_name is not None and req.custom_name.strip():
-        update_kwargs["custom_name"] = req.custom_name.strip()
-    if req.profile:
-        update_kwargs["profile"] = req.profile
-        await profile_manager.apply_profile(clean_mac, req.profile)
-    if req.preset_id:
-        update_kwargs["preset_id"] = req.preset_id
-    if req.designated_nvr_ip is not None:
-        update_kwargs["designated_nvr_ip"] = req.designated_nvr_ip.strip() or None
-    if req.auto_quarantine_override is not None:
-        update_kwargs["auto_quarantine_override"] = req.auto_quarantine_override
-    if req.custom_allowed_ports is not None:
-        update_kwargs["custom_allowed_ports"] = req.custom_allowed_ports
-    if req.tv_pre_record_seconds is not None:
-        update_kwargs["tv_pre_record_seconds"] = req.tv_pre_record_seconds
-    if req.tv_post_record_seconds is not None:
-        update_kwargs["tv_post_record_seconds"] = req.tv_post_record_seconds
-    if req.tv_day_mode is not None:
-        update_kwargs["tv_day_mode"] = req.tv_day_mode
+        await db.update_device_policy(clean_mac, custom_name=req.custom_name.strip())
 
-    await db.update_device_policy(clean_mac, **update_kwargs)
+    pol_id = req.profile or req.preset_id or dev.profile or "unassigned"
+    updated_dev = await policy_manager.apply_policy(
+        mac=clean_mac,
+        policy_id=pol_id,
+        preset_id=req.preset_id,
+        designated_nvr_ip=req.designated_nvr_ip,
+        auto_quarantine_override=req.auto_quarantine_override,
+        custom_allowed_ports=req.custom_allowed_ports,
+        tv_pre_record_seconds=req.tv_pre_record_seconds,
+        tv_post_record_seconds=req.tv_post_record_seconds,
+        tv_day_mode=req.tv_day_mode,
+    )
+    await db.update_device_policy(clean_mac, wizard_completed=True)
     updated_dev = await db.get_device(clean_mac)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
 

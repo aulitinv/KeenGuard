@@ -28,7 +28,9 @@ scratch/
 AGENTS.md
 NEXTDNS_INTEGRATION_PLAN.md
 PACKET_INSPECTOR_ARCH.md
+TV_BRAND_PRESETS_PLAN.md
 docs/ARCHITECTURE_EVENT_DRIVEN_MONITORING.md
+refactoring/
 
 # Private Local Tests & Diagnostics
 private_tests/

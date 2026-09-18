@@ -407,11 +407,11 @@ class TelegramBotWorker:
                 action_result = f"🔍 Аудит трафика {mac} запущен на {dur // 60} мин"
             elif data.startswith("quarantine:"):
                 mac = data.split(":", 1)[1]
-                await profile_manager.toggle_wan(mac, True)
+                await profile_manager.quarantine_device(mac, reason="Telegram Bot Callback")
                 action_result = f"🔒 Устройство {mac} отправлено в карантин"
             elif data.startswith("trust:"):
                 mac = data.split(":", 1)[1]
-                await profile_manager.assign_profile(mac, "trusted")
+                await profile_manager.trust_device(mac)
                 action_result = f"✅ Устройству {mac} назначен профиль 'Доверенное'"
             elif data.startswith("block_dns:"):
                 domain = data.split(":", 1)[1]
