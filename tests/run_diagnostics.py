@@ -108,10 +108,18 @@ def audit_codebase():
 
     # 1. Endpoint cross-check
     from keenguard.web.app import app
-    routes = set()
-    for route in app.routes:
-        if hasattr(route, "path"):
-            routes.add(route.path)
+    def _extract_paths(router_or_app):
+        paths = set()
+        for r in getattr(router_or_app, "routes", []):
+            if getattr(r, "path", None):
+                paths.add(r.path)
+            if hasattr(r, "original_router"):
+                paths.update(_extract_paths(r.original_router))
+            elif hasattr(r, "routes") and r is not router_or_app:
+                paths.update(_extract_paths(r))
+        return paths
+
+    routes = _extract_paths(app)
 
     fetch_matches = re.findall(r"fetch\(\s*['\"`](/api/[^'\"`\?]+)", app_js)
     logger.info("Found %d distinct fetch() calls in app.js", len(set(fetch_matches)))
