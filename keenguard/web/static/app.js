@@ -2574,6 +2574,46 @@ function renderAuditResult(report) {
         }
     }
 
+    // Render Capture Source Badge
+    const srcBadge = document.getElementById('modal-audit-capture-source');
+    if (srcBadge) {
+        if (report.capture_source === 'router_hardware') {
+            srcBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30';
+            srcBadge.textContent = '🛡️ Keenetic L3/L4';
+            srcBadge.title = 'Аппаратный захват пакетов на уровне ядра роутера (L3/L4 WAN)';
+            srcBadge.classList.remove('hidden');
+        } else {
+            srcBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono bg-slate-800 text-slate-400 border border-slate-700';
+            srcBadge.textContent = '📡 L2 Broadcast';
+            srcBadge.title = 'Локальный срез эфира сетевой карты ПК';
+            srcBadge.classList.remove('hidden');
+        }
+    }
+
+    // Render HTTP Inspections if present
+    const httpSec = document.getElementById('modal-audit-http-section');
+    const httpListEl = document.getElementById('modal-audit-http-list');
+    const httpCountEl = document.getElementById('modal-audit-http-count');
+    const httpItems = report.http_inspections || [];
+    if (httpSec && httpListEl) {
+        if (httpItems.length > 0) {
+            httpSec.classList.remove('hidden');
+            if (httpCountEl) httpCountEl.textContent = `${httpItems.length}`;
+            httpListEl.innerHTML = httpItems.map(h => `
+                <div class="p-1.5 rounded bg-surface-900 border border-amber-900/30 flex items-center justify-between text-[10px]">
+                    <div class="flex items-center space-x-1.5 truncate max-w-[260px]">
+                        <span class="px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold text-[9px]">${escapeHtml(h.method || 'GET')}</span>
+                        <span class="font-semibold text-slate-300 truncate" title="${escapeHtml(h.host)}${escapeHtml(h.path)}">${escapeHtml(h.host)}</span>
+                        <span class="text-slate-500 truncate">(${escapeHtml(h.category || '')})</span>
+                    </div>
+                    <span class="text-slate-400 text-[9px] truncate max-w-[80px]" title="${escapeHtml(h.path)}">${escapeHtml(h.path)}</span>
+                </div>
+            `).join('');
+        } else {
+            httpSec.classList.add('hidden');
+        }
+    }
+
     const totalTrafficStr = formatBytes(report.total_bytes || 0);
     const flowsList = report.flows ? (Array.isArray(report.flows) ? report.flows : Object.values(report.flows)) : [];
     const flowsSummaryEl = document.getElementById('modal-audit-flows-summary');
@@ -7063,6 +7103,22 @@ function openAuditModal(report) {
         }
     }
 
+    // Capture source badge
+    const srcBadge = document.getElementById('audit-modal-capture-source');
+    if (srcBadge) {
+        if (report.capture_source === 'router_hardware') {
+            srcBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30';
+            srcBadge.textContent = '🛡️ Аппаратный дамп Keenetic (L3/L4 WAN)';
+            srcBadge.title = 'Захват сетевых пакетов выполнен на встроенном сниффере ядра KeeneticOS';
+            srcBadge.classList.remove('hidden');
+        } else {
+            srcBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700';
+            srcBadge.textContent = '📡 Локальный срез эфира (L2 Broadcast)';
+            srcBadge.title = 'Широковещательный срез локальной сетевой карты ПК';
+            srcBadge.classList.remove('hidden');
+        }
+    }
+
     // Findings
     const findingsList = document.getElementById('audit-modal-findings');
     if (findingsList) {
@@ -7094,6 +7150,29 @@ function openAuditModal(report) {
     if (tblSumEl) tblSumEl.textContent = `${currentAuditModalFlows.length} соединений`;
     renderAuditModalFlowsTable();
     updateSortIndicators('audit_modal');
+
+    // HTTP Inspection section
+    const httpSec = document.getElementById('audit-modal-http-section');
+    const httpTbody = document.getElementById('audit-modal-http-tbody');
+    const httpCntEl = document.getElementById('audit-modal-http-count');
+    const httpList = report.http_inspections || [];
+    if (httpSec && httpTbody) {
+        if (httpList.length > 0) {
+            httpSec.classList.remove('hidden');
+            if (httpCntEl) httpCntEl.textContent = `${httpList.length} запросов`;
+            httpTbody.innerHTML = httpList.map(h => `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="py-1.5 px-3 font-bold text-amber-400">${escapeHtml(h.method || 'GET')}</td>
+                    <td class="py-1.5 px-3 font-semibold text-slate-200 truncate max-w-[160px]" title="${escapeHtml(h.host)}">${escapeHtml(h.host)}</td>
+                    <td class="py-1.5 px-3 text-slate-400 truncate max-w-[200px]" title="${escapeHtml(h.path)}">${escapeHtml(h.path)}</td>
+                    <td class="py-1.5 px-3 text-cyan-300">${escapeHtml(h.category || 'Веб')}</td>
+                    <td class="py-1.5 px-3 text-slate-500 truncate max-w-[140px]" title="${escapeHtml(h.user_agent)}">${escapeHtml(h.user_agent || '—')}</td>
+                </tr>
+            `).join('');
+        } else {
+            httpSec.classList.add('hidden');
+        }
+    }
 
     // DNS queries
     const dnsSection = document.getElementById('audit-modal-dns-section');

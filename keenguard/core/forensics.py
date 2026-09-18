@@ -8,7 +8,8 @@ from keenguard.config import settings
 from keenguard.db.models import SecurityEvent
 from keenguard.db.database import db
 from keenguard.core.sniffer import sniffer
-from scapy.all import wrpcap, Ether, IP, ARP
+from keenguard.core.keenetic import keenetic_client
+from scapy.all import wrpcap, rdpcap, Ether, IP, ARP
 
 logger = logging.getLogger("keenguard.forensics")
 
@@ -154,15 +155,64 @@ class ForensicsEngine:
                 )
             ]
 
-        # 3. Handle Post-Wake collection window
+        # 3. Handle Post-Wake collection window (Hardware Keenetic Capture with fallback to Local Sniffer)
         post_packets = []
+        capture_source = "local_broadcast"
+        hw_capture_active = False
+
         if post_seconds > 0:
             logger.info("Recording post-wake packets for %s (%s) for %d seconds...", tv_name, clean_mac, post_seconds)
             self.active_wake_collectors[clean_mac] = []
+
+            # Try Keenetic hardware packet capture directly on router kernel
+            if ip and ip != "0.0.0.0":
+                try:
+                    if await keenetic_client.is_packet_capture_supported():
+                        start_res = await keenetic_client.start_packet_capture(
+                            interface="Bridge0",
+                            target_ip=ip,
+                            duration_seconds=post_seconds
+                        )
+                        if start_res and start_res.get("status") == "ok":
+                            hw_capture_active = True
+                            logger.info("Keenetic hardware packet capture started for TV %s (%s)", tv_name, ip)
+                except Exception as e:
+                    logger.debug("Could not start Keenetic hardware capture for TV %s: %s", tv_name, e)
+
             try:
                 await asyncio.sleep(post_seconds)
             finally:
-                post_packets = self.active_wake_collectors.pop(clean_mac, [])
+                local_packets = self.active_wake_collectors.pop(clean_mac, [])
+
+            if hw_capture_active:
+                try:
+                    cap_file = await keenetic_client.stop_packet_capture(interface="Bridge0")
+                    if cap_file:
+                        temp_dest = settings.pcap_dir / f"temp_rci_{clean_mac.replace(':', '')}_{int(wake_time)}.pcap"
+                        downloaded = await keenetic_client.download_capture_file(cap_file, temp_dest)
+                        if downloaded and temp_dest.exists():
+                            try:
+                                rci_pkts = list(rdpcap(str(temp_dest)))
+                                if rci_pkts:
+                                    post_packets = rci_pkts
+                                    capture_source = "router_hardware"
+                                    logger.info(
+                                        "Retrieved %d hardware packets from Keenetic for TV %s",
+                                        len(rci_pkts), tv_name
+                                    )
+                            except Exception as pe:
+                                logger.debug("Error parsing downloaded router PCAP: %s", pe)
+                            finally:
+                                try:
+                                    temp_dest.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+                        await keenetic_client.reset_packet_capture(interface="Bridge0")
+                except Exception as e:
+                    logger.error("Error finalizing Keenetic hardware capture for TV %s: %s", tv_name, e)
+
+            if not post_packets:
+                post_packets = local_packets
 
         # 4. Save combined Pre-wake + Post-wake PCAP file
         combined_packets = pre_packets + post_packets
@@ -181,14 +231,15 @@ class ForensicsEngine:
                 packet_count = 0
 
         logger.info(
-            "Saved %d packets (pre: %d, post: %d) to %s for target %s",
-            packet_count, len(pre_packets), len(post_packets), pcap_filename, clean_mac
+            "Saved %d packets (pre: %d, post: %d, source: %s) to %s for target %s",
+            packet_count, len(pre_packets), len(post_packets), capture_source, pcap_filename, clean_mac
         )
 
         prefix = "🚨 [НОЧНАЯ ТРЕВОГА]" if is_night else ("⚠️ [ПОДОЗРИТЕЛЬНО]" if is_autonomous else "📺 [АКТИВНОСТЬ]")
         full_desc = f"{prefix} {tv_name} включился: {cause_description}."
         if is_autonomous:
-            full_desc += f" Сохранен дамп (-{pre_seconds}с .. +{post_seconds}с, {packet_count} пак.). Запущен аудит."
+            source_lbl = "аппаратный дамп роутера" if capture_source == "router_hardware" else "локальный срез"
+            full_desc += f" Сохранен {source_lbl} (-{pre_seconds}с .. +{post_seconds}с, {packet_count} пак.). Запущен аудит."
 
         # 5. Record SecurityEvent in Database
         event = SecurityEvent(
@@ -203,6 +254,7 @@ class ForensicsEngine:
             details={
                 "is_night": is_night,
                 "is_autonomous": is_autonomous,
+                "capture_source": capture_source,
                 "packet_dump_count": packet_count,
                 "pre_packets_count": len(pre_packets),
                 "post_packets_count": len(post_packets),

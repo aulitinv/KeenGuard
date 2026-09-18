@@ -5,7 +5,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from scapy.all import Packet, IP, IPv6, TCP, UDP, ARP, Ether, wrpcap
+from scapy.all import Packet, IP, IPv6, TCP, UDP, ARP, Ether, Raw, wrpcap, rdpcap
 
 from keenguard.config import settings
 from keenguard.db.database import db
@@ -313,6 +313,78 @@ def extract_dns_query(pkt: Packet) -> Optional[str]:
         pass
     return None
 
+def extract_http_inspection(pkt: Packet) -> Optional[Dict[str, Any]]:
+    """
+    Extracts unencrypted HTTP request details from raw TCP packets (ports 80, 8080, etc.).
+    Extracts HTTP method, Host, Path, User-Agent, and risk/category classification.
+    """
+    try:
+        if TCP in pkt and Raw in pkt:
+            payload = bytes(pkt[Raw].load)
+            if not payload:
+                return None
+
+            dport = int(pkt[TCP].dport)
+            sport = int(pkt[TCP].sport)
+
+            first_line = payload.split(b"\r\n", 1)[0]
+            verbs = (b"GET ", b"POST ", b"HEAD ", b"PUT ", b"DELETE ", b"OPTIONS ", b"PATCH ")
+            if any(first_line.startswith(v) for v in verbs):
+                parts = first_line.decode("latin1", errors="replace").split()
+                if len(parts) >= 2:
+                    method = parts[0]
+                    path = parts[1]
+
+                    headers_raw = payload.decode("latin1", errors="replace").split("\r\n")
+                    host = ""
+                    user_agent = ""
+                    content_type = ""
+                    for h in headers_raw[1:]:
+                        if not h or h == "\r\n":
+                            break
+                        if ":" in h:
+                            k, v = h.split(":", 1)
+                            k = k.strip().lower()
+                            v = v.strip()
+                            if k == "host":
+                                host = v
+                            elif k == "user-agent":
+                                user_agent = v
+                            elif k == "content-type":
+                                content_type = v
+
+                    category = "Веб-запрос"
+                    path_lower = path.lower()
+                    host_lower = host.lower()
+                    if "ocsp" in host_lower or "ocsp" in path_lower:
+                        category = "OCSP (Проверка отзывов сертификатов)"
+                    elif "crl" in path_lower or ".crl" in path_lower:
+                        category = "CRL (Список отозванных сертификатов)"
+                    elif any(k in path_lower for k in ["update", "firmware", "upgrade", "ota"]):
+                        category = "Обновление ПО / Прошивка"
+                    elif any(k in path_lower for k in ["telemetry", "metrics", "analytic", "log", "beacon", "stat"]):
+                        category = "Телеметрия / Аналитика"
+                    elif any(k in path_lower for k in ["api", "json", "v1", "v2"]):
+                        category = "API / Облачный сервис"
+                    elif any(k in path_lower for k in [".jpg", ".png", ".webp", ".mp4", ".ts", ".m3u8"]):
+                        category = "Медиа-контент"
+
+                    dst_ip = pkt[IP].dst if IP in pkt else ""
+                    return {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "method": method,
+                        "host": host or dst_ip,
+                        "path": path,
+                        "user_agent": user_agent[:120] if user_agent else "—",
+                        "content_type": content_type or "—",
+                        "category": category,
+                        "dst_ip": dst_ip,
+                        "dst_port": dport
+                    }
+    except Exception:
+        pass
+    return None
+
 async def lookup_geoip_online(ip: str) -> Dict[str, str]:
     import httpx
     try:
@@ -365,6 +437,9 @@ class AuditSession:
         self.auto_quarantined = False
         self.suspicious_reasons: List[str] = []
         self.pcap_filename = f"{self.session_id}.pcap"
+        self.capture_source: str = "local_broadcast"
+        self.http_inspections: List[Dict[str, Any]] = []
+        self._hw_capture_active: bool = False
         self._poller_task: Optional[asyncio.Task] = None
 
     def add_packet(self, pkt: Packet):
@@ -379,6 +454,14 @@ class AuditSession:
                 "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
                 "last_seen": datetime.now(timezone.utc).isoformat()
             }
+
+        # Inspect unencrypted HTTP in packet via Scapy
+        http_info = extract_http_inspection(pkt)
+        if http_info:
+            dedup_key = f"{http_info['method']}_{http_info['host']}_{http_info['path']}"
+            if not any(f"{h['method']}_{h['host']}_{h['path']}" == dedup_key for h in self.http_inspections):
+                if len(self.http_inspections) < 100:
+                    self.http_inspections.append(http_info)
 
     def update_nat_entries(self, entries: List[Dict[str, Any]], on_suspicious_callback=None):
         for e in entries:
@@ -502,6 +585,9 @@ class AuditSession:
         if is_hub:
             findings.append("Устройство идентифицировано как Хаб умного дома. Периферийный опрос локальных устройств (CoAP, mDNS, SSDP, UDP 54321) учтен как штатная работа контроллера.")
 
+        if self.http_inspections:
+            findings.append(f"Инспекция пакетов выявила {len(self.http_inspections)} незашифрованных HTTP-запросов (методы, хосты, пути URI).")
+
         if not findings:
             findings.append("Подозрительной активности не выявлено. Все внешние соединения защищены TLS/SSL или стандартным DNS.")
 
@@ -514,6 +600,8 @@ class AuditSession:
                 pcap_saved = True
             except Exception as e:
                 logger.error("Failed to dump audit PCAP: %s", e)
+        elif pcap_path.exists():
+            pcap_saved = True
 
         recommendations = []
         if is_hub:
@@ -540,6 +628,7 @@ class AuditSession:
             "ip": self.ip,
             "hostname": self.hostname,
             "vendor": self.vendor,
+            "capture_source": self.capture_source,
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat(),
             "duration_seconds": elapsed,
@@ -550,6 +639,7 @@ class AuditSession:
             "flows_count": len(self.flows),
             "flows": sorted(list(self.flows.values()), key=lambda x: x["bytes_up"] + x["bytes_down"], reverse=True),
             "dns_queries": list(self.dns_queries.values()),
+            "http_inspections": self.http_inspections,
             "lan_probes": self.lan_probes,
             "risk_level": "critical" if getattr(self, "auto_quarantined", False) else overall_risk,
             "overall_risk": "critical" if getattr(self, "auto_quarantined", False) else overall_risk,
@@ -1064,15 +1154,34 @@ class TrafficAuditManager:
                 device=dev,
                 preset=dev_preset
             )
+
+            # Start Keenetic hardware packet capture if IP is known and capture is supported
+            if session.ip and session.ip != "0.0.0.0":
+                try:
+                    if await keenetic_client.is_packet_capture_supported():
+                        start_res = await keenetic_client.start_packet_capture(
+                            interface="Bridge0",
+                            target_ip=session.ip,
+                            duration_seconds=session.duration_seconds
+                        )
+                        if start_res and start_res.get("status") == "ok":
+                            session.capture_source = "router_hardware"
+                            session._hw_capture_active = True
+                            logger.info("Keenetic hardware capture started for audit %s (%s, IP: %s)", session.session_id, mac, session.ip)
+                except Exception as e:
+                    logger.debug("Failed to start router hardware capture for audit %s: %s", session.session_id, e)
+
             self.active_sessions[mac] = session
             session._poller_task = asyncio.create_task(self._session_loop(session))
 
-            logger.info("Started traffic audit for %s (%s, IP: %s, Profile: %s) for %d sec", hostname, mac, ip, dev_profile, duration_seconds)
+            logger.info("Started traffic audit for %s (%s, IP: %s, Profile: %s, Source: %s) for %d sec",
+                        hostname, mac, ip, dev_profile, session.capture_source, duration_seconds)
             return {
                 "status": "started",
                 "session_id": session.session_id,
                 "mac": mac,
                 "ip": session.ip,
+                "capture_source": session.capture_source,
                 "duration_seconds": duration_seconds
             }
 
@@ -1113,6 +1222,26 @@ class TrafficAuditManager:
                     session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
                 except Exception:
                     pass
+
+            # If hardware capture was active on router, finalize it, download pcap and parse packets
+            if session._hw_capture_active:
+                try:
+                    cap_file = await keenetic_client.stop_packet_capture(interface="Bridge0")
+                    if cap_file:
+                        pcap_dest = settings.pcap_dir / session.pcap_filename
+                        downloaded = await keenetic_client.download_capture_file(cap_file, pcap_dest)
+                        if downloaded and pcap_dest.exists():
+                            try:
+                                rci_pkts = list(rdpcap(str(pcap_dest)))
+                                if rci_pkts:
+                                    for p in rci_pkts:
+                                        session.add_packet(p)
+                                    logger.info("Loaded %d hardware packets from Keenetic for audit %s", len(rci_pkts), session.session_id)
+                            except Exception as pe:
+                                logger.debug("Error parsing downloaded audit PCAP: %s", pe)
+                    await keenetic_client.reset_packet_capture(interface="Bridge0")
+                except Exception as e:
+                    logger.error("Error finalizing router capture for audit session %s: %s", session.session_id, e)
 
             report = session.generate_report()
 
