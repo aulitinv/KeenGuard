@@ -390,6 +390,17 @@ async def save_app_settings(s: SettingsUpdate):
         await db.save_setting("iot_payload_retention_days", str(settings.iot_payload_retention_days))
         create_tracked_task(db.prune_iot_payloads())
 
+    # Synchronize in-memory reactive config_service cache and notify subscribers
+    try:
+        from keenguard.core.config_service import config_service
+        for field_name in s.model_dump(exclude_unset=True).keys():
+            if hasattr(settings, field_name):
+                val = getattr(settings, field_name)
+                config_service._cache[field_name] = val
+                config_service._notify(field_name, val)
+    except Exception as ex:
+        logger.debug("Failed to sync config_service cache: %s", ex)
+
     if router_creds_changed:
         keenetic_client.base_url = f"{keenetic_client.schema}://{keenetic_client.host}:{keenetic_client.port}"
         auth_res = await keenetic_client.authenticate()
@@ -519,6 +530,15 @@ async def save_iot_storage_settings(body: Dict[str, Any] = Body(...)):
     if "capture_enabled" in body and body["capture_enabled"] is not None:
         settings.iot_payload_capture_enabled = bool(body["capture_enabled"])
         await db.save_setting("iot_payload_capture_enabled", "true" if settings.iot_payload_capture_enabled else "false")
+
+    try:
+        from keenguard.core.config_service import config_service
+        for key in ("iot_payload_max_storage_gb", "iot_payload_retention_days", "iot_payload_capture_enabled"):
+            val = getattr(settings, key)
+            config_service._cache[key] = val
+            config_service._notify(key, val)
+    except Exception as ex:
+        logger.debug("Failed to sync config_service cache for iot storage: %s", ex)
 
     create_tracked_task(db.prune_iot_payloads())
     stats = await db.get_iot_storage_stats()

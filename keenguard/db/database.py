@@ -600,6 +600,32 @@ class Database:
                 return row[0]
             return default
 
+    async def get_all_settings(self) -> Dict[str, str]:
+        """Returns all key-value pairs from app_settings in a single query."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute("SELECT key, value FROM app_settings")
+            rows = await cursor.fetchall()
+            return {r[0]: r[1] for r in rows}
+
+    async def set_settings_bulk(self, settings_dict: Dict[str, Any]) -> None:
+        """Saves multiple settings to app_settings in a single transaction."""
+        if not settings_dict:
+            return
+        items = []
+        for k, v in settings_dict.items():
+            if isinstance(v, (dict, list)):
+                str_v = json.dumps(v, ensure_ascii=False)
+            elif isinstance(v, bool):
+                str_v = "true" if v else "false"
+            elif v is None:
+                str_v = ""
+            else:
+                str_v = str(v)
+            items.append((k, str_v))
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.executemany("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", items)
+            await conn.commit()
+
     async def save_new_device_policies(self, mode: str, policies: Dict[str, Any]):
         await self.save_setting("new_device_policy_mode", mode)
         await self.save_setting("new_device_category_policies", json.dumps(policies, ensure_ascii=False))

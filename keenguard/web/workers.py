@@ -472,6 +472,7 @@ async def lifespan(app: FastAPI):
     db = get_db()
     keenetic_client = get_keenetic_client()
     sniffer = get_sniffer()
+    audit_manager = get_audit_manager()
 
     await db.init_db()
     await domain_analyzer.load_custom_rules_and_signatures()
@@ -510,174 +511,9 @@ async def lifespan(app: FastAPI):
     else:
         await router_health.update_status(connected=False, error=auth_res.get("message"))
 
-    # 3. Load Telegram settings from DB / sync with .env
-    saved_tg_token = await db.get_setting("telegram_bot_token")
-    if saved_tg_token:
-        settings.telegram_bot_token = saved_tg_token
-    elif settings.telegram_bot_token and not saved_tg_token:
-        await db.save_setting("telegram_bot_token", settings.telegram_bot_token)
-
-    saved_tg_chat = await db.get_setting("telegram_chat_id")
-    if saved_tg_chat:
-        settings.telegram_chat_id = saved_tg_chat
-    elif settings.telegram_chat_id and not saved_tg_chat:
-        await db.save_setting("telegram_chat_id", settings.telegram_chat_id)
-
-    saved_tg_enabled = await db.get_setting("telegram_enabled")
-    if saved_tg_enabled is not None:
-        settings.telegram_enabled = saved_tg_enabled.lower() in ("true", "1")
-    saved_tg_url = await db.get_setting("telegram_api_url")
-    if saved_tg_url:
-        settings.telegram_api_url = saved_tg_url
-    saved_tg_proxy = await db.get_setting("telegram_proxy")
-    if saved_tg_proxy is not None:
-        settings.telegram_proxy = saved_tg_proxy.strip() or None
-
-    # 4. Load New Device Policy settings from DB
-    saved_new_dev = await db.get_setting("new_device_action")
-    if saved_new_dev:
-        settings.new_device_action = saved_new_dev
-    saved_dev_quar = await db.get_setting("new_device_quarantine_wan")
-    if saved_dev_quar is not None:
-        settings.new_device_quarantine_wan = saved_dev_quar.lower() in ("true", "1")
-    saved_dev_iso = await db.get_setting("new_device_isolate_lan")
-    if saved_dev_iso is not None:
-        settings.new_device_isolate_lan = saved_dev_iso.lower() in ("true", "1")
-    saved_dev_audit = await db.get_setting("new_device_auto_audit")
-    if saved_dev_audit is not None:
-        settings.new_device_auto_audit = saved_dev_audit.lower() in ("true", "1")
-    saved_dev_dur = await db.get_setting("new_device_audit_duration")
-    if saved_dev_dur:
-        try:
-            settings.new_device_audit_duration = int(saved_dev_dur)
-        except ValueError:
-            pass
-
-    # 5. Load Digest settings from DB
-    saved_digest_en = await db.get_setting("digest_enabled")
-    if saved_digest_en is not None:
-        settings.digest_enabled = saved_digest_en.lower() in ("true", "1")
-    saved_digest_cond = await db.get_setting("digest_condition")
-    if saved_digest_cond:
-        settings.digest_condition = saved_digest_cond
-    saved_digest_hour = await db.get_setting("digest_schedule_hour")
-    if saved_digest_hour:
-        try:
-            settings.digest_schedule_hour = int(saved_digest_hour)
-        except ValueError:
-            pass
-
-    # 6. Load Scheduled Audit settings from DB
-    saved_sa_en = await db.get_setting("scheduled_audit_enabled")
-    if saved_sa_en is not None:
-        settings.scheduled_audit_enabled = saved_sa_en.lower() in ("true", "1")
-    saved_sa_hour = await db.get_setting("scheduled_audit_hour")
-    if saved_sa_hour:
-        try:
-            settings.scheduled_audit_hour = int(saved_sa_hour)
-        except ValueError:
-            pass
-    saved_sa_scope = await db.get_setting("scheduled_audit_scope")
-    if saved_sa_scope:
-        settings.scheduled_audit_scope = saved_sa_scope
-    saved_sa_dur = await db.get_setting("scheduled_audit_duration")
-    if saved_sa_dur:
-        try:
-            settings.scheduled_audit_duration = int(saved_sa_dur)
-        except ValueError:
-            pass
-
-    saved_policy_mode = await db.get_setting("new_device_policy_mode")
-    if saved_policy_mode:
-        settings.new_device_policy_mode = saved_policy_mode
-    saved_cat_pols = await db.get_setting("new_device_category_policies")
-    if saved_cat_pols:
-        try:
-            settings.new_device_category_policies = json.loads(saved_cat_pols)
-        except Exception:
-            pass
-    saved_auto_quar = await db.get_setting("audit_auto_quarantine_suspicious")
-    if saved_auto_quar is not None:
-        settings.audit_auto_quarantine_suspicious = saved_auto_quar.lower() in ("true", "1")
-
-    # 7. Load Night Mode hours from DB
-    saved_night_start = await db.get_setting("night_mode_start_hour")
-    if saved_night_start is not None:
-        try:
-            settings.night_mode_start_hour = int(saved_night_start)
-        except ValueError:
-            pass
-    saved_night_end = await db.get_setting("night_mode_end_hour")
-    if saved_night_end is not None:
-        try:
-            settings.night_mode_end_hour = int(saved_night_end)
-        except ValueError:
-            pass
-
-    saved_tv_pre = await db.get_setting("tv_wake_pre_record_seconds")
-    if saved_tv_pre is not None:
-        try:
-            settings.tv_wake_pre_record_seconds = int(saved_tv_pre)
-        except ValueError:
-            pass
-    saved_tv_post = await db.get_setting("tv_wake_post_record_seconds")
-    if saved_tv_post is not None:
-        try:
-            settings.tv_wake_post_record_seconds = int(saved_tv_post)
-        except ValueError:
-            pass
-
-    # 8. Load IoT Payload storage settings from DB
-    saved_iot_cap = await db.get_setting("iot_payload_capture_enabled")
-    if saved_iot_cap is not None:
-        settings.iot_payload_capture_enabled = saved_iot_cap.lower() in ("true", "1")
-    saved_iot_gb = await db.get_setting("iot_payload_max_storage_gb")
-    if saved_iot_gb is not None:
-        try:
-            settings.iot_payload_max_storage_gb = float(saved_iot_gb)
-        except ValueError:
-            pass
-    saved_iot_days = await db.get_setting("iot_payload_retention_days")
-    if saved_iot_days is not None:
-        try:
-            settings.iot_payload_retention_days = int(saved_iot_days)
-        except ValueError:
-            pass
-
-    # 9. Load fine-grained network security settings
-    saved_tv_day = await db.get_setting("tv_day_tracking_mode")
-    if saved_tv_day:
-        settings.tv_day_tracking_mode = saved_tv_day
-    saved_tv_ttl = await db.get_setting("tv_wake_trigger_ttl_seconds")
-    if saved_tv_ttl:
-        try:
-            settings.tv_wake_trigger_ttl_seconds = int(saved_tv_ttl)
-        except ValueError:
-            pass
-    saved_cam_wan = await db.get_setting("camera_notify_wan_stream")
-    if saved_cam_wan is not None:
-        settings.camera_notify_wan_stream = saved_cam_wan.lower() in ("true", "1")
-    saved_cam_lan = await db.get_setting("camera_notify_lan_stream")
-    if saved_cam_lan is not None:
-        settings.camera_notify_lan_stream = saved_cam_lan.lower() in ("true", "1")
-    saved_quar_scope = await db.get_setting("auto_quarantine_scope")
-    if saved_quar_scope:
-        settings.auto_quarantine_scope = saved_quar_scope
-    saved_mac_conf = await db.get_setting("mac_conflict_detection_enabled")
-    if saved_mac_conf is not None:
-        settings.mac_conflict_detection_enabled = saved_mac_conf.lower() in ("true", "1")
-    saved_dedup_win = await db.get_setting("notification_dedup_window_seconds")
-    if saved_dedup_win:
-        try:
-            settings.notification_dedup_window_seconds = int(saved_dedup_win)
-        except ValueError:
-            pass
-    saved_cam_thresh = await db.get_setting("camera_upload_threshold_kbps")
-    if saved_cam_thresh is not None:
-        try:
-            settings.camera_upload_threshold_kbps = float(saved_cam_thresh)
-        except ValueError:
-            pass
+    # 3. Synchronize all settings via reactive ConfigService (SQLite > .env > Pydantic defaults)
+    from keenguard.core.config_service import config_service
+    await config_service.initialize(database=db)
 
     # Wire Traffic Audit Guard callback for suspicious device auto-quarantine
     async def on_audit_suspicious_device(mac: str, ip: str, hostname: str, reason: str):
@@ -707,28 +543,7 @@ async def lifespan(app: FastAPI):
         except Exception as ex:
             logger.error("Error executing audit auto-quarantine for %s: %s", mac, ex)
 
-    # 10. Load DNS Security Provider settings from DB / sync with settings
-    saved_dns_prov = await db.get_setting("dns_security_provider")
-    if saved_dns_prov:
-        settings.dns_security_provider = saved_dns_prov
-    saved_dns_interval = await db.get_setting("dns_security_sync_interval")
-    if saved_dns_interval:
-        try:
-            settings.dns_security_sync_interval = int(saved_dns_interval)
-        except ValueError:
-            pass
-    saved_dns_auto = await db.get_setting("dns_security_auto_sync")
-    if saved_dns_auto is not None:
-        settings.dns_security_auto_sync = saved_dns_auto.lower() in ("true", "1")
-    for key in [
-        "nextdns_api_key", "nextdns_profile_id",
-        "controld_api_key", "controld_device_id",
-        "adguard_url", "adguard_username", "adguard_password",
-        "pihole_url", "pihole_api_token", "pihole_password"
-    ]:
-        val = await db.get_setting(key)
-        if val:
-            setattr(settings, key, val)
+    audit_manager.on_suspicious_device = on_audit_suspicious_device
 
     # 11. Start services
     global _poller_running, _poller_task

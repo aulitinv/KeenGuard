@@ -303,3 +303,43 @@ class AnomalyDetector:
             await self.db.record_event(event)
 
 anomaly_detector = AnomalyDetector()
+
+
+def _on_anomaly_config_change(key: str, value: Any) -> None:
+    if key == "camera_upload_threshold_kbps" and value is not None:
+        try:
+            anomaly_detector.camera_upload_threshold_kbps = float(value)
+        except (ValueError, TypeError):
+            pass
+    elif key == "notification_dedup_window_seconds" and value is not None:
+        try:
+            anomaly_detector.notification_dedup_window_seconds = int(value)
+        except (ValueError, TypeError):
+            pass
+    elif key == "mac_conflict_detection_enabled" and value is not None:
+        anomaly_detector.mac_conflict_detection_enabled = bool(value)
+    elif key == "iot_packet_rate_threshold" and value is not None:
+        try:
+            anomaly_detector.iot_packet_rate_threshold = int(value)
+        except (ValueError, TypeError):
+            pass
+    elif key == "lan_scan_threshold" and value is not None:
+        try:
+            anomaly_detector.lan_scan_threshold = int(value)
+        except (ValueError, TypeError):
+            pass
+
+
+try:
+    from keenguard.core.config_service import config_service
+    for _k in (
+        "camera_upload_threshold_kbps",
+        "notification_dedup_window_seconds",
+        "mac_conflict_detection_enabled",
+        "iot_packet_rate_threshold",
+        "lan_scan_threshold",
+    ):
+        config_service.subscribe(_k, _on_anomaly_config_change)
+except ImportError:
+    pass
+

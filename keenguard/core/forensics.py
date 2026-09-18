@@ -293,3 +293,25 @@ class ForensicsEngine:
                 logger.debug("Failed to dispatch TV wake alert to Telegram: %s", e)
 
 forensics = ForensicsEngine()
+
+
+def _on_forensics_config_change(key: str, value: Any) -> None:
+    if key == "night_mode_start_hour" and value is not None:
+        try:
+            forensics.night_mode_start_hour = int(value)
+        except (ValueError, TypeError):
+            pass
+    elif key == "night_mode_end_hour" and value is not None:
+        try:
+            forensics.night_mode_end_hour = int(value)
+        except (ValueError, TypeError):
+            pass
+
+
+try:
+    from keenguard.core.config_service import config_service
+    config_service.subscribe("night_mode_start_hour", _on_forensics_config_change)
+    config_service.subscribe("night_mode_end_hour", _on_forensics_config_change)
+except ImportError:
+    pass
+
