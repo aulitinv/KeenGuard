@@ -29,7 +29,7 @@ from keenguard.core.notifier import notifier
 from keenguard.core.digest import digest_generator
 from keenguard.core.scheduler import scheduler
 from keenguard.core.dns_tracker import dns_tracker, LOCAL_PREFIXES
-from keenguard.core.domain_analyzer import domain_analyzer
+from keenguard.core.domain_analyzer import domain_analyzer, TV_BRAND_PRESETS, detect_tv_brand, get_tv_brand_presets
 from keenguard.core.checklist import SecurityChecklistEvaluator
 from keenguard.core.lan_tracker import lan_tracker
 from keenguard.core.dissector import PacketDissector
@@ -2494,8 +2494,14 @@ async def clear_dns_queries_api(
 class DnsSinkholeRequest(BaseModel):
     domain: str
 
+class DnsSinkholeToggleRequest(BaseModel):
+    domain: str
+    block: bool
+    save_config: bool = True
+
 class DnsSinkholePresetRequest(BaseModel):
-    preset: str  # "ads" | "tv_telemetry"
+    preset: str  # "ads" | "tv_telemetry" | "tv_lg" | "tv_samsung" | "tv_android_google" | "tv_xiaomi" | "tv_apple"
+    save_config: bool = True
 
 class BlockSelectedSinkholeRequest(BaseModel):
     domains: List[str]
@@ -2665,8 +2671,22 @@ async def unblock_dns_sinkhole_api(req: DnsSinkholeRequest):
 async def block_dns_preset_api(req: DnsSinkholePresetRequest):
     """Applies a 1-click curated sinkhole preset (ads or tv_telemetry)."""
     preset = req.preset.lower().strip()
+    if preset in TV_BRAND_PRESETS:
+        target_domains = [item["domain"] for item in TV_BRAND_PRESETS[preset]["domains"]]
+        blocked, failed = await keenetic_client.add_dns_sinkholes(target_domains)
+        await ws_manager.broadcast({"type": "dns_preset_applied", "preset": preset, "count": len(blocked)})
+        return {
+            "status": "ok" if not failed else ("partial" if blocked else "error"),
+            "preset": preset,
+            "blocked_count": len(blocked),
+            "failed_count": len(failed),
+            "domains": blocked,
+            "message": f"Пресет '{TV_BRAND_PRESETS[preset]['name']}' применен: заблокировано {len(blocked)} доменов на Keenetic"
+        }
+
     if preset not in ("ads", "tv_telemetry"):
-        raise HTTPException(status_code=400, detail="Поддерживаемые пресеты: 'ads', 'tv_telemetry'")
+        valid_options = ["ads", "tv_telemetry"] + list(TV_BRAND_PRESETS.keys())
+        raise HTTPException(status_code=400, detail=f"Поддерживаемые пресеты: {', '.join(valid_options)}")
 
     all_entries = await db.get_all_dns_domains()
     candidates = set()
@@ -2710,6 +2730,151 @@ async def unblock_all_dns_sinkholes_api():
         "domains": unblocked,
         "message": f"Разблокировано {len(unblocked)} доменов на Keenetic"
     }
+
+
+# --- Smart TV Brand Presets Endpoints (0.0.0.0 DNS Sinkhole on Keenetic) ---
+
+@app.get("/api/tv/brand_presets")
+async def get_tv_brand_presets_api():
+    """
+    Returns curated Smart TV brand presets (LG, Samsung, Android/Google TV, Xiaomi, Apple TV)
+    enriched with active router sinkhole statuses, detected TV devices in LAN, and ACR hints.
+    """
+    try:
+        active_sinkholes = set(await keenetic_client.get_active_sinkholes())
+    except Exception as e:
+        logger.debug("Error reading active sinkholes: %s", e)
+        active_sinkholes = set()
+
+    presets = get_tv_brand_presets(active_sinkholes=active_sinkholes)
+
+    # Detect TVs present in network
+    all_devices = await db.get_all_devices()
+    detected_devices_by_brand = {p["id"]: [] for p in presets}
+    suggested_brand = None
+
+    for dev in all_devices:
+        brand_id = detect_tv_brand(dev)
+        if brand_id and brand_id in detected_devices_by_brand:
+            detected_devices_by_brand[brand_id].append({
+                "mac": dev.get("mac"),
+                "ip": dev.get("ip"),
+                "hostname": dev.get("hostname"),
+                "custom_name": dev.get("custom_name"),
+                "vendor": dev.get("vendor"),
+                "profile": dev.get("profile"),
+                "is_online": dev.get("is_online", False)
+            })
+            if not suggested_brand and dev.get("profile") == "smart_tv":
+                suggested_brand = brand_id
+
+    # If no smart_tv profile matched suggested_brand, pick the first brand with detected device
+    if not suggested_brand:
+        for p in presets:
+            if detected_devices_by_brand[p["id"]]:
+                suggested_brand = p["id"]
+                break
+
+    for p in presets:
+        p["detected_devices"] = detected_devices_by_brand[p["id"]]
+
+    return {
+        "status": "ok",
+        "presets": presets,
+        "suggested_brand": suggested_brand or "tv_lg",
+        "active_sinkholes_count": len(active_sinkholes),
+        "streaming_ads_note": (
+            "Потоковая видеореклама (YouTube, RuTube, Кинопоиск, Иви) раздается с тех же видео-серверов CDN, "
+            "что и сам контент фильма. Блокировка по DNS не может удалить её без нарушения воспроизведения видео. "
+            "Для Smart TV на Android используйте приложение SmartTube; для браузеров ПК — uBlock Origin."
+        )
+    }
+
+
+@app.post("/api/tv/sinkhole/block_preset")
+async def block_tv_preset_api(req: DnsSinkholePresetRequest):
+    """Batch blocks all domains of a specific Smart TV brand preset on Keenetic (0.0.0.0)."""
+    preset_id = req.preset.lower().strip()
+    if preset_id not in TV_BRAND_PRESETS:
+        raise HTTPException(status_code=400, detail=f"Неизвестный пресет ТВ: {req.preset}")
+
+    target_domains = [item["domain"] for item in TV_BRAND_PRESETS[preset_id]["domains"]]
+    blocked, failed = await keenetic_client.add_dns_sinkholes(target_domains)
+
+    await ws_manager.broadcast({
+        "type": "dns_sinkhole_updated",
+        "preset": preset_id,
+        "action": "preset_blocked",
+        "blocked_count": len(blocked),
+        "failed_count": len(failed)
+    })
+    return {
+        "status": "ok" if not failed else ("partial" if blocked else "error"),
+        "preset": preset_id,
+        "blocked": blocked,
+        "failed": failed,
+        "count": len(blocked),
+        "message": f"Пресет '{TV_BRAND_PRESETS[preset_id]['name']}' применен: заблокировано {len(blocked)} доменов (0.0.0.0)"
+    }
+
+
+@app.post("/api/tv/sinkhole/unblock_preset")
+async def unblock_tv_preset_api(req: DnsSinkholePresetRequest):
+    """Batch unblocks all domains of a specific Smart TV brand preset on Keenetic."""
+    preset_id = req.preset.lower().strip()
+    if preset_id not in TV_BRAND_PRESETS:
+        raise HTTPException(status_code=400, detail=f"Неизвестный пресет ТВ: {req.preset}")
+
+    target_domains = [item["domain"] for item in TV_BRAND_PRESETS[preset_id]["domains"]]
+    unblocked, failed = await keenetic_client.remove_dns_sinkholes(target_domains)
+
+    await ws_manager.broadcast({
+        "type": "dns_sinkhole_updated",
+        "preset": preset_id,
+        "action": "preset_unblocked",
+        "unblocked_count": len(unblocked),
+        "failed_count": len(failed)
+    })
+    return {
+        "status": "ok" if not failed else ("partial" if unblocked else "error"),
+        "preset": preset_id,
+        "unblocked": unblocked,
+        "failed": failed,
+        "count": len(unblocked),
+        "message": f"Пресет '{TV_BRAND_PRESETS[preset_id]['name']}' разблокирован: удалено {len(unblocked)} правил"
+    }
+
+
+@app.post("/api/tv/sinkhole/toggle")
+async def toggle_tv_sinkhole_domain_api(req: DnsSinkholeToggleRequest):
+    """Toggles a single domain 0.0.0.0 sinkhole rule on Keenetic."""
+    clean_d = req.domain.lower().strip().strip(".")
+    if not clean_d or "." not in clean_d:
+        raise HTTPException(status_code=400, detail="Некорректное доменное имя")
+
+    if req.block:
+        success = await keenetic_client.add_dns_sinkhole(clean_d)
+        action = "blocked"
+    else:
+        success = await keenetic_client.remove_dns_sinkhole(clean_d)
+        action = "unblocked"
+
+    if success:
+        await ws_manager.broadcast({
+            "type": "dns_sinkhole_updated",
+            "domain": clean_d,
+            "action": action
+        })
+        return {
+            "status": "ok",
+            "domain": clean_d,
+            "action": action,
+            "is_active": req.block,
+            "message": f"Домен {clean_d} {'заблокирован (0.0.0.0)' if req.block else 'разблокирован'} на Keenetic"
+        }
+    else:
+        raise HTTPException(status_code=500, detail=f"Не удалось изменить правило для {clean_d} на роутере")
+
 
 # --- Traffic Monitoring & Charts Endpoints ---
 @app.get("/api/devices/{mac}/traffic")

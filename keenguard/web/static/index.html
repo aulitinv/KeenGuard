@@ -1417,6 +1417,94 @@
                 </div>
             </div>
 
+            <!-- Smart TV Brand DNS Sinkhole Presets Card -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-6">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="shield-alert" class="w-5 h-5 text-indigo-400"></i>
+                            <h3 class="text-base font-bold text-slate-100">Аппаратные пресеты блокировки Smart TV (0.0.0.0 DNS Sinkhole)</h3>
+                            <span id="tv-sinkholes-total-badge" class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">0 активных правил</span>
+                        </div>
+                        <p class="text-xs text-slate-400 max-w-3xl">
+                            Блокировка трекеров, фоновой аналитики и системных баннеров на уровне встроенного DNS-сервера Keenetic (<code class="text-indigo-300">ip host 0.0.0.0</code>). Запросы блокируются аппаратно без выхода в интернет.
+                        </p>
+                    </div>
+                    <!-- Global Actions -->
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <button type="button" onclick="blockSelectedTvBrandPreset()" id="btn-block-tv-brand-preset" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center space-x-1.5 shadow-sm">
+                            <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                            <span id="btn-block-tv-brand-label">Заблокировать трекеры бренда (0.0.0.0)</span>
+                        </button>
+                        <button type="button" onclick="unblockSelectedTvBrandPreset()" id="btn-unblock-tv-brand-preset" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center space-x-1.5 border border-slate-700">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                            <span>Разблокировать всё</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Brand Selector Tabs -->
+                <div class="flex items-center space-x-2 border-b border-slate-800 overflow-x-auto pb-2" id="tv-brand-preset-tabs">
+                    <!-- Loaded dynamically via loadTvBrandPresets() -->
+                </div>
+
+                <!-- Active Brand Info & Remote Hint Banner -->
+                <div id="tv-brand-preset-details" class="space-y-4">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Per-domain list table -->
+                <div class="overflow-x-auto rounded-xl border border-slate-800">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-surface-950/80 text-slate-400 font-semibold uppercase text-[11px] border-b border-slate-800">
+                            <tr>
+                                <th class="py-3 px-4">Домен трекера</th>
+                                <th class="py-3 px-4">Назначение и влияние</th>
+                                <th class="py-3 px-4">Категория</th>
+                                <th class="py-3 px-4 text-center">Статус роутера</th>
+                                <th class="py-3 px-4 text-right">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tv-brand-preset-domains-tbody" class="divide-y divide-slate-800/60 font-sans">
+                            <tr>
+                                <td colspan="5" class="py-8 text-center text-slate-500 italic">Загрузка каталога пресетов...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Realism Guidance & Solutions Helper (AGENTS.md & User Comment) -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div class="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2">
+                        <div class="flex items-center space-x-2 text-amber-400 font-semibold text-xs">
+                            <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+                            <span>Почему видеореклама (YouTube / Иви) не блокируется по DNS?</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 leading-relaxed">
+                            Рекламные ролики раздаются с тех же мультимедийных CDN-серверов, что и сам фильм. Блокировка домена CDN оборвет показ всего видео.
+                        </p>
+                        <div class="pt-1 text-[11px] text-indigo-300 flex items-start space-x-1.5">
+                            <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5"></i>
+                            <span><b>Инженерное решение</b>: Для Android TV используйте открытый плеер <b>SmartTube</b> (без рекламы); для ПК и смартфонов — расширение <b>uBlock Origin</b>.</span>
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2">
+                        <div class="flex items-center space-x-2 text-cyan-400 font-semibold text-xs">
+                            <i data-lucide="shield" class="w-4 h-4 shrink-0"></i>
+                            <span>Защита от обхода DNS через зашитый DoH / DoT (порт 853)</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 leading-relaxed">
+                            Некоторые приставки (Chromecast) и ТВ могут обращаться напрямую к <code class="text-slate-300">8.8.8.8</code> или использовать зашифрованный порт 853.
+                        </p>
+                        <div class="pt-1 text-[11px] text-indigo-300 flex items-start space-x-1.5">
+                            <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5"></i>
+                            <span><b>Инженерное решение</b>: На Keenetic в меню «Сетевые правила» → «Межсетевой экран» запретите порт <b>TCP/UDP 853</b> для телевизора и настройте перехват DNS на порту 53.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Forensics Events & PCAPs -->
             <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5">
                 <div class="flex items-center justify-between mb-4">

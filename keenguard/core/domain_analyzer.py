@@ -274,6 +274,34 @@ KNOWN_DOMAIN_RULES: List[Tuple[str, str, str, str, str]] = [
     ("azure.com", "cdn_media", "Microsoft Azure", "Облачные вычисления и инфраструктура Microsoft Azure", "safe"),
     ("your-server.de", "cdn_media", "Hetzner Online", "Дата-центры и серверный хостинг Hetzner Online", "safe"),
 
+    # --- Smart TV Telemetry & Ad Trackers ---
+    ("emp.lgsmartad.com", "advertising", "LG webOS Ad Server", "Сервер баннеров LG webOS Ad Server", "ad"),
+    ("lgtvcommon.com", "telemetry", "LG Cloud Gateway", "LG Cloud Gateway (сбор логов и диагностика)", "telemetry"),
+    ("smartshare.lgtvsdp.com", "telemetry", "LG SDP Platform", "LG SDP Platform (фоновая телеметрия сервисов)", "telemetry"),
+    ("ibs.lgappstv.com", "telemetry", "LG App Store Analytics", "LG App Store Analytics (трекинг кликов и приложений)", "telemetry"),
+    ("rdx2.lgtvsdp.com", "telemetry", "LG Live Plus (ACR)", "LG Live Plus / ACR (распознавание контента)", "telemetry"),
+    ("ad.lgappstv.com", "advertising", "LG Content Store Ads", "LG Content Store Ads (реклама в каталоге)", "ad"),
+    ("aic.lgtvcommon.com", "telemetry", "LG ThinQ Voice Analytics", "LG AI ThinQ Voice Analytics (поведенческий профиль)", "telemetry"),
+    ("ngfts.lge.com", "telemetry", "LG Smart TV Telemetry", "Сбор телеметрии и краш-репортов LG Smart TV", "telemetry"),
+    ("samsungacr.com", "telemetry", "Samsung ACR", "Система автоматического распознавания контента Samsung Smart TV", "telemetry"),
+    ("samsungads.com", "advertising", "Samsung Ads", "Платформа таргетированной рекламы Samsung Ads", "ad"),
+    ("samsungcloudplatform.com", "telemetry", "Samsung Cloud Platform", "Облачная телеметрия сервисов платформы Samsung", "telemetry"),
+    ("log-config.samsungcloud.com", "telemetry", "Samsung Log Config", "Динамическая конфигурация сбора логов Samsung", "telemetry"),
+    ("config.samsungcloud.com", "telemetry", "Samsung Config", "Удаленная настройка параметров трекинга", "telemetry"),
+    ("samsungcloudsolution.com", "telemetry", "Samsung Smart TV", "Служба телеметрии и обновлений Samsung Smart TV", "telemetry"),
+    ("samsungqbe.com", "telemetry", "Samsung TV Telemetry", "Сбор диагностических данных телевизоров Samsung", "telemetry"),
+    ("gpm.samsungqbe.com", "telemetry", "Samsung QBE Metrics", "Samsung QBE Metrics (метрики системных процессов)", "telemetry"),
+    ("adservice.google.com", "advertising", "Google AdService", "Рекламный сервис Google AdService", "ad"),
+    ("pagead2.googlesyndication.com", "advertising", "Google AdSense", "Показ контекстной рекламы Google AdSense", "ad"),
+    ("ad.xiaomi.com", "advertising", "Xiaomi PatchWall Ads", "Рекламные карточки и промо в оболочке PatchWall", "ad"),
+    ("tracking.miui.com", "telemetry", "Xiaomi MIUI", "Сбор телеметрии оболочки MIUI и устройств Xiaomi", "telemetry"),
+    ("data.mistat.xiaomi.com", "telemetry", "Xiaomi MiStat", "Статистика использования и аналитика приложений Xiaomi", "telemetry"),
+    ("api.ad.xiaomi.com", "advertising", "Xiaomi Ad Engine", "API персонализированной рекламы Xiaomi", "ad"),
+    ("o2o.api.xiaomi.com", "telemetry", "Xiaomi O2O Recommendations", "Сервер товарных рекомендаций и таргетинга Xiaomi", "telemetry"),
+    ("metrics.apple.com", "telemetry", "Apple Diagnostics Metrics", "Системная диагностическая телеметрия Apple", "telemetry"),
+    ("notes-analytics-events.apple.com", "telemetry", "Apple Analytics Events", "Сбор событий аналитики и взаимодействий", "telemetry"),
+    ("xp.apple.com", "telemetry", "Apple App Store XP", "Аналитика переходов и покупок в App Store", "telemetry"),
+
     # --- High Risk & Suspicious ---
     ("exampleadultsite.com", "suspicious", "Adult / Test", "Тестовый домен контента 18+ для проверки родительского контроля", "danger"),
     ("russianbridesnetwork.com", "suspicious", "Dating / Spambot", "Подозрительный спам-домен или хост генерации трафика", "danger"),
@@ -293,6 +321,192 @@ HEURISTIC_TOKENS: List[Tuple[re.Pattern, str, str, str, str]] = [
 
 
 SINKHOLE_IPS = {"0.0.0.0", "127.0.0.1", "::", "::1", "0.0.0.0/0"}
+
+
+# Smart TV Brand DNS Sinkhole Presets
+TV_BRAND_PRESETS: Dict[str, Dict[str, Any]] = {
+    "tv_lg": {
+        "id": "tv_lg",
+        "name": "LG webOS Smart TV",
+        "icon": "tv",
+        "keywords": ["lg", "oled", "webos", "lg electronics", "smarttv", "lg_smart_tv"],
+        "manual_hint": (
+            "На пульте Magic Remote: Настройки (шестерёнка) → Все настройки → Поддержка → "
+            "Дополнительные настройки → «Live Plus» (отключить). Затем «Условия конфиденциальности» → "
+            "отключить «Персонализированная реклама» и «Просмотр телепередач/голосовая информация»."
+        ),
+        "doh_remedy_hint": (
+            "Для блокировки зашитого DoT (DNS-over-TLS) на порту 853 добавьте в Keenetic правило: "
+            "Запретить TCP/UDP 853 для IP вашего телевизора LG."
+        ),
+        "domains": [
+            {"domain": "emp.lgsmartad.com", "name": "LG Ad Server", "category": "advertising", "risk": "ad", "description": "Сервер баннеров LG webOS Ad Server"},
+            {"domain": "lgtvcommon.com", "name": "LG Cloud Gateway", "category": "telemetry", "risk": "telemetry", "description": "LG Cloud Gateway (сбор логов и диагностика)"},
+            {"domain": "smartshare.lgtvsdp.com", "name": "LG SDP Platform", "category": "telemetry", "risk": "telemetry", "description": "LG SDP Platform (фоновая телеметрия сервисов)"},
+            {"domain": "ibs.lgappstv.com", "name": "LG App Store Analytics", "category": "telemetry", "risk": "telemetry", "description": "LG App Store Analytics (трекинг кликов и приложений)"},
+            {"domain": "rdx2.lgtvsdp.com", "name": "LG Live Plus (ACR)", "category": "telemetry", "risk": "telemetry", "description": "LG Live Plus / ACR (распознавание контента)"},
+            {"domain": "ad.lgappstv.com", "name": "LG Content Store Ads", "category": "advertising", "risk": "ad", "description": "LG Content Store Ads (реклама в каталоге)"},
+            {"domain": "aic.lgtvcommon.com", "name": "LG ThinQ Voice Analytics", "category": "telemetry", "risk": "telemetry", "description": "LG AI ThinQ Voice Analytics (поведенческий профиль)"},
+            {"domain": "ngfts.lge.com", "name": "LG Crash & Diagnostics", "category": "telemetry", "risk": "telemetry", "description": "LG Crash & Diagnostics (сбор дампов и краш-репортов)"},
+        ]
+    },
+    "tv_samsung": {
+        "id": "tv_samsung",
+        "name": "Samsung Tizen Smart TV",
+        "icon": "monitor",
+        "keywords": ["samsung", "tizen", "smart hub", "samsung electronics", "sec_"],
+        "manual_hint": (
+            "На пульте Samsung: Настройки → Все настройки → Общие и конфиденциальность → "
+            "Условия и положения → Снять галочки с: «Службы распознавания контента (ACR)», "
+            "«Служба голосового распознавания» и «Реклама на основе интересов»."
+        ),
+        "doh_remedy_hint": (
+            "Samsung Tizen может использовать DoH/DoT. Заблокируйте исходящий порт 853 для Samsung TV "
+            "в настройках сетевых правил Keenetic."
+        ),
+        "domains": [
+            {"domain": "samsungacr.com", "name": "Samsung ACR Engine", "category": "telemetry", "risk": "telemetry", "description": "Samsung ACR (распознавание эфира и передач в реальном времени)"},
+            {"domain": "samsungads.com", "name": "Samsung Ads", "category": "advertising", "risk": "ad", "description": "Платформа таргетированной рекламы Samsung Ads"},
+            {"domain": "samsungcloudplatform.com", "name": "Samsung Cloud Platform", "category": "telemetry", "risk": "telemetry", "description": "Облачная телеметрия сервисов платформы Samsung"},
+            {"domain": "log-config.samsungcloud.com", "name": "Samsung Log Config", "category": "telemetry", "risk": "telemetry", "description": "Динамическая конфигурация сбора логов Samsung"},
+            {"domain": "config.samsungcloud.com", "name": "Samsung Config", "category": "telemetry", "risk": "telemetry", "description": "Удаленная настройка параметров трекинга"},
+            {"domain": "samsungcloudsolution.com", "name": "Samsung Cloud Solution", "category": "telemetry", "risk": "telemetry", "description": "Сбор телеметрии и диагностических данных"},
+            {"domain": "samsungqbe.com", "name": "Samsung QBE Diagnostics", "category": "telemetry", "risk": "telemetry", "description": "Диагностические логи ошибок и сбоев Tizen"},
+            {"domain": "gpm.samsungqbe.com", "name": "Samsung QBE Metrics", "category": "telemetry", "risk": "telemetry", "description": "Samsung QBE Metrics (метрики системных процессов)"},
+        ]
+    },
+    "tv_android_google": {
+        "id": "tv_android_google",
+        "name": "Android TV & Google TV",
+        "icon": "bot",
+        "keywords": ["android", "google", "chromecast", "sony", "bravia", "philips", "tcl", "hisense", "mibox"],
+        "manual_hint": (
+            "В меню: Настройки → Аккаунты и вход → [Аккаунт Google] → «Реклама» → "
+            "включить «Удалить рекламный идентификатор». В Настройки → Система → "
+            "Об устройстве → отключить «Использование и диагностика»."
+        ),
+        "doh_remedy_hint": (
+            "Для Chromecast и Android TV с жестким 8.8.8.8 настройте в Keenetic перенаправление (DNAT) "
+            "всех DNS-запросов (порт 53) на локальный адрес роутера 192.168.1.1."
+        ),
+        "domains": [
+            {"domain": "adservice.google.com", "name": "Google AdService", "category": "advertising", "risk": "ad", "description": "Сервис рекламы и спонсорского промо на главном экране"},
+            {"domain": "pagead2.googlesyndication.com", "name": "Google AdSense", "category": "advertising", "risk": "ad", "description": "Баннерная реклама Google AdSense в приложениях"},
+            {"domain": "google-analytics.com", "name": "Google Analytics", "category": "telemetry", "risk": "telemetry", "description": "Google Analytics для Smart TV"},
+            {"domain": "firebaselogging.googleapis.com", "name": "Firebase Logging", "category": "telemetry", "risk": "telemetry", "description": "Диагностическое логирование Firebase"},
+            {"domain": "app-measurement.com", "name": "App Measurement", "category": "telemetry", "risk": "telemetry", "description": "Трекинг событий и аналитика мобильных приложений ТВ"},
+            {"domain": "doubleclick.net", "name": "Google DoubleClick", "category": "advertising", "risk": "ad", "description": "Глобальная сеть показа баннеров Google"},
+        ]
+    },
+    "tv_xiaomi": {
+        "id": "tv_xiaomi",
+        "name": "Xiaomi PatchWall & Mi TV",
+        "icon": "smartphone",
+        "keywords": ["xiaomi", "patchwall", "redmi", "mitv", "mi_box", "mi box"],
+        "manual_hint": (
+            "В меню Xiaomi: Настройки устройства → Конфиденциальность → «Использование и диагностика» (отключить); "
+            "Настройки PatchWall → «Персонализация» (отключить)."
+        ),
+        "doh_remedy_hint": (
+            "Оболочка PatchWall периодически обращается к IP-адресам напрямую. Блокировка 0.0.0.0 "
+            "останавливает доменные баннеры и сбор логов MiStat."
+        ),
+        "domains": [
+            {"domain": "ad.xiaomi.com", "name": "Xiaomi PatchWall Ads", "category": "advertising", "risk": "ad", "description": "Рекламные карточки и промо в оболочке PatchWall"},
+            {"domain": "tracking.miui.com", "name": "MIUI TV Tracking", "category": "telemetry", "risk": "telemetry", "description": "Сбор телеметрии оболочки PatchWall / MIUI TV"},
+            {"domain": "data.mistat.xiaomi.com", "name": "MiStat Analytics", "category": "telemetry", "risk": "telemetry", "description": "Статистика кликов и использования приложений MiStat"},
+            {"domain": "api.ad.xiaomi.com", "name": "Xiaomi Ad Engine", "category": "advertising", "risk": "ad", "description": "API персонализированной рекламы Xiaomi"},
+            {"domain": "o2o.api.xiaomi.com", "name": "Xiaomi O2O Recommendations", "category": "telemetry", "risk": "telemetry", "description": "Сервер товарных рекомендаций и таргетинга Xiaomi"},
+        ]
+    },
+    "tv_apple": {
+        "id": "tv_apple",
+        "name": "Apple TV (tvOS)",
+        "icon": "apple",
+        "keywords": ["apple tv", "appletv", "apple-tv"],
+        "manual_hint": (
+            "В меню приставки: Настройки → Основные → Конфиденциальность → "
+            "«Делиться аналитикой Apple TV» (выключить) и «Отслеживание» (запретить приложениям запрашивать разрешение)."
+        ),
+        "doh_remedy_hint": (
+            "Критические домены Apple (appleid, icloud, push, appletv) защищены от блокировки "
+            "для сохранения стабильности AirPlay и стриминга Apple TV+."
+        ),
+        "domains": [
+            {"domain": "metrics.apple.com", "name": "Apple Diagnostics Metrics", "category": "telemetry", "risk": "telemetry", "description": "Системная диагностическая телеметрия Apple"},
+            {"domain": "notes-analytics-events.apple.com", "name": "Apple Analytics Events", "category": "telemetry", "risk": "telemetry", "description": "Сбор событий аналитики и взаимодействий"},
+            {"domain": "xp.apple.com", "name": "Apple App Store XP", "category": "telemetry", "risk": "telemetry", "description": "Аналитика переходов и покупок в App Store"},
+        ]
+    }
+}
+
+
+def detect_tv_brand(device_info: Dict[str, Any]) -> Optional[str]:
+    """
+    Detects Smart TV brand preset from device attributes (hostname, vendor, custom_name, model).
+    Returns preset_id ('tv_lg', 'tv_samsung', 'tv_android_google', 'tv_xiaomi', 'tv_apple') or None.
+    """
+    if not device_info:
+        return None
+
+    fields_to_check = [
+        str(device_info.get("custom_name") or ""),
+        str(device_info.get("hostname") or ""),
+        str(device_info.get("vendor") or ""),
+        str(device_info.get("model") or "")
+    ]
+    haystack = " ".join(fields_to_check).lower()
+
+    # Match Apple TV first to avoid generic match with other Apple devices
+    for keyword in TV_BRAND_PRESETS["tv_apple"]["keywords"]:
+        if keyword in haystack:
+            return "tv_apple"
+
+    # Match other brands
+    for preset_id, preset in TV_BRAND_PRESETS.items():
+        if preset_id == "tv_apple":
+            continue
+        for keyword in preset["keywords"]:
+            if keyword in haystack:
+                return preset_id
+
+    return None
+
+
+def get_tv_brand_presets(active_sinkholes: Optional[set] = None) -> List[Dict[str, Any]]:
+    """
+    Returns list of brand presets enriched with domain active statuses and counts.
+    """
+    active_set = set(d.lower().strip() for d in active_sinkholes) if active_sinkholes else set()
+    result = []
+    for preset_id, preset in TV_BRAND_PRESETS.items():
+        enriched_domains = []
+        active_count = 0
+        for item in preset["domains"]:
+            dom = item["domain"].lower().strip()
+            is_active = dom in active_set
+            if is_active:
+                active_count += 1
+            enriched_domains.append({
+                "domain": dom,
+                "name": item["name"],
+                "category": item["category"],
+                "risk": item["risk"],
+                "description": item["description"],
+                "is_active": is_active
+            })
+        result.append({
+            "id": preset_id,
+            "name": preset["name"],
+            "icon": preset["icon"],
+            "manual_hint": preset["manual_hint"],
+            "doh_remedy_hint": preset.get("doh_remedy_hint", ""),
+            "domains": enriched_domains,
+            "total_count": len(enriched_domains),
+            "active_count": active_count,
+            "is_fully_blocked": active_count == len(enriched_domains) if enriched_domains else False
+        })
+    return result
 
 
 class DomainAnalyzer:
