@@ -137,8 +137,8 @@ def evaluate_lan_access_policy(
             allowed_set = set(str(p).strip() for p in custom_allowed_ports.replace(",", " ").split())
             if str(dport) in allowed_set:
                 return "safe", False
-        except Exception:
-            pass
+        except (AttributeError, ValueError) as err:
+            logger.debug("Failed parsing custom_allowed_ports: %s", err)
 
     # Trusted devices (PCs, laptops, phones) have full LAN access by default
     if src_profile == "trusted" and not preset_rules:
@@ -234,8 +234,8 @@ def extract_dns_query(pkt: Packet) -> Optional[str]:
                     clean_d = qname.rstrip(".").lower()
                     if clean_d and len(clean_d) > 2 and not clean_d.startswith("in-addr.arpa"):
                         return clean_d
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("DNS packet parse exception: %s", e)
     return None
 
 def extract_http_inspection(pkt: Packet) -> Optional[Dict[str, Any]]:
@@ -306,8 +306,8 @@ def extract_http_inspection(pkt: Packet) -> Optional[Dict[str, Any]]:
                         "dst_ip": dst_ip,
                         "dst_port": dport
                     }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("HTTP inspection parse exception: %s", e)
     return None
 
 async def lookup_geoip_online(ip: str) -> Dict[str, str]:
@@ -996,8 +996,8 @@ class TrafficAuditManager:
                 presets_dict = {p.id: p for p in presets_list}
                 nat_entries = await keenetic_client.get_nat_table()
                 session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to update final NAT table for network audit: %s", e)
 
             report = session.generate_network_report()
 
@@ -1030,8 +1030,8 @@ class TrafficAuditManager:
             for dq in session.dns_queries.values():
                 try:
                     await db.record_dns_query(dq["domain"], mac="NETWORK", ip="0.0.0.0")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed recording DNS query %s during network audit: %s", dq.get("domain"), e)
 
             logger.info("Network traffic audit completed. Report %s saved.", report["id"])
             return report
@@ -1060,14 +1060,14 @@ class TrafficAuditManager:
                         vendor = dev.vendor
                     if dev.preset_id:
                         dev_preset = await db.get_preset(dev.preset_id)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed retrieving device metadata for %s: %s", mac, e)
 
             if not dev_preset and dev_profile:
                 try:
                     dev_preset = await db.get_preset(f"preset_{dev_profile}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed retrieving default preset for %s: %s", dev_profile, e)
 
             session = AuditSession(
                 mac=mac,
@@ -1145,8 +1145,8 @@ class TrafficAuditManager:
                 try:
                     entries = await keenetic_client.get_device_nat_connections(session.ip)
                     session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed updating NAT entries for %s on audit stop: %s", session.ip, e)
 
             # If hardware capture was active on router, finalize it, download pcap and parse packets
             if session._hw_capture_active:
@@ -1199,8 +1199,8 @@ class TrafficAuditManager:
             for dq in session.dns_queries.values():
                 try:
                     await db.record_dns_query(dq["domain"], mac=report["mac"], ip=report["ip"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed recording DNS query %s for %s: %s", dq.get("domain"), report.get("mac"), e)
 
             logger.info("Traffic audit completed for %s. Report %s saved.", mac, report["id"])
             return report

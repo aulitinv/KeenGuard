@@ -3,13 +3,22 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Union, List
 from pydantic import BaseModel, Field
 
+from keenguard.core.enums import (
+    DeviceProfile,
+    Severity,
+    RiskLevel,
+    EventType,
+    AutoQuarantineOverride,
+)
+
+
 class DeviceRecord(BaseModel):
     mac: str
     ip: Optional[str] = None
     interface: Optional[str] = None
     hostname: Optional[str] = None
     vendor: Optional[str] = None
-    profile: str = "unassigned"  # trusted, smart_home_hub, smart_tv, camera, iot, unassigned
+    profile: Union[DeviceProfile, str] = DeviceProfile.UNASSIGNED
     is_blocked_wan: bool = False
     is_isolated_lan: bool = False
     airplay_allowed: bool = True
@@ -24,7 +33,7 @@ class DeviceRecord(BaseModel):
     notes: Optional[str] = None
     preset_id: Optional[str] = None
     designated_nvr_ip: Optional[str] = None
-    auto_quarantine_override: str = "profile_default"  # profile_default, always_quarantine, never_quarantine
+    auto_quarantine_override: Union[AutoQuarantineOverride, str] = AutoQuarantineOverride.PROFILE_DEFAULT
     custom_allowed_ports: Optional[Union[List[int], str]] = None
     tv_pre_record_seconds: Optional[int] = None
     tv_post_record_seconds: Optional[int] = None
@@ -44,8 +53,8 @@ class LanPolicyPreset(BaseModel):
 class SecurityEvent(BaseModel):
     id: Optional[int] = None
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    event_type: str  # wol_wake, airplay_wake, lan_scan, upnp_detected, camera_leak, iot_flood, night_wake, rogue_dns
-    severity: str = "info"  # info, warning, critical
+    event_type: Union[EventType, str]
+    severity: Union[Severity, str] = Severity.INFO
     target_mac: Optional[str] = None
     target_ip: Optional[str] = None
     source_mac: Optional[str] = None
@@ -64,7 +73,7 @@ class AuditReportRecord(BaseModel):
     duration_seconds: int = 0
     total_bytes: int = 0
     total_packets: int = 0
-    risk_level: str = "low"  # low, medium, high
+    risk_level: Union[RiskLevel, str] = RiskLevel.LOW
     summary: str = ""
     report_json: str = "{}"
     pcap_file: Optional[str] = None

@@ -205,8 +205,8 @@ class ForensicsEngine:
                             finally:
                                 try:
                                     temp_dest.unlink(missing_ok=True)
-                                except Exception:
-                                    pass
+                                except OSError as oe:
+                                    logger.debug("Failed unlinking temp PCAP %s: %s", temp_dest, oe)
                         await keenetic_client.reset_packet_capture(interface="Bridge0")
                 except Exception as e:
                     logger.error("Error finalizing Keenetic hardware capture for TV %s: %s", tv_name, e)

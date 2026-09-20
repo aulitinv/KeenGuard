@@ -518,15 +518,15 @@ async def save_iot_storage_settings(body: Dict[str, Any] = Body(...)):
             val_gb = max(0.1, min(100.0, float(body["max_storage_gb"])))
             settings.iot_payload_max_storage_gb = val_gb
             await db.save_setting("iot_payload_max_storage_gb", str(settings.iot_payload_max_storage_gb))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid max_storage_gb value %r: %s", body.get("max_storage_gb"), e)
     if "retention_days" in body and body["retention_days"] is not None:
         try:
             val_days = max(1, min(365, int(body["retention_days"])))
             settings.iot_payload_retention_days = val_days
             await db.save_setting("iot_payload_retention_days", str(settings.iot_payload_retention_days))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid retention_days value %r: %s", body.get("retention_days"), e)
     if "capture_enabled" in body and body["capture_enabled"] is not None:
         settings.iot_payload_capture_enabled = bool(body["capture_enabled"])
         await db.save_setting("iot_payload_capture_enabled", "true" if settings.iot_payload_capture_enabled else "false")

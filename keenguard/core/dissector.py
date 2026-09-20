@@ -173,7 +173,7 @@ class PacketDissector:
         """Decodes HTTP 1.0/1.1 request or response."""
         try:
             text = payload.decode("iso-8859-1")
-        except Exception:
+        except (UnicodeDecodeError, AttributeError):
             return None
 
         if "\r\n\r\n" in text:
@@ -211,7 +211,7 @@ class PacketDissector:
             try:
                 parsed_json = json.loads(body_part)
                 body_preview = json.dumps(parsed_json, ensure_ascii=False, indent=2)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 pass
 
         fields = {
@@ -306,9 +306,9 @@ class PacketDissector:
                     try:
                         parsed_json = json.loads(payload_str)
                         fields["Payload (JSON)"] = json.dumps(parsed_json, ensure_ascii=False, indent=2)
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
                         fields["Payload (Text)"] = payload_str
-                except Exception:
+                except (UnicodeDecodeError, AttributeError):
                     fields["Payload (Hex)"] = msg_payload.hex()
 
         elif type_name == "CONNECT" and idx + 2 <= len(payload):
@@ -428,7 +428,7 @@ class PacketDissector:
         """Decodes SSDP / UPnP discovery (M-SEARCH, NOTIFY)."""
         try:
             text = payload.decode("utf-8", errors="replace")
-        except Exception:
+        except (AttributeError, TypeError):
             return None
 
         lines = text.splitlines()
@@ -766,9 +766,9 @@ class PacketDissector:
                     json_val = json.loads(txt)
                     decoded_text = json.dumps(json_val, ensure_ascii=False, indent=2)
                     is_json = True
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
                     decoded_text = txt
-            except Exception:
+            except (UnicodeDecodeError, AttributeError):
                 decoded_text = payload_bytes[:200].decode("ascii", errors="replace")
 
             layers.append({
@@ -855,10 +855,10 @@ class PacketDissector:
                 try:
                     json.loads(decoded)
                     is_json = True
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
                     pass
                 text_preview = decoded[:500]
-            except Exception:
+            except (UnicodeDecodeError, AttributeError):
                 text_preview = payload_bytes[:100].decode("ascii", errors="replace")
 
         return {

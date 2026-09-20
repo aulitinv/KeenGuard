@@ -169,8 +169,8 @@ class KeeneticClient:
                                 v_data = v_res.json()
                                 version_title = v_data.get("title", "KeeneticOS")
                                 model_name = v_data.get("model", realm)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed fetching Keenetic version info: %s", e)
 
                         self.last_model = model_name
                         self.last_version = version_title
@@ -185,8 +185,8 @@ class KeeneticClient:
                                             self.router_ips.add(if_obj["address"])
                                         if if_obj.get("mac"):
                                             self.router_macs.add(if_obj["mac"].upper())
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed fetching Keenetic interface info: %s", e)
 
                         logger.info("Keenetic auth successful for %s (%s)", model_name, self.base_url)
                         return {"status": "ok", "version": version_title, "model": model_name}
@@ -1443,8 +1443,8 @@ class KeeneticClient:
         for iface in ("Bridge0", "Bridge1", "ISP"):
             try:
                 await self.reset_packet_capture(iface)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed resetting packet capture on %s: %s", iface, e)
 
 keenetic_client = KeeneticClient()
 

@@ -279,8 +279,8 @@ async def clear_audit_reports_api(older_than_days: Optional[int] = None):
             dump_path = settings.pcap_dir / pf
             if dump_path.exists():
                 dump_path.unlink()
-        except Exception:
-            pass
+        except OSError as e:
+            logger.debug("Failed to unlink old audit pcap file %s: %s", pf, e)
 
     await ws_manager.broadcast({"type": "audit_reports_cleared", "older_than_days": older_than_days, "count": len(pcap_files)})
     return {"status": "ok", "deleted": len(pcap_files)}

@@ -161,8 +161,11 @@ class Database:
             ]:
                 try:
                     await conn.execute(f"ALTER TABLE devices ADD COLUMN {col_def}")
-                except Exception:
+                except aiosqlite.OperationalError:
+                    # Column already exists in schema
                     pass
+                except Exception as e:
+                    logger.warning("Unexpected migration error for column %s: %s", col_def, e)
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS lan_policy_presets (
@@ -282,12 +285,16 @@ class Database:
             ]:
                 try:
                     await conn.execute(f"ALTER TABLE dns_queries ADD COLUMN {col_def}")
-                except Exception:
+                except aiosqlite.OperationalError:
                     pass
+                except Exception as e:
+                    logger.warning("Unexpected migration error for dns_queries column %s: %s", col_def, e)
                 try:
                     await conn.execute(f"ALTER TABLE dns_device_queries ADD COLUMN {col_def}")
-                except Exception:
+                except aiosqlite.OperationalError:
                     pass
+                except Exception as e:
+                    logger.warning("Unexpected migration error for dns_device_queries column %s: %s", col_def, e)
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS dns_provider_sync_meta (
@@ -688,8 +695,8 @@ class Database:
                 rules = {}
                 try:
                     rules = json.loads(r["rules_json"])
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning("Failed to decode rules_json for preset %s: %s", r.get("id"), e)
                 presets.append(LanPolicyPreset(
                     id=r["id"],
                     name=r["name"],
@@ -711,8 +718,8 @@ class Database:
             rules = {}
             try:
                 rules = json.loads(row["rules_json"])
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning("Failed to decode rules_json for preset %s: %s", preset_id, e)
             return LanPolicyPreset(
                 id=row["id"],
                 name=row["name"],
@@ -751,8 +758,8 @@ class Database:
         if r["details_json"]:
             try:
                 details = json.loads(r["details_json"])
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.debug("Failed to decode event details_json for event %s: %s", r["id"], e)
         return SecurityEvent(
             id=r["id"],
             timestamp=r["timestamp"],
@@ -1353,8 +1360,8 @@ class Database:
                         await conn.execute("UPDATE iot_payload_logs SET timestamp = ? WHERE id = ?", (record.timestamp, row[0]))
                         await conn.commit()
                         return row[0]
-                except Exception:
-                    pass
+                except (ValueError, TypeError) as e:
+                    logger.debug("Failed to parse timestamp for IoT payload deduplication: %s", e)
 
             cursor = await conn.execute("""
                 INSERT INTO iot_payload_logs (
@@ -1458,8 +1465,8 @@ class Database:
         try:
             if self.db_path.exists():
                 db_file_bytes = self.db_path.stat().st_size
-        except Exception:
-            pass
+        except OSError as e:
+            logger.debug("Failed to read database file size from %s: %s", self.db_path, e)
 
         return {
             "count": count,
@@ -1521,8 +1528,8 @@ class Database:
             if deleted_by_age + deleted_by_size > 1000:
                 try:
                     await conn.execute("VACUUM")
-                except Exception:
-                    pass
+                except aiosqlite.Error as e:
+                    logger.warning("VACUUM failed after pruning: %s", e)
 
         total_del = deleted_by_age + deleted_by_size
         logger.info("IoT payload pruning complete: deleted %d by age (>%d d), %d by size (limit %s GB)",

@@ -372,8 +372,8 @@ async def _do_keenetic_poll_internal():
             for entry in dns_cache:
                 if entry.get("domain"):
                     await db.record_dns_query(entry["domain"], ip=entry.get("ip"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Periodic DNS cache poll error: %s", e)
 
     # Track domain activity and LAN inter-device communications from router conntrack/NAT
     try:

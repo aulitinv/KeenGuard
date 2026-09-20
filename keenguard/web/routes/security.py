@@ -745,8 +745,8 @@ async def get_saved_pcaps():
                 "modified_human": datetime.fromtimestamp(stat.st_mtime).strftime("%d.%m.%Y %H:%M:%S"),
                 "category": category
             })
-        except Exception:
-            pass
+        except OSError as e:
+            logger.debug("Failed to read PCAP metadata for %s: %s", f, e)
 
     pcaps.sort(key=lambda x: x["modified_at"], reverse=True)
     return {"status": "ok", "pcaps": pcaps, "files": pcaps}
