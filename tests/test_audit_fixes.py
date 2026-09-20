@@ -111,13 +111,29 @@ async def test_database_traffic_summary_and_dns_counts():
     """Verify BUG 4 & QUALITY 3: SQL aggregation and targeted DNS counts query."""
     await db.init_db()
 
-    # Test get_network_traffic_summary works without SQL syntax error
+    dummy_mac = "AA:BB:CC:11:22:33"
+    dummy_ip = "192.168.1.10"
+
+    # Record traffic snapshot with known rates
+    await db.record_traffic_snapshot(dummy_mac, 10000, 5000, 450.0, 160.0)
+
+    # Test get_network_traffic_summary works and aggregates rates
     summary = await db.get_network_traffic_summary(limit=24)
     assert isinstance(summary, list)
+    assert len(summary) >= 1
+    assert summary[0]["total_rx_kbps"] >= 450.0
+    assert summary[0]["total_tx_kbps"] >= 160.0
+
+    # Record targeted DNS queries
+    await db.record_dns_query("example.com", mac=dummy_mac, ip=dummy_ip)
 
     # Test get_dns_device_counts_for_domains
-    counts = await db.get_dns_device_counts_for_domains(["test-nonexistent.org", "google.com"])
+    counts = await db.get_dns_device_counts_for_domains(["test-nonexistent.org", "example.com"])
     assert isinstance(counts, dict)
+    assert "example.com" in counts
+    assert len(counts["example.com"]) >= 1
+    assert counts["example.com"][0]["mac"] == dummy_mac
+    assert "test-nonexistent.org" not in counts
 
 
 @pytest.mark.asyncio

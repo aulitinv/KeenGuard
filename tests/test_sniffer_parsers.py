@@ -74,12 +74,15 @@ async def test_sniffer_emit_event_dispatches_to_running_loop():
     import threading
     from keenguard.core.sniffer import NetworkSniffer
     from keenguard.web.app import _handle_sniffer_event, set_main_loop, _main_loop
+    from keenguard.web.workers import forensics
 
     loop = asyncio.get_running_loop()
     set_main_loop(loop)
 
+    received_events = []
     s = NetworkSniffer()
     s.register_callback(_handle_sniffer_event)
+    s.register_callback(lambda ev: received_events.append(ev))
 
     def worker():
         s._emit_event({
@@ -94,7 +97,15 @@ async def test_sniffer_emit_event_dispatches_to_running_loop():
     t.join()
 
     # Yield control to let the threadsafe coroutine execute
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.1)
+
+    assert len(received_events) == 1
+    assert received_events[0]["event_type"] == "airplay_activity"
+    assert received_events[0]["source_mac"] == "AA:BB:CC:DD:EE:FF"
+    assert any(
+        t.get("event_type") == "airplay_activity" and t.get("source_mac") == "AA:BB:CC:DD:EE:FF"
+        for t in forensics.recent_triggers
+    )
 
 
 def test_sniffer_process_ipv6_mdns():

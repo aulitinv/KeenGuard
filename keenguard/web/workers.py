@@ -469,6 +469,7 @@ default_sniffer.register_callback(_handle_sniffer_event)
 
 
 async def _process_lan_violation(violation_dict: Dict[str, Any]):
+    db = get_db()
     ev = SecurityEvent(**violation_dict)
     await db.record_event(ev)
     if ev.severity in ("critical", "warning"):
