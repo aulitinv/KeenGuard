@@ -1,4 +1,4 @@
-﻿"""Keenetic RCI integration (Facade)."""
+﻿"""Keenetic integration package."""
 from keenguard.core.keenetic.models import (
     HotspotHost,
     UPnPMapping,
