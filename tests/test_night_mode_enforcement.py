@@ -148,9 +148,11 @@ async def test_morning_alert_when_tv_never_slept_all_night():
     )
     await db.upsert_device(device)
 
-    morning_dt = datetime(2026, 9, 20, 7, 10, 0)
+    early_morning_dt = datetime(2026, 9, 20, 7, 10, 0)
+    digest_morning_dt = datetime(2026, 9, 20, 9, 0, 0)
     settings.night_mode_start_hour = 0
     settings.night_mode_end_hour = 7
+    settings.digest_schedule_hour = 9
     settings.night_mode_notify_tv_never_slept = True
 
     scheduler._tv_night_status[tv_mac] = {
@@ -158,6 +160,7 @@ async def test_morning_alert_when_tv_never_slept_all_night():
         "in_night_mode": False,
         "wan_blocked_by_night_mode": False,
         "morning_notified": False,
+        "was_in_night_window": True,
         "last_active_time": time.time()
     }
 
@@ -168,8 +171,13 @@ async def test_morning_alert_when_tv_never_slept_all_night():
 
     with patch("keenguard.db.database.db.record_event", side_effect=fake_record_event), \
          patch("keenguard.core.notifier.notifier.send_alert", new=AsyncMock()) as mock_alert:
-        await scheduler._check_night_mode_transitions(morning_dt)
+        # At 7:10 (before digest hour 9:00), no alert is sent yet
+        await scheduler._check_night_mode_transitions(early_morning_dt)
+        assert len(recorded_events) == 0
+        mock_alert.assert_not_called()
 
+        # At 9:00 (configured digest hour), alert is sent
+        await scheduler._check_night_mode_transitions(digest_morning_dt)
         assert len(recorded_events) == 1
         ev = recorded_events[0]
         assert ev.event_type == EventType.TV_STANDBY_WAKE.value

@@ -216,8 +216,26 @@ class BackgroundScheduler:
                                 logger.error("Failed to block WAN in night mode for %s: %s", mac, ex)
 
             else:
-                # Daytime / Morning
-                if not state.get("morning_notified"):
+                # Daytime / Morning: unblock WAN immediately when night mode window ends
+                if state.get("wan_blocked_by_night_mode"):
+                    try:
+                        from keenguard.core.profiles import profile_manager
+                        await profile_manager.toggle_wan(d.mac, block=False)
+                        state["wan_blocked_by_night_mode"] = False
+                        state["in_night_mode"] = False
+                        logger.info("Smart Night Mode: WAN unblocked in morning for %s", d.hostname or mac)
+                    except Exception as ex:
+                        logger.error("Failed to unblock WAN in morning for %s: %s", mac, ex)
+
+                # Morning alert: send when target morning hour arrives (configured digest_schedule_hour)
+                # Aligns with morning digest so user isn't woken early at 7:00 AM.
+                target_morning_hour = max(
+                    getattr(settings, "night_mode_end_hour", 7),
+                    getattr(settings, "digest_schedule_hour", 9)
+                )
+                current_hour = (now or datetime.now()).hour
+
+                if not state.get("morning_notified") and current_hour >= target_morning_hour:
                     state["morning_notified"] = True
                     # Check if TV was active all night and never entered night mode
                     notify_enabled = getattr(settings, "night_mode_notify_tv_never_slept", True)
@@ -239,6 +257,7 @@ class BackgroundScheduler:
                                 "reason": "tv_active_all_night",
                                 "night_start_hour": settings.night_mode_start_hour,
                                 "night_end_hour": settings.night_mode_end_hour,
+                                "notification_hour": target_morning_hour,
                                 "inactivity_threshold_min": inactivity_minutes
                             }
                         )
@@ -248,16 +267,6 @@ class BackgroundScheduler:
                             await notifier.send_alert(ev)
                         except Exception as ne:
                             logger.debug("Failed to send morning TV alert to Telegram: %s", ne)
-
-                # Restore WAN if blocked by night mode
-                if state.get("wan_blocked_by_night_mode"):
-                    try:
-                        from keenguard.core.profiles import profile_manager
-                        await profile_manager.toggle_wan(d.mac, block=False)
-                        state["wan_blocked_by_night_mode"] = False
-                        logger.info("Smart Night Mode: WAN unblocked in morning for %s", d.hostname or mac)
-                    except Exception as ex:
-                        logger.error("Failed to unblock WAN in morning for %s: %s", mac, ex)
 
                 # Reset night state for following night
                 state["in_night_mode"] = False
