@@ -359,6 +359,13 @@ async def _do_keenetic_poll_internal():
     if upnp_rules:
         await anomaly_detector.check_upnp_anomalies(upnp_rules, current_devices_map)
 
+    try:
+        presets = await db.get_presets()
+        if presets:
+            lan_tracker.update_presets_cache(presets)
+    except Exception as e:
+        logger.debug("Failed to update LAN presets cache: %s", e)
+
     lan_tracker.update_devices_cache(current_devices_map)
 
     # Periodic DNS cache query (~every 30s)
@@ -459,6 +466,21 @@ async def _async_sniffer_dispatch(event_dict: Dict):
 # Register callback with sniffer
 default_sniffer = get_sniffer()
 default_sniffer.register_callback(_handle_sniffer_event)
+
+
+async def _process_lan_violation(violation_dict: Dict[str, Any]):
+    ev = SecurityEvent(**violation_dict)
+    await db.record_event(ev)
+    if ev.severity in ("critical", "warning"):
+        create_tracked_task(notifier.send_alert(ev))
+    await ws_manager.broadcast({"type": "sniffer_event", "event": violation_dict})
+
+
+def _handle_lan_violation(violation_dict: Dict[str, Any]):
+    create_tracked_task(_process_lan_violation(violation_dict))
+
+
+lan_tracker.register_violation_callback(_handle_lan_violation)
 
 
 def _backup_production_database():

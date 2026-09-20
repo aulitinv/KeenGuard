@@ -109,6 +109,10 @@ class Settings(BaseModel):
     # Smart TV & Media settings
     night_mode_start_hour: int = Field(default=0)  # 00:00
     night_mode_end_hour: int = Field(default=7)    # 07:00
+    night_mode_auto_block_wan: bool = Field(default=False, description="Automatically block WAN access during night hours for night_mode_enabled devices")
+    night_mode_tv_inactivity_minutes: int = Field(default=5, description="Minutes of inactivity before entering night mode")
+    night_mode_notify_tv_never_slept: bool = Field(default=True, description="Notify user in the morning if TV remained active all night without entering night mode")
+    night_mode_notify_tv_active: bool = Field(default=True, description="Alias for night_mode_notify_tv_never_slept")
     airplay_passthrough: bool = Field(default=True)
     cast_passthrough: bool = Field(default=True)
     tv_wake_pre_record_seconds: int = Field(default=30, description="Seconds of traffic to retain in PCAP before TV wake event")

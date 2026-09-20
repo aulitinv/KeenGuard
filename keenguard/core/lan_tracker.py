@@ -6,18 +6,29 @@ Tracks:
 - ARP requests and resolutions (who is looking for whom in L2).
 - Integration with Keenetic router connection table (conntrack/NAT) for full one-to-one visibility.
 """
+import asyncio
 import ipaddress
 import logging
 import threading
 import time
 from collections import deque, defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Tuple, Union, Callable
 from scapy.all import Packet, Ether, IP, IPv6, ICMP, ARP, TCP, UDP, Raw
 
 from keenguard.core.dissector import PacketDissector, TCP_PORT_NAMES, UDP_PORT_NAMES, ICMP_TYPES
+from keenguard.core.enums import Severity, EventType
 
 logger = logging.getLogger("keenguard.lan_tracker")
+
+MULTICAST_NAMES = {
+    "224.0.0.251": "mDNS (Bonjour/Cast)",
+    "239.255.255.250": "SSDP (UPnP Discovery)",
+    "224.0.0.252": "LLMNR (Name Resolution)",
+    "224.0.0.1": "Все узлы (All Hosts)",
+    "224.0.0.2": "Все роутеры (All Routers)",
+    "255.255.255.255": "Широковещательный (Broadcast)"
+}
 
 
 def is_private_ip(ip_str: Optional[str]) -> bool:
@@ -28,6 +39,26 @@ def is_private_ip(ip_str: Optional[str]) -> bool:
         ip_obj = ipaddress.ip_address(ip_str)
         return ip_obj.is_private or ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_loopback
     except Exception:
+        return False
+
+
+def _matches_service_rule(rule_str: str, port: Optional[int]) -> bool:
+    """Checks whether a port matches a service rule like 'SSH:22', '445', or '*'."""
+    if not rule_str:
+        return False
+    if rule_str == "*":
+        return True
+    if port is None:
+        return False
+    clean = rule_str.strip()
+    if ":" in clean:
+        try:
+            return port == int(clean.split(":")[-1])
+        except ValueError:
+            return False
+    try:
+        return port == int(clean)
+    except ValueError:
         return False
 
 
@@ -73,6 +104,224 @@ class LanTrafficTracker:
         self.arp_table: Dict[str, str] = {}
         # In-memory device cache (MAC -> DeviceRecord or dict) for real-time packet enrichment
         self.devices_cache: Dict[str, Any] = {}
+
+        # LAN policy alert throttle, callbacks and presets cache
+        self._policy_alert_throttle: Dict[Tuple[str, str, int, str], float] = {}
+        self._policy_alert_lock = threading.Lock()
+        self._violation_callbacks: List[Callable[[Dict[str, Any]], Any]] = []
+        from keenguard.db.repositories.settings import BUILTIN_LAN_PRESETS
+        self.presets_cache: Dict[str, Dict[str, Any]] = {p["id"]: p for p in BUILTIN_LAN_PRESETS}
+
+    def register_violation_callback(self, callback: Callable[[Dict[str, Any]], Any]):
+        """Registers a callback to be invoked when a LAN policy violation is detected."""
+        with self._policy_alert_lock:
+            if callback not in self._violation_callbacks:
+                self._violation_callbacks.append(callback)
+
+    def check_lan_policy_violation(
+        self,
+        src_mac: Optional[str] = None,
+        src_ip: Optional[str] = None,
+        dst_mac: Optional[str] = None,
+        dst_ip: Optional[str] = None,
+        port: Optional[int] = None,
+        protocol: Optional[str] = None,
+        devices_map: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Enforces LAN policy presets on observed internal flows/packets.
+        Returns violation dict if a policy breach is detected and not throttled, else None.
+        """
+        if not src_ip or not dst_ip:
+            return None
+        if not (is_private_ip(src_ip) and is_private_ip(dst_ip)):
+            return None
+        if src_ip == dst_ip:
+            return None
+
+        src_dev = self._get_device_info(src_mac, src_ip, devices_map)
+        dst_dev = self._get_device_info(dst_mac, dst_ip, devices_map)
+
+        # Identify policy preset for source device
+        preset_id = src_dev.get("preset_id")
+        preset = None
+        if preset_id and preset_id in self.presets_cache:
+            preset = self.presets_cache[preset_id]
+        else:
+            profile = src_dev.get("profile")
+            if profile == "smart_tv":
+                preset = self.presets_cache.get("preset_smart_tv")
+                preset_id = "preset_smart_tv"
+            elif profile == "camera":
+                preset = self.presets_cache.get("preset_camera")
+                preset_id = "preset_camera"
+            elif profile in ("iot", "iot_strict", "iot_permissive"):
+                preset = self.presets_cache.get("preset_iot")
+                preset_id = "preset_iot"
+            elif profile == "trusted":
+                preset = self.presets_cache.get("preset_trusted")
+                preset_id = "preset_trusted"
+
+        if not preset:
+            return None
+
+        # Trusted profile or preset has unrestricted access
+        if preset_id == "preset_trusted" or src_dev.get("profile") == "trusted":
+            return None
+
+        rules = preset.get("rules") or {}
+        if not rules:
+            return None
+
+        allowed_services = rules.get("allowed_services", [])
+        alert_services = rules.get("alert_services", [])
+        blocked_services = rules.get("blocked_services", [])
+        lan_to_lan_policy = rules.get("lan_to_lan_policy", "allow_all")
+
+        # Custom allowed ports on device
+        custom_allowed = set()
+        raw_custom = src_dev.get("custom_allowed_ports")
+        if raw_custom:
+            if isinstance(raw_custom, list):
+                for p in raw_custom:
+                    try:
+                        custom_allowed.add(int(p))
+                    except (ValueError, TypeError):
+                        pass
+            elif isinstance(raw_custom, str):
+                for part in raw_custom.replace(";", ",").split(","):
+                    p_str = part.strip()
+                    if p_str.isdigit():
+                        custom_allowed.add(int(p_str))
+
+        # Check router / infrastructure exceptions
+        router_ips = {"192.168.1.1", "192.168.0.1", "192.168.2.1"}
+        is_router_dst = dst_ip in router_ips
+        is_infra_port = port in (53, 67, 68, 123)
+        is_multicast_dst = dst_ip in MULTICAST_NAMES or dst_ip.endswith(".255") or dst_ip.startswith("224.") or dst_ip == "255.255.255.255"
+
+        violation_type = None
+        severity = None
+        description = None
+
+        # 1. Blocked services check
+        if port is not None and any(_matches_service_rule(r, port) for r in blocked_services):
+            violation_type = "blocked_service"
+            severity = Severity.CRITICAL.value
+            description = f"Попытка доступа к запрещенному сервису {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
+
+        # 2. Alert services check
+        elif port is not None and any(_matches_service_rule(r, port) for r in alert_services):
+            violation_type = "alert_service"
+            severity = Severity.WARNING.value
+            description = f"Подозрительная активность на порту {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
+
+        # 3. LAN-to-LAN isolation check
+        elif lan_to_lan_policy == "isolated":
+            # Exceptions: NVR for cameras, infra to router, permitted discovery
+            designated_nvr = src_dev.get("designated_nvr_ip")
+            if designated_nvr and dst_ip == designated_nvr:
+                pass  # Legitimate NVR communication
+            elif is_router_dst and is_infra_port:
+                pass  # Essential DHCP/DNS/NTP to router
+            elif is_multicast_dst and port in (5353, 1900):
+                pass  # Discovery
+            else:
+                violation_type = "lan_isolation_breach"
+                severity = Severity.CRITICAL.value
+                description = f"Нарушение изоляции LAN: {src_dev['name']} ({src_ip}) пытается связаться с {dst_dev['name']} ({dst_ip}):{port or ''} при политике 'isolated'"
+
+        # 4. Restricted policy check
+        elif lan_to_lan_policy == "restricted" and port is not None:
+            is_allowed = False
+            if "*" in allowed_services or any(_matches_service_rule(r, port) for r in allowed_services):
+                is_allowed = True
+            elif port in custom_allowed:
+                is_allowed = True
+            elif is_router_dst and is_infra_port:
+                is_allowed = True
+            elif is_multicast_dst and port in (5353, 1900):
+                is_allowed = True
+
+            if not is_allowed:
+                violation_type = "unallowed_service"
+                severity = Severity.WARNING.value
+                description = f"Неразрешенный локальный сервис {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
+
+        if not violation_type:
+            return None
+
+        # Throttle check: max 1 alert per (src_device, dst_ip, port, violation_type) per 60 seconds
+        now = time.time()
+        throttle_key = (src_dev.get("mac") or src_ip, dst_ip, port or 0, violation_type)
+        with self._policy_alert_lock:
+            last_alert = self._policy_alert_throttle.get(throttle_key, 0.0)
+            if now - last_alert < 60.0:
+                return None
+            self._policy_alert_throttle[throttle_key] = now
+
+            # Clean expired throttles
+            if len(self._policy_alert_throttle) > 200:
+                expired = [k for k, v in self._policy_alert_throttle.items() if now - v > 60.0]
+                for k in expired:
+                    del self._policy_alert_throttle[k]
+
+        violation = {
+            "event_type": EventType.LAN_POLICY_VIOLATION.value,
+            "severity": severity,
+            "description": description,
+            "source_mac": src_dev.get("mac") or src_mac,
+            "source_ip": src_ip,
+            "source_name": src_dev.get("name"),
+            "target_mac": dst_dev.get("mac") or dst_mac,
+            "target_ip": dst_ip,
+            "target_name": dst_dev.get("name"),
+            "port": port,
+            "protocol": protocol,
+            "violation_type": violation_type,
+            "preset_id": preset_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "details": {
+                "preset_id": preset_id,
+                "policy": lan_to_lan_policy,
+                "port": port,
+                "protocol": protocol,
+                "violation_type": violation_type,
+            }
+        }
+
+        # Dispatch to registered callbacks
+        with self._policy_alert_lock:
+            callbacks = list(self._violation_callbacks)
+        for cb in callbacks:
+            try:
+                res = cb(violation)
+                if asyncio.iscoroutine(res):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(res)
+                    except RuntimeError:
+                        pass
+            except Exception as e:
+                logger.debug("Error in violation callback: %s", e)
+
+        return violation
+
+    enforce_lan_policy = check_lan_policy_violation
+
+    def update_presets_cache(self, presets: Union[List[Any], Dict[str, Any]]):
+        """Updates internal presets cache from database or models."""
+        with self._lock:
+            if isinstance(presets, dict):
+                for k, v in presets.items():
+                    self.presets_cache[str(k)] = v if isinstance(v, dict) else {"id": k, "rules": getattr(v, "rules", {})}
+            elif isinstance(presets, list):
+                for p in presets:
+                    pid = getattr(p, "id", None) or (p.get("id") if isinstance(p, dict) else None)
+                    if pid:
+                        rules = getattr(p, "rules", None) or (p.get("rules") if isinstance(p, dict) else None)
+                        name = getattr(p, "name", None) or (p.get("name") if isinstance(p, dict) else None)
+                        self.presets_cache[pid] = {"id": pid, "name": name, "rules": rules}
 
     def update_devices_cache(self, devices: Union[List[Any], Dict[str, Any]]):
         """Updates internal device naming cache from DB or Keenetic models/dicts."""
@@ -167,7 +416,11 @@ class LanTrafficTracker:
             "mac": clean_mac or None,
             "ip": ip,
             "vendor": vendor,
-            "icon": icon
+            "icon": icon,
+            "preset_id": _get_attr(dev_match, "preset_id"),
+            "profile": _get_attr(dev_match, "profile"),
+            "designated_nvr_ip": _get_attr(dev_match, "designated_nvr_ip"),
+            "custom_allowed_ports": _get_attr(dev_match, "custom_allowed_ports")
         }
 
     def _handle_arp(self, pkt: Packet, devices_map: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -370,6 +623,17 @@ class LanTrafficTracker:
         else:
             summary = f"IP Traffic: {src_dev['name']} -> {dst_dev['name']}"
 
+        # Check LAN policy presets enforcement
+        self.check_lan_policy_violation(
+            src_mac=src_mac,
+            src_ip=src_ip,
+            dst_mac=dst_mac,
+            dst_ip=dst_ip,
+            port=port,
+            protocol=proto_str,
+            devices_map=devices_map
+        )
+
         # Extract payload snippet if present
         payload_meta = PacketDissector.extract_payload_summary(pkt)
         if payload_meta and payload_meta.get("text"):
@@ -460,6 +724,17 @@ class LanTrafficTracker:
 
             src_dev = self._get_device_info(None, src, devices_map)
             dst_dev = self._get_device_info(None, dst, devices_map)
+
+            # Check LAN policy presets enforcement
+            self.check_lan_policy_violation(
+                src_mac=src_dev.get("mac"),
+                src_ip=src,
+                dst_mac=dst_dev.get("mac"),
+                dst_ip=dst,
+                port=dport,
+                protocol=proto_name,
+                devices_map=devices_map
+            )
 
             summary = f"{proto_name} (Keenetic): {src_dev['name']} -> {dst_dev['name']}:{dport}"
 

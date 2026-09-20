@@ -50,6 +50,8 @@ class EventType(StrEnum):
     ROGUE_DNS = "rogue_dns"
     ANOMALY = "anomaly"
     POLICY_VIOLATION = "policy_violation"
+    LAN_POLICY_VIOLATION = "lan_policy_violation"
+    TV_STANDBY_WAKE = "tv_standby_wake"
 
 
 class AutoQuarantineOverride(StrEnum):

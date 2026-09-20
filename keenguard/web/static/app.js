@@ -3023,6 +3023,13 @@ async function loadSettings() {
         const nightEndEl = document.getElementById('cfg-night-end');
         if (nightEndEl && s.night_mode_end_hour !== undefined) nightEndEl.value = s.night_mode_end_hour;
 
+        const autoBlockWanEl = document.getElementById('cfg-night-auto-block-wan');
+        if (autoBlockWanEl) autoBlockWanEl.checked = Boolean(s.night_mode_auto_block_wan);
+        const tvInactivityEl = document.getElementById('cfg-night-tv-inactivity');
+        if (tvInactivityEl && s.night_mode_tv_inactivity_minutes !== undefined) tvInactivityEl.value = s.night_mode_tv_inactivity_minutes;
+        const notifyTvNeverSleptEl = document.getElementById('cfg-night-notify-tv-never-slept');
+        if (notifyTvNeverSleptEl) notifyTvNeverSleptEl.checked = Boolean(s.night_mode_notify_tv_never_slept ?? s.night_mode_notify_tv_active ?? true);
+
         const preWakeEl = document.getElementById('cfg-tv-wake-pre');
         if (preWakeEl) preWakeEl.value = s.tv_wake_pre_record_seconds !== undefined ? s.tv_wake_pre_record_seconds : 30;
         const postWakeEl = document.getElementById('cfg-tv-wake-post');
@@ -3347,6 +3354,9 @@ async function saveSettings(e) {
         router_password: passVal && passVal.trim() ? passVal.trim() : null,
         night_mode_start_hour: document.getElementById('cfg-night-start') ? parseInt(document.getElementById('cfg-night-start').value, 10) : undefined,
         night_mode_end_hour: document.getElementById('cfg-night-end') ? parseInt(document.getElementById('cfg-night-end').value, 10) : undefined,
+        night_mode_auto_block_wan: document.getElementById('cfg-night-auto-block-wan') ? Boolean(document.getElementById('cfg-night-auto-block-wan').checked) : undefined,
+        night_mode_tv_inactivity_minutes: document.getElementById('cfg-night-tv-inactivity') ? parseInt(document.getElementById('cfg-night-tv-inactivity').value, 10) : undefined,
+        night_mode_notify_tv_never_slept: document.getElementById('cfg-night-notify-tv-never-slept') ? Boolean(document.getElementById('cfg-night-notify-tv-never-slept').checked) : undefined,
         tv_wake_pre_record_seconds: parseInt(document.getElementById('cfg-tv-wake-pre')?.value || '30', 10),
         tv_wake_post_record_seconds: parseInt(document.getElementById('cfg-tv-wake-post')?.value || '30', 10),
         tv_wake_trigger_ttl_seconds: parseInt(document.getElementById('cfg-tv-wake-trigger-ttl')?.value || '60', 10),
@@ -3499,6 +3509,9 @@ async function saveTvNightSettings() {
     const payload = {
         night_mode_start_hour: parseInt(document.getElementById('cfg-night-start')?.value || '23', 10),
         night_mode_end_hour: parseInt(document.getElementById('cfg-night-end')?.value || '7', 10),
+        night_mode_auto_block_wan: Boolean(document.getElementById('cfg-night-auto-block-wan')?.checked),
+        night_mode_tv_inactivity_minutes: parseInt(document.getElementById('cfg-night-tv-inactivity')?.value || '5', 10),
+        night_mode_notify_tv_never_slept: Boolean(document.getElementById('cfg-night-notify-tv-never-slept')?.checked),
         tv_wake_pre_record_seconds: parseInt(document.getElementById('cfg-tv-wake-pre')?.value || '30', 10),
         tv_wake_post_record_seconds: parseInt(document.getElementById('cfg-tv-wake-post')?.value || '30', 10),
         tv_wake_trigger_ttl_seconds: parseInt(document.getElementById('cfg-tv-wake-trigger-ttl')?.value || '60', 10),

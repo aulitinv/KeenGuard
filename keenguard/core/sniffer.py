@@ -515,4 +515,17 @@ class NetworkSniffer:
             except Exception:
                 pass
 
+    def get_status(self) -> Dict[str, Any]:
+        """Returns sniffer status, including technical realism disclosures regarding L2 visibility."""
+        return {
+            "running": self.running,
+            "capture_mode": "local_promiscuous",
+            "cross_client_l2_visibility": False,
+            "note": "Локальный сниффер видит только трафик хоста и broadcast/multicast. Для полного мониторинга L2 между клиентами настройте зеркалирование портов или используйте Conntrack роутера",
+            "recommended_action": "Для полной видимости L2-трафика настройте зеркалирование портов или используйте Conntrack роутера",
+            "tracked_tvs": list(self.tracked_tv_macs),
+            "ring_buffers_count": len(self.ring_buffers),
+            "pcap_active": bool(self.active_pcap_name)
+        }
+
 sniffer = NetworkSniffer()

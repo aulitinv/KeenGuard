@@ -3066,6 +3066,38 @@
                             </div>
                         </div>
 
+                        <!-- Smart TV & Night Enforcement Rules -->
+                        <div class="space-y-3 pt-2 border-t border-slate-800/60">
+                            <h3 class="text-xs font-semibold text-slate-200 uppercase tracking-wider">Умный контроль ночного режима и аппаратная блокировка</h3>
+                            
+                            <div class="bg-surface-950 p-3.5 rounded-xl border border-slate-800 flex items-start justify-between space-x-3">
+                                <div class="space-y-0.5">
+                                    <label for="cfg-night-auto-block-wan" class="text-xs font-medium text-slate-200 cursor-pointer">Автоматически блокировать WAN на роутере в ночной период</label>
+                                    <p class="text-[10px] text-slate-400">Аппаратное отключение доступа в интернет в ночные часы для устройств с включённым ночным режимом (защита от фоновой телеметрии и утечек)</p>
+                                </div>
+                                <input type="checkbox" id="cfg-night-auto-block-wan" class="w-4 h-4 mt-1 rounded text-indigo-600 bg-surface-900 border-slate-700 cursor-pointer">
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div class="bg-surface-950 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                                    <label for="cfg-night-tv-inactivity" class="block text-xs font-medium text-slate-200">Ожидание выключения ТВ перед активацией режима</label>
+                                    <div class="relative">
+                                        <input type="number" id="cfg-night-tv-inactivity" min="1" max="120" value="5" class="w-full bg-surface-900 border border-slate-700 rounded-lg px-3 py-1.5 pr-14 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                        <span class="absolute right-3 top-1.5 text-xs text-slate-500">минут</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400">Если телевизор используется в полночь, режим активируется только после полного отсутствия сетевой активности</p>
+                                </div>
+
+                                <div class="bg-surface-950 p-3.5 rounded-xl border border-slate-800 flex items-start justify-between space-x-3">
+                                    <div class="space-y-0.5">
+                                        <label for="cfg-night-notify-tv-never-slept" class="text-xs font-medium text-slate-200 cursor-pointer">Уведомлять утром, если телевизор ни разу не уснул</label>
+                                        <p class="text-[10px] text-slate-400">При завершении ночного интервала (в 07:00) отправит предупреждение в Telegram, если Smart TV непрерывно работал всю ночь</p>
+                                    </div>
+                                    <input type="checkbox" id="cfg-night-notify-tv-never-slept" checked class="w-4 h-4 mt-1 rounded text-indigo-600 bg-surface-900 border-slate-700 cursor-pointer">
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- TV Wake Forensics Recording Window -->
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
                             <div>

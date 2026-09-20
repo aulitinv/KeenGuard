@@ -34,6 +34,10 @@ class SettingsUpdate(BaseModel):
     router_password: Optional[str] = None
     night_mode_start_hour: Optional[int] = None
     night_mode_end_hour: Optional[int] = None
+    night_mode_auto_block_wan: Optional[bool] = None
+    night_mode_tv_inactivity_minutes: Optional[int] = None
+    night_mode_notify_tv_never_slept: Optional[bool] = None
+    night_mode_notify_tv_active: Optional[bool] = None
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_enabled: Optional[bool] = None
@@ -123,9 +127,18 @@ async def get_system_status():
         "total_devices": len(devices),
         "critical_alerts": critical_events_count,
         "sniffer_running": sniffer.running,
+        "sniffer": sniffer.get_status() if hasattr(sniffer, "get_status") else {"running": sniffer.running},
         "web_port": settings.web_port,
         "night_mode": forensics.is_night_time()
     }
+
+
+@router.get("/api/sniffer/status")
+async def get_sniffer_status():
+    sniffer = get_sniffer()
+    if hasattr(sniffer, "get_status"):
+        return sniffer.get_status()
+    return {"running": sniffer.running}
 
 
 @router.get("/api/settings")
@@ -138,6 +151,10 @@ async def get_app_settings():
         "has_password": bool(settings.router_password or keenetic_client.password),
         "night_mode_start_hour": settings.night_mode_start_hour,
         "night_mode_end_hour": settings.night_mode_end_hour,
+        "night_mode_auto_block_wan": getattr(settings, "night_mode_auto_block_wan", False),
+        "night_mode_tv_inactivity_minutes": getattr(settings, "night_mode_tv_inactivity_minutes", 5),
+        "night_mode_notify_tv_never_slept": getattr(settings, "night_mode_notify_tv_never_slept", True),
+        "night_mode_notify_tv_active": getattr(settings, "night_mode_notify_tv_active", True),
         "tv_wake_pre_record_seconds": getattr(settings, "tv_wake_pre_record_seconds", 30),
         "tv_wake_post_record_seconds": getattr(settings, "tv_wake_post_record_seconds", 30),
         "tv_day_tracking_mode": getattr(settings, "tv_day_tracking_mode", "autonomous_only"),
@@ -246,6 +263,20 @@ async def save_app_settings(s: SettingsUpdate):
     if s.night_mode_end_hour is not None:
         settings.night_mode_end_hour = max(0, min(23, s.night_mode_end_hour))
         await db.save_setting("night_mode_end_hour", str(settings.night_mode_end_hour))
+    if s.night_mode_auto_block_wan is not None:
+        settings.night_mode_auto_block_wan = bool(s.night_mode_auto_block_wan)
+        await db.save_setting("night_mode_auto_block_wan", "true" if settings.night_mode_auto_block_wan else "false")
+    if s.night_mode_tv_inactivity_minutes is not None:
+        settings.night_mode_tv_inactivity_minutes = max(1, min(120, s.night_mode_tv_inactivity_minutes))
+        await db.save_setting("night_mode_tv_inactivity_minutes", str(settings.night_mode_tv_inactivity_minutes))
+    if s.night_mode_notify_tv_never_slept is not None:
+        settings.night_mode_notify_tv_never_slept = bool(s.night_mode_notify_tv_never_slept)
+        settings.night_mode_notify_tv_active = settings.night_mode_notify_tv_never_slept
+        await db.save_setting("night_mode_notify_tv_never_slept", "true" if settings.night_mode_notify_tv_never_slept else "false")
+    elif s.night_mode_notify_tv_active is not None:
+        settings.night_mode_notify_tv_active = bool(s.night_mode_notify_tv_active)
+        settings.night_mode_notify_tv_never_slept = settings.night_mode_notify_tv_active
+        await db.save_setting("night_mode_notify_tv_never_slept", "true" if settings.night_mode_notify_tv_active else "false")
 
     if s.tv_wake_pre_record_seconds is not None:
         settings.tv_wake_pre_record_seconds = max(5, min(300, s.tv_wake_pre_record_seconds))
