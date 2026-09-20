@@ -134,7 +134,7 @@ const PROFILES = {
 
 document.addEventListener('DOMContentLoaded', () => {
     initSidebarState();
-    lucide.createIcons();
+    if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
     updateDeviceViewModeButtons();
     updateSnifferDisplayModeButtons();
     const hideOfflineSaved = localStorage.getItem('kg_hide_offline') === 'true';
@@ -145,8 +145,23 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshAllData();
     loadLanPresets();
     initModalDismissHandlers();
-    // Periodic refresh every 10 seconds
-    setInterval(refreshAllData, 10000);
+
+    // Periodic refresh
+    setInterval(() => {
+        loadDevices();
+        loadStatus();
+        if (activeTab === 'alerts') loadEvents();
+        if (activeTab === 'smarthome') loadSmartHome();
+        if (activeTab === 'security') loadSecurity();
+        if (activeTab === 'lan') {
+            if (currentLanView === 'log') loadLanCommunications();
+            else if (currentLanView === 'matrix') loadLanPingMatrix();
+            else if (currentLanView === 'topo') loadLanTopology();
+        }
+        if (activeTab === 'packets') loadPacketInspectorLive();
+        if (activeTab === 'tv_forensics') loadTvForensics();
+    }, 10000);
+
     // Fast periodic refresh for active audit sessions
     setInterval(() => {
         if (activeTab === 'audits' || activeAuditsCount > 0) {
@@ -169,7 +184,11 @@ function initModalDismissHandlers() {
         'clear-audits-modal',
         'clear-offline-devices-modal',
         'packet-inspector-modal',
-        'pcap-selector-modal'
+        'pcap-selector-modal',
+        'device-setup-wizard-modal',
+        'custom-preset-modal',
+        'dns-preset-modal',
+        'dns-active-rules-modal'
     ];
 
     modalIds.forEach(id => {
@@ -210,6 +229,10 @@ function closeAnyModal(id) {
     else if (id === 'clear-offline-devices-modal') closeClearOfflineModal();
     else if (id === 'packet-inspector-modal') closePacketInspectorModal();
     else if (id === 'pcap-selector-modal') closePcapSelectorModal();
+    else if (id === 'device-setup-wizard-modal') closeDeviceWizard();
+    else if (id === 'custom-preset-modal') closeCustomPresetModal();
+    else if (id === 'dns-preset-modal') closeDnsPresetModal();
+    else if (id === 'dns-active-rules-modal') closeDnsActiveRulesModal();
 }
 
 // WebSocket Connection
@@ -221,7 +244,7 @@ function connectWebSocket() {
     ws.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            if (data.type === 'refresh' || data.type === 'device_updated') {
+            if (data.type === 'refresh' || data.type === 'device_updated' || data.type === 'device_deleted' || data.type === 'devices_pruned') {
                 loadDevices();
                 loadStatus();
                 if (activeTab === 'smarthome') loadSmartHome();
@@ -232,12 +255,19 @@ function connectWebSocket() {
                 loadEvents();
                 if (activeTab === 'smarthome') loadSmartHome();
                 if (activeTab === 'security') loadSecurity();
-            } else if (data.type === 'audit_started' || data.type === 'audit_stopped' || data.type === 'audit_report_deleted' || data.type === 'audit_reports_cleared') {
+            } else if (data.type === 'security_event' || data.type === 'event_deleted' || data.type === 'events_cleared') {
+                loadEvents();
+                loadStatus();
+                if (activeTab === 'security') loadSecurity();
+            } else if (data.type === 'presets_updated') {
+                if (typeof loadLanPresets === 'function') loadLanPresets();
+                if (activeTab === 'devices') loadDevices();
+            } else if (data.type === 'audit_started' || data.type === 'audit_stopped' || data.type === 'network_audit_started' || data.type === 'network_audit_stopped' || data.type === 'audit_report_deleted' || data.type === 'audit_reports_cleared') {
                 loadActiveAudits();
                 if (activeTab === 'audits') loadAuditReports();
             } else if (data.type === 'sniffer_event') {
                 appendSnifferFeed(data.event);
-            } else if (data.type === 'dns_sinkhole_updated' || data.type === 'dns_preset_applied' || data.type === 'dns_all_unblocked' || data.type === 'dns_provider_synced') {
+            } else if (data.type === 'dns_sinkhole_updated' || data.type === 'dns_preset_applied' || data.type === 'dns_all_unblocked' || data.type === 'dns_provider_synced' || data.type === 'dns_provider_config_saved' || data.type === 'dns_query_deleted' || data.type === 'dns_queries_cleared') {
                 if (activeTab === 'tv_forensics') loadTvBrandPresets();
                 if (activeTab === 'dns' && typeof loadDnsQueries === 'function') loadDnsQueries();
                 if (typeof loadDnsProviderStatus === 'function') loadDnsProviderStatus();
@@ -453,7 +483,10 @@ function updateAllDisplayModeButtons() {
         });
     });
 }
-const updateSnifferDisplayModeButtons = updateAllDisplayModeButtons;
+function updateSnifferDisplayModeButtons() {
+    return updateAllDisplayModeButtons();
+}
+window.updateSnifferDisplayModeButtons = updateSnifferDisplayModeButtons;
 
 async function setDeviceDisplayMode(mode) {
     localStorage.setItem('kg_device_display_mode', mode);
@@ -475,7 +508,10 @@ async function setDeviceDisplayMode(mode) {
         loadIotPayloads();
     }
 }
-const setSnifferDisplayMode = setDeviceDisplayMode;
+function setSnifferDisplayMode(mode) {
+    return setDeviceDisplayMode(mode);
+}
+window.setSnifferDisplayMode = setSnifferDisplayMode;
 
 function isRouterEntity(ip, mac) {
     const routerHost = currentRouterInfo?.host || '192.168.1.1';
@@ -3037,11 +3073,15 @@ async function loadSettings() {
         const triggerTtlEl = document.getElementById('cfg-tv-wake-trigger-ttl');
         if (triggerTtlEl) triggerTtlEl.value = s.tv_wake_trigger_ttl_seconds !== undefined ? s.tv_wake_trigger_ttl_seconds : 60;
 
+        const pre = s.tv_wake_pre_record_seconds !== undefined ? s.tv_wake_pre_record_seconds : 30;
+        const post = s.tv_wake_post_record_seconds !== undefined ? s.tv_wake_post_record_seconds : 30;
         const tvBadge = document.getElementById('tv-wake-window-label');
         if (tvBadge) {
-            const pre = s.tv_wake_pre_record_seconds !== undefined ? s.tv_wake_pre_record_seconds : 30;
-            const post = s.tv_wake_post_record_seconds !== undefined ? s.tv_wake_post_record_seconds : 30;
             tvBadge.textContent = `-${pre}с / +${post}с`;
+        }
+        const cfgTvBadge = document.getElementById('cfg-tv-wake-window-badge');
+        if (cfgTvBadge) {
+            cfgTvBadge.textContent = `-${pre}с / +${post}с`;
         }
 
         // New Device Policy (Modular Checkboxes)
