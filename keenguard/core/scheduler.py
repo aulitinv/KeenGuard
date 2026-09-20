@@ -181,12 +181,18 @@ class BackgroundScheduler:
                     "entered_night_mode_tonight": False,
                     "in_night_mode": False,
                     "wan_blocked_by_night_mode": False,
-                    "morning_notified": False,
+                    "morning_notified": not is_night,  # True if started during day/evening: prevents false morning alert
+                    "was_in_night_window": is_night,   # Only alert if night was actually monitored
                     "last_active_time": time.time()
                 }
             state = self._tv_night_status[mac]
 
             if is_night:
+                if not state.get("was_in_night_window"):
+                    # Entering a new night window: reset flags
+                    state["was_in_night_window"] = True
+                    state["entered_night_mode_tonight"] = False
+                    state["in_night_mode"] = False
                 state["morning_notified"] = False
                 is_active = await self._is_device_active(d, inactivity_minutes)
                 if is_active:
@@ -215,7 +221,9 @@ class BackgroundScheduler:
                     state["morning_notified"] = True
                     # Check if TV was active all night and never entered night mode
                     notify_enabled = getattr(settings, "night_mode_notify_tv_never_slept", True)
-                    if not state.get("entered_night_mode_tonight") and notify_enabled:
+                    was_monitored = state.get("was_in_night_window", True)
+                    state["was_in_night_window"] = False
+                    if was_monitored and not state.get("entered_night_mode_tonight") and notify_enabled:
                         dev_name = d.custom_name or d.hostname or d.ip or mac
                         desc = (f"Smart TV ({dev_name}) за всю ночь так и не перешёл в ночной режим: "
                                 f"непрерывная сетевая активность без перехода в режим ожидания")

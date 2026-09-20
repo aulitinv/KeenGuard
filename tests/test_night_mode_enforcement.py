@@ -179,3 +179,42 @@ async def test_morning_alert_when_tv_never_slept_all_night():
 
     state = scheduler._tv_night_status[tv_mac]
     assert state["morning_notified"] is True
+
+
+@pytest.mark.asyncio
+async def test_no_false_morning_alert_on_daytime_startup():
+    """When server starts during daytime/evening (outside night window), no false 'never slept' alert fires."""
+    scheduler = BackgroundScheduler()
+    tv_mac = "AA:BB:CC:11:22:77"
+    tv_ip = "192.168.1.85"
+
+    device = DeviceRecord(
+        mac=tv_mac,
+        ip=tv_ip,
+        hostname="LGwebOSTV",
+        profile="smart_tv",
+        night_mode_enabled=True,
+        is_online=False
+    )
+    await db.upsert_device(device)
+
+    # Server starts in the evening at 22:35
+    evening_dt = datetime(2026, 9, 20, 22, 35, 0)
+    settings.night_mode_start_hour = 0
+    settings.night_mode_end_hour = 7
+    settings.night_mode_notify_tv_never_slept = True
+
+    # Empty _tv_night_status as fresh startup
+    assert tv_mac not in scheduler._tv_night_status
+
+    with patch("keenguard.db.database.db.record_event", new=AsyncMock()) as mock_record, \
+         patch("keenguard.core.notifier.notifier.send_alert", new=AsyncMock()) as mock_alert:
+        await scheduler._check_night_mode_transitions(evening_dt)
+        mock_record.assert_not_called()
+        mock_alert.assert_not_called()
+
+    # Verify state initialized correctly for daytime
+    state = scheduler._tv_night_status[tv_mac]
+    assert state["morning_notified"] is True
+    assert state["was_in_night_window"] is False
+

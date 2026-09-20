@@ -2070,7 +2070,7 @@ function renderTvBrandPresets() {
     // Update block button labels
     const safeLabel = document.getElementById('btn-block-safe-tv-brand-label');
     if (safeLabel) {
-        safeSetText(safeLabel, `🟢 Блокировать безопасные (${preset.safe_count || 0})`);
+        safeSetText(safeLabel, `🟢 Заблокировать без риска (${preset.safe_count || 0})`);
     }
     const blockLabel = document.getElementById('btn-block-tv-brand-label');
     if (blockLabel) {
@@ -2112,14 +2112,14 @@ function renderTvBrandPresets() {
                     <div class="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/20 space-y-1">
                         <div class="font-semibold text-emerald-300 flex items-center space-x-1.5 text-[11px]">
                             <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                            <span>🟢 Безопасно (Реклама & ACR)</span>
+                            <span>🟢 Безопасно блокировать (Реклама & ACR)</span>
                         </div>
-                        <p class="text-[11px] text-slate-300 leading-snug">Баннеры на экране, промо и шпионская ACR-слежка (Live Plus). Блокируются без побочных эффектов для ТВ.</p>
+                        <p class="text-[11px] text-slate-300 leading-snug">Баннеры на экране, промо и шпионская ACR-слежка (Live Plus). Блокируются без риска для видео и приложений ТВ.</p>
                     </div>
                     <div class="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/20 space-y-1">
                         <div class="font-semibold text-amber-300 flex items-center space-x-1.5 text-[11px]">
                             <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
-                            <span>🟡 С осторожностью (Голос / Магазин)</span>
+                            <span>🟡 Блокировать с осторожностью (Голос / Магазин)</span>
                         </div>
                         <p class="text-[11px] text-slate-300 leading-snug">Голосовой пульт (микрофон), магазин приложений или вход в учетную запись вендора. Блокируйте, если не пользуетесь ими.</p>
                     </div>
@@ -2162,8 +2162,8 @@ function renderTvBrandPresets() {
                 const isBlocked = d.is_active;
                 const isSafe = d.safety === 'safe';
                 const safetyBadge = isSafe
-                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">🟢 ${escapeHtml(d.safety_label || 'Безопасно')}</span>`
-                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">🟡 ${escapeHtml(d.safety_label || 'С осторожностью')}</span>`;
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">🟢 ${escapeHtml(d.safety_label || 'Безопасно блокировать')}</span>`
+                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">🟡 ${escapeHtml(d.safety_label || 'Блокировать с осторожностью')}</span>`;
 
                 const catColor = d.category === 'advertising' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
                 const catText = d.category === 'advertising' ? 'Реклама' : 'Телеметрия / ACR';
