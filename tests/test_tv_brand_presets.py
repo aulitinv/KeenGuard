@@ -168,7 +168,7 @@ async def test_api_block_and_unblock_tv_preset():
 
         client = TestClient(app)
 
-        # 1. Block LG preset
+        # 1. Block LG preset (all)
         resp_block = client.post("/api/tv/sinkhole/block_preset", json={"preset": "tv_lg", "save_config": True})
         assert resp_block.status_code == 200
         data_block = resp_block.json()
@@ -176,6 +176,16 @@ async def test_api_block_and_unblock_tv_preset():
         assert data_block["preset"] == "tv_lg"
         assert len(data_block["blocked"]) == 2
         mock_add.assert_called_once()
+
+        # 1b. Block LG preset (only_safe=True)
+        mock_add.reset_mock()
+        resp_safe = client.post("/api/tv/sinkhole/block_preset", json={"preset": "tv_lg", "only_safe": True})
+        assert resp_safe.status_code == 200
+        mock_add.assert_called_once()
+        passed_domains = mock_add.call_args[0][0]
+        # Verify cautious domains like aic.lgtvcommon.com are excluded
+        assert "aic.lgtvcommon.com" not in passed_domains
+        assert "emp.lgsmartad.com" in passed_domains
 
         # 2. Unblock LG preset
         resp_unblock = client.post("/api/tv/sinkhole/unblock_preset", json={"preset": "tv_lg", "save_config": True})

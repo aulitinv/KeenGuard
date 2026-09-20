@@ -340,14 +340,14 @@ TV_BRAND_PRESETS: Dict[str, Dict[str, Any]] = {
             "Запретить TCP/UDP 853 для IP вашего телевизора LG."
         ),
         "domains": [
-            {"domain": "emp.lgsmartad.com", "name": "LG Ad Server", "category": "advertising", "risk": "ad", "description": "Сервер баннеров LG webOS Ad Server"},
-            {"domain": "lgtvcommon.com", "name": "LG Cloud Gateway", "category": "telemetry", "risk": "telemetry", "description": "LG Cloud Gateway (сбор логов и диагностика)"},
-            {"domain": "smartshare.lgtvsdp.com", "name": "LG SDP Platform", "category": "telemetry", "risk": "telemetry", "description": "LG SDP Platform (фоновая телеметрия сервисов)"},
-            {"domain": "ibs.lgappstv.com", "name": "LG App Store Analytics", "category": "telemetry", "risk": "telemetry", "description": "LG App Store Analytics (трекинг кликов и приложений)"},
-            {"domain": "rdx2.lgtvsdp.com", "name": "LG Live Plus (ACR)", "category": "telemetry", "risk": "telemetry", "description": "LG Live Plus / ACR (распознавание контента)"},
-            {"domain": "ad.lgappstv.com", "name": "LG Content Store Ads", "category": "advertising", "risk": "ad", "description": "LG Content Store Ads (реклама в каталоге)"},
-            {"domain": "aic.lgtvcommon.com", "name": "LG ThinQ Voice Analytics", "category": "telemetry", "risk": "telemetry", "description": "LG AI ThinQ Voice Analytics (поведенческий профиль)"},
-            {"domain": "ngfts.lge.com", "name": "LG Crash & Diagnostics", "category": "telemetry", "risk": "telemetry", "description": "LG Crash & Diagnostics (сбор дампов и краш-репортов)"},
+            {"domain": "emp.lgsmartad.com", "name": "LG Ad Server", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "Сервер баннеров LG webOS Ad Server", "impact": "Блокирует рекламные промо-баннеры на главном экране webOS. Просмотр видео и стриминг работают без изменений.", "troubleshoot": "Побочных эффектов нет, разблокировка не требуется."},
+            {"domain": "lgtvcommon.com", "name": "LG Cloud Gateway", "category": "telemetry", "risk": "telemetry", "safety": "caution", "safety_label": "Внимание: LG Account & ThinQ", "description": "LG Cloud Gateway (сбор логов и диагностика)", "impact": "Блокирует связь ТВ с облаком LG Account и приложением LG ThinQ на смартфоне. Стриминг, YouTube и онлайн-кинотеатры продолжают работать.", "troubleshoot": "Если не удается войти в профиль LG на ТВ или телефон не видит ТВ через приложение ThinQ — разблокируйте этот домен."},
+            {"domain": "smartshare.lgtvsdp.com", "name": "LG SDP Platform", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "LG SDP Platform (фоновая телеметрия сервисов)", "impact": "Останавливает сбор облачной статистики платформы SDP. Локальный просмотр фильмов по DLNA/SmartShare с ПК/роутера не затрагивается (работает по L2 напрямую).", "troubleshoot": "Если возникают сбои отображения значков в облачном каталоге сервисов LG — разблокируйте."},
+            {"domain": "ibs.lgappstv.com", "name": "LG App Store Analytics", "category": "telemetry", "risk": "telemetry", "safety": "caution", "safety_label": "Внимание: Поиск в App Store", "description": "LG App Store Analytics (трекинг кликов и приложений)", "impact": "Блокирует трекер поисковых запросов и кликов в каталоге приложений LG Content Store.", "troubleshoot": "Если при поиске приложений в магазине LG возникает ошибка сети или пустой экран — временно разблокируйте этот домен."},
+            {"domain": "rdx2.lgtvsdp.com", "name": "LG Live Plus (ACR)", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Настоятельно рекомендуется", "description": "LG Live Plus / ACR (распознавание контента)", "impact": "Отключает фоновую слежку за тем, что вы смотрите (анализ звуковых и видео-отпечатков передач даже с HDMI/антенны). Воспроизведение эфира и любых видео не нарушается.", "troubleshoot": "Побочных эффектов для воспроизведения контента нет. Разблокировка не требуется."},
+            {"domain": "ad.lgappstv.com", "name": "LG Content Store Ads", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "LG Content Store Ads (реклама в каталоге)", "impact": "Убирает спонсорские рекламные блоки внутри магазина приложений LG. Побочных эффектов нет.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "aic.lgtvcommon.com", "name": "LG ThinQ Voice Analytics", "category": "telemetry", "risk": "telemetry", "safety": "caution", "safety_label": "Внимание: Голосовой поиск", "description": "LG AI ThinQ Voice Analytics (поведенческий профиль)", "impact": "Отключает голосовой поиск с пульта Magic Remote (микрофон). При нажатии на микрофон пульт будет выдавать ошибку «Служба недоступна».", "troubleshoot": "Если вы пользуетесь голосовыми командами с пульта («найди фильм», «открой YouTube») — обязательно разблокируйте этот домен."},
+            {"domain": "ngfts.lge.com", "name": "LG Crash & Diagnostics", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "LG Crash & Diagnostics (сбор дампов и краш-репортов)", "impact": "Предотвращает автоматическую отправку системных логов, дампов памяти и краш-репортов прошивки в облако LG.", "troubleshoot": "Побочных эффектов нет. Разблокировка не требуется."},
         ]
     },
     "tv_samsung": {
@@ -365,14 +365,14 @@ TV_BRAND_PRESETS: Dict[str, Dict[str, Any]] = {
             "в настройках сетевых правил Keenetic."
         ),
         "domains": [
-            {"domain": "samsungacr.com", "name": "Samsung ACR Engine", "category": "telemetry", "risk": "telemetry", "description": "Samsung ACR (распознавание эфира и передач в реальном времени)"},
-            {"domain": "samsungads.com", "name": "Samsung Ads", "category": "advertising", "risk": "ad", "description": "Платформа таргетированной рекламы Samsung Ads"},
-            {"domain": "samsungcloudplatform.com", "name": "Samsung Cloud Platform", "category": "telemetry", "risk": "telemetry", "description": "Облачная телеметрия сервисов платформы Samsung"},
-            {"domain": "log-config.samsungcloud.com", "name": "Samsung Log Config", "category": "telemetry", "risk": "telemetry", "description": "Динамическая конфигурация сбора логов Samsung"},
-            {"domain": "config.samsungcloud.com", "name": "Samsung Config", "category": "telemetry", "risk": "telemetry", "description": "Удаленная настройка параметров трекинга"},
-            {"domain": "samsungcloudsolution.com", "name": "Samsung Cloud Solution", "category": "telemetry", "risk": "telemetry", "description": "Сбор телеметрии и диагностических данных"},
-            {"domain": "samsungqbe.com", "name": "Samsung QBE Diagnostics", "category": "telemetry", "risk": "telemetry", "description": "Диагностические логи ошибок и сбоев Tizen"},
-            {"domain": "gpm.samsungqbe.com", "name": "Samsung QBE Metrics", "category": "telemetry", "risk": "telemetry", "description": "Samsung QBE Metrics (метрики системных процессов)"},
+            {"domain": "samsungacr.com", "name": "Samsung ACR Engine", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Настоятельно рекомендуется", "description": "Samsung ACR (распознавание эфира и передач в реальном времени)", "impact": "Отключает распознавание контента ACR. Воспроизведение ТВ, кинотеатров и видео не нарушается.", "troubleshoot": "Побочных эффектов нет, разблокировка не требуется."},
+            {"domain": "samsungads.com", "name": "Samsung Ads", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "Платформа таргетированной рекламы Samsung Ads", "impact": "Убирает таргетированные рекламные баннеры на панели Smart Hub.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "samsungcloudplatform.com", "name": "Samsung Cloud Platform", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Облачная телеметрия сервисов платформы Samsung", "impact": "Блокирует фоновую облачную телеметрию сервисов Samsung.", "troubleshoot": "Если требуется вход в Samsung Account для синхронизации галереи — разблокируйте."},
+            {"domain": "log-config.samsungcloud.com", "name": "Samsung Log Config", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Динамическая конфигурация сбора логов Samsung", "impact": "Останавливает получение новых правил логирования.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "config.samsungcloud.com", "name": "Samsung Config", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Удаленная настройка параметров трекинга", "impact": "Блокирует удаленную настройку параметров трекинга Tizen.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "samsungcloudsolution.com", "name": "Samsung Cloud Solution", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Сбор телеметрии и диагностических данных", "impact": "Предотвращает передачу диагностических данных Tizen.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "samsungqbe.com", "name": "Samsung QBE Diagnostics", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Диагностические логи ошибок и сбоев Tizen", "impact": "Блокирует отправку логов ошибок системных приложений.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "gpm.samsungqbe.com", "name": "Samsung QBE Metrics", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Samsung QBE Metrics (метрики системных процессов)", "impact": "Блокирует телеметрию системных процессов и производительности.", "troubleshoot": "Разблокировка не требуется."},
         ]
     },
     "tv_android_google": {
@@ -390,12 +390,12 @@ TV_BRAND_PRESETS: Dict[str, Dict[str, Any]] = {
             "всех DNS-запросов (порт 53) на локальный адрес роутера 192.168.1.1."
         ),
         "domains": [
-            {"domain": "adservice.google.com", "name": "Google AdService", "category": "advertising", "risk": "ad", "description": "Сервис рекламы и спонсорского промо на главном экране"},
-            {"domain": "pagead2.googlesyndication.com", "name": "Google AdSense", "category": "advertising", "risk": "ad", "description": "Баннерная реклама Google AdSense в приложениях"},
-            {"domain": "google-analytics.com", "name": "Google Analytics", "category": "telemetry", "risk": "telemetry", "description": "Google Analytics для Smart TV"},
-            {"domain": "firebaselogging.googleapis.com", "name": "Firebase Logging", "category": "telemetry", "risk": "telemetry", "description": "Диагностическое логирование Firebase"},
-            {"domain": "app-measurement.com", "name": "App Measurement", "category": "telemetry", "risk": "telemetry", "description": "Трекинг событий и аналитика мобильных приложений ТВ"},
-            {"domain": "doubleclick.net", "name": "Google DoubleClick", "category": "advertising", "risk": "ad", "description": "Глобальная сеть показа баннеров Google"},
+            {"domain": "adservice.google.com", "name": "Google AdService", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "Сервис рекламы и спонсорского промо на главном экране", "impact": "Блокирует спонсорские рекламные баннеры на домашнем экране Android/Google TV.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "pagead2.googlesyndication.com", "name": "Google AdSense", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "Баннерная реклама Google AdSense в приложениях", "impact": "Блокирует всплывающую рекламу Google в сторонних ТВ-приложениях.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "google-analytics.com", "name": "Google Analytics", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Google Analytics для Smart TV", "impact": "Останавливает отправку телеметрии использования ТВ в Google Analytics.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "firebaselogging.googleapis.com", "name": "Firebase Logging", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Диагностическое логирование Firebase", "impact": "Блокирует фоновые логи диагностической платформы Firebase.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "app-measurement.com", "name": "App Measurement", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Трекинг событий и аналитика мобильных приложений ТВ", "impact": "Блокирует сбор данных о событиях внутри приложений.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "doubleclick.net", "name": "Google DoubleClick", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "Глобальная сеть показа баннеров Google", "impact": "Блокирует показ рекламы глобальной сети DoubleClick.", "troubleshoot": "Разблокировка не требуется."},
         ]
     },
     "tv_xiaomi": {
@@ -412,11 +412,11 @@ TV_BRAND_PRESETS: Dict[str, Dict[str, Any]] = {
             "останавливает доменные баннеры и сбор логов MiStat."
         ),
         "domains": [
-            {"domain": "ad.xiaomi.com", "name": "Xiaomi PatchWall Ads", "category": "advertising", "risk": "ad", "description": "Рекламные карточки и промо в оболочке PatchWall"},
-            {"domain": "tracking.miui.com", "name": "MIUI TV Tracking", "category": "telemetry", "risk": "telemetry", "description": "Сбор телеметрии оболочки PatchWall / MIUI TV"},
-            {"domain": "data.mistat.xiaomi.com", "name": "MiStat Analytics", "category": "telemetry", "risk": "telemetry", "description": "Статистика кликов и использования приложений MiStat"},
-            {"domain": "api.ad.xiaomi.com", "name": "Xiaomi Ad Engine", "category": "advertising", "risk": "ad", "description": "API персонализированной рекламы Xiaomi"},
-            {"domain": "o2o.api.xiaomi.com", "name": "Xiaomi O2O Recommendations", "category": "telemetry", "risk": "telemetry", "description": "Сервер товарных рекомендаций и таргетинга Xiaomi"},
+            {"domain": "ad.xiaomi.com", "name": "Xiaomi PatchWall Ads", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "Рекламные карточки и промо в оболочке PatchWall", "impact": "Убирает навязчивые рекламные карточки и промо-баннеры в оболочке PatchWall.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "tracking.miui.com", "name": "MIUI TV Tracking", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Сбор телеметрии оболочки PatchWall / MIUI TV", "impact": "Блокирует отправку телеметрии оболочки MIUI TV.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "data.mistat.xiaomi.com", "name": "MiStat Analytics", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Статистика кликов и использования приложений MiStat", "impact": "Останавливает отправку статистики кликов и запусков приложений MiStat.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "api.ad.xiaomi.com", "name": "Xiaomi Ad Engine", "category": "advertising", "risk": "ad", "safety": "safe", "safety_label": "Безопасно", "description": "API персонализированной рекламы Xiaomi", "impact": "Блокирует API персонализированных рекламных объявлений Xiaomi.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "o2o.api.xiaomi.com", "name": "Xiaomi O2O Recommendations", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Сервер товарных рекомендаций и таргетинга Xiaomi", "impact": "Останавливает подгрузку коммерческих товарных рекомендаций Xiaomi.", "troubleshoot": "Разблокировка не требуется."},
         ]
     },
     "tv_apple": {
@@ -433,9 +433,9 @@ TV_BRAND_PRESETS: Dict[str, Dict[str, Any]] = {
             "для сохранения стабильности AirPlay и стриминга Apple TV+."
         ),
         "domains": [
-            {"domain": "metrics.apple.com", "name": "Apple Diagnostics Metrics", "category": "telemetry", "risk": "telemetry", "description": "Системная диагностическая телеметрия Apple"},
-            {"domain": "notes-analytics-events.apple.com", "name": "Apple Analytics Events", "category": "telemetry", "risk": "telemetry", "description": "Сбор событий аналитики и взаимодействий"},
-            {"domain": "xp.apple.com", "name": "Apple App Store XP", "category": "telemetry", "risk": "telemetry", "description": "Аналитика переходов и покупок в App Store"},
+            {"domain": "metrics.apple.com", "name": "Apple Diagnostics Metrics", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Системная диагностическая телеметрия Apple", "impact": "Останавливает отправку диагностических метрик tvOS. AirPlay и стриминг работают без ограничений.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "notes-analytics-events.apple.com", "name": "Apple Analytics Events", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Сбор событий аналитики и взаимодействий", "impact": "Блокирует сбор событий пользовательских взаимодействий в tvOS.", "troubleshoot": "Разблокировка не требуется."},
+            {"domain": "xp.apple.com", "name": "Apple App Store XP", "category": "telemetry", "risk": "telemetry", "safety": "safe", "safety_label": "Безопасно", "description": "Аналитика переходов и покупок в App Store", "impact": "Останавливает аналитику переходов и покупок в App Store.", "troubleshoot": "Если при оформлении покупок в tvOS возникает сбой — разблокируйте этот домен."},
         ]
     }
 }
@@ -475,16 +475,23 @@ def detect_tv_brand(device_info: Dict[str, Any]) -> Optional[str]:
 
 def get_tv_brand_presets(active_sinkholes: Optional[set] = None) -> List[Dict[str, Any]]:
     """
-    Returns list of brand presets enriched with domain active statuses and counts.
+    Returns list of brand presets enriched with domain active statuses, safety ratings, and counts.
     """
     active_set = set(d.lower().strip() for d in active_sinkholes) if active_sinkholes else set()
     result = []
     for preset_id, preset in TV_BRAND_PRESETS.items():
         enriched_domains = []
         active_count = 0
+        safe_count = 0
+        active_safe_count = 0
         for item in preset["domains"]:
             dom = item["domain"].lower().strip()
             is_active = dom in active_set
+            safety = item.get("safety", "safe")
+            if safety == "safe":
+                safe_count += 1
+                if is_active:
+                    active_safe_count += 1
             if is_active:
                 active_count += 1
             enriched_domains.append({
@@ -492,7 +499,11 @@ def get_tv_brand_presets(active_sinkholes: Optional[set] = None) -> List[Dict[st
                 "name": item["name"],
                 "category": item["category"],
                 "risk": item["risk"],
+                "safety": safety,
+                "safety_label": item.get("safety_label", "Безопасно"),
                 "description": item["description"],
+                "impact": item.get("impact", "Блокирует сетевые обращения к сервису."),
+                "troubleshoot": item.get("troubleshoot", ""),
                 "is_active": is_active
             })
         result.append({
@@ -504,6 +515,8 @@ def get_tv_brand_presets(active_sinkholes: Optional[set] = None) -> List[Dict[st
             "domains": enriched_domains,
             "total_count": len(enriched_domains),
             "active_count": active_count,
+            "safe_count": safe_count,
+            "active_safe_count": active_safe_count,
             "is_fully_blocked": active_count == len(enriched_domains) if enriched_domains else False
         })
     return result

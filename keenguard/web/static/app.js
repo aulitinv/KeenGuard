@@ -2067,13 +2067,17 @@ function renderTvBrandPresets() {
     const preset = tvBrandPresetsData.presets.find(p => p.id === activeTvBrandId) || tvBrandPresetsData.presets[0];
     if (!preset) return;
 
-    // Update block button label
+    // Update block button labels
+    const safeLabel = document.getElementById('btn-block-safe-tv-brand-label');
+    if (safeLabel) {
+        safeSetText(safeLabel, `🟢 Блокировать безопасные (${preset.safe_count || 0})`);
+    }
     const blockLabel = document.getElementById('btn-block-tv-brand-label');
     if (blockLabel) {
-        safeSetText(blockLabel, `Заблокировать трекеры ${preset.name} (0.0.0.0)`);
+        safeSetText(blockLabel, `⛔ Блокировать ВСЕ (${preset.total_count || 0})`);
     }
 
-    // 4. Render active brand details (detected devices & remote hint)
+    // 4. Render active brand details (detected devices, troubleshooting guide, and remote hint)
     const detailsContainer = document.getElementById('tv-brand-preset-details');
     if (detailsContainer) {
         let detectedHtml = '';
@@ -2094,6 +2098,42 @@ function renderTvBrandPresets() {
 
         detailsContainer.innerHTML = `
             ${detectedHtml}
+
+            <!-- Quick Troubleshooting & Safety Guide -->
+            <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-800/80 pb-2">
+                    <div class="flex items-center space-x-2 text-indigo-300 font-semibold text-xs">
+                        <i data-lucide="help-circle" class="w-4 h-4 text-indigo-400"></i>
+                        <span>Шпаргалка: что безопасно блокировать, а что разблокировать при проблемах</span>
+                    </div>
+                    <span class="text-[10px] text-emerald-400/90 font-medium">Стриминг (YouTube, Кинопоиск), HDMI и DLNA не ломаются</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+                    <div class="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/20 space-y-1">
+                        <div class="font-semibold text-emerald-300 flex items-center space-x-1.5 text-[11px]">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                            <span>🟢 Безопасно (Реклама & ACR)</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-snug">Баннеры на экране, промо и шпионская ACR-слежка (Live Plus). Блокируются без побочных эффектов для ТВ.</p>
+                    </div>
+                    <div class="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/20 space-y-1">
+                        <div class="font-semibold text-amber-300 flex items-center space-x-1.5 text-[11px]">
+                            <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                            <span>🟡 С осторожностью (Голос / Магазин)</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-snug">Голосовой пульт (микрофон), магазин приложений или вход в учетную запись вендора. Блокируйте, если не пользуетесь ими.</p>
+                    </div>
+                    <div class="p-2.5 rounded-lg bg-cyan-950/20 border border-cyan-500/20 space-y-1">
+                        <div class="font-semibold text-cyan-300 flex items-center space-x-1.5 text-[11px]">
+                            <i data-lucide="life-buoy" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
+                            <span>🔧 Что разблокировать при сбое</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-snug">Не работает микрофон на пульте? Разблокируйте домен с пометкой <b>«Голосовой поиск»</b>. Ошибка магазина? Разблокируйте <b>«App Store»</b>.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Remote physical hint -->
             <div class="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/30 space-y-2">
                 <div class="flex items-center space-x-2 text-indigo-300 font-semibold text-xs">
                     <i data-lucide="tv" class="w-4 h-4 shrink-0"></i>
@@ -2120,31 +2160,53 @@ function renderTvBrandPresets() {
         } else {
             tbody.innerHTML = preset.domains.map(d => {
                 const isBlocked = d.is_active;
+                const isSafe = d.safety === 'safe';
+                const safetyBadge = isSafe
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">🟢 ${escapeHtml(d.safety_label || 'Безопасно')}</span>`
+                    : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">🟡 ${escapeHtml(d.safety_label || 'С осторожностью')}</span>`;
+
                 const catColor = d.category === 'advertising' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
                 const catText = d.category === 'advertising' ? 'Реклама' : 'Телеметрия / ACR';
 
                 return `
                     <tr class="hover:bg-slate-800/30 transition">
-                        <td class="py-3 px-4">
-                            <div class="flex items-center space-x-2">
-                                <span class="font-mono text-white text-xs font-medium select-all">${escapeHtml(d.domain)}</span>
+                        <td class="py-3.5 px-4 align-top">
+                            <div class="space-y-1.5">
+                                <span class="font-mono text-white text-xs font-semibold select-all block">${escapeHtml(d.domain)}</span>
+                                <div>${safetyBadge}</div>
                             </div>
                         </td>
-                        <td class="py-3 px-4">
-                            <div class="text-xs text-slate-300 font-medium">${escapeHtml(d.name || '')}</div>
-                            <div class="text-[11px] text-slate-500 mt-0.5">${escapeHtml(d.description || '')}</div>
+                        <td class="py-3.5 px-4 align-top">
+                            <div class="space-y-1.5">
+                                <div>
+                                    <span class="text-xs text-slate-100 font-semibold">${escapeHtml(d.name || '')}</span>
+                                    <span class="text-[11px] text-slate-400 ml-1.5">${escapeHtml(d.description || '')}</span>
+                                </div>
+                                <div class="p-2 rounded-lg bg-surface-950/70 border border-slate-800/80 space-y-1 text-[11px]">
+                                    <div class="flex items-start space-x-1.5 text-slate-300">
+                                        <span class="text-slate-400 font-medium shrink-0">Влияние блокировки:</span>
+                                        <span class="leading-relaxed">${escapeHtml(d.impact || 'Блокирует сетевой доступ к сервису.')}</span>
+                                    </div>
+                                    ${d.troubleshoot ? `
+                                        <div class="flex items-start space-x-1.5 text-amber-300/90 pt-1 border-t border-slate-800/60">
+                                            <span class="font-semibold shrink-0">💡 Если проблемы:</span>
+                                            <span class="leading-relaxed">${escapeHtml(d.troubleshoot)}</span>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
                         </td>
-                        <td class="py-3 px-4">
-                            <span class="px-2 py-0.5 rounded text-[11px] font-medium border ${catColor}">${catText}</span>
+                        <td class="py-3.5 px-4 align-top">
+                            <span class="px-2 py-0.5 rounded text-[11px] font-medium border ${catColor} inline-block whitespace-nowrap">${catText}</span>
                         </td>
-                        <td class="py-3 px-4 text-center">
+                        <td class="py-3.5 px-4 text-center align-top">
                             ${isBlocked
                                 ? '<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><i data-lucide="shield-check" class="w-3.5 h-3.5 mr-1"></i>0.0.0.0 (Блок)</span>'
                                 : '<span class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs text-slate-400 bg-slate-800/80 border border-slate-700">Пропускается</span>'
                             }
                         </td>
-                        <td class="py-3 px-4 text-right">
-                            <button type="button" onclick="toggleTvBrandDomain('${escapeHtml(d.domain)}', ${!isBlocked})" class="px-3 py-1 rounded-lg text-xs font-medium transition ${isBlocked ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700' : 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30'}">
+                        <td class="py-3.5 px-4 text-right align-top">
+                            <button type="button" onclick="toggleTvBrandDomain('${escapeHtml(d.domain)}', ${!isBlocked})" class="px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${isBlocked ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700' : 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30'}">
                                 ${isBlocked ? 'Разблокировать' : '⛔ Блокировать'}
                             </button>
                         </td>
@@ -2164,16 +2226,17 @@ function switchTvBrandTab(brandId) {
     renderTvBrandPresets();
 }
 
-async function blockSelectedTvBrandPreset() {
+async function blockSelectedTvBrandPreset(onlySafe = false) {
     if (!activeTvBrandId) return;
-    const btn = document.getElementById('btn-block-tv-brand-preset');
+    const btnId = onlySafe ? 'btn-block-safe-tv-brand-preset' : 'btn-block-tv-brand-preset';
+    const btn = document.getElementById(btnId);
     if (btn) btn.disabled = true;
 
     try {
         const res = await fetch('/api/tv/sinkhole/block_preset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ preset: activeTvBrandId, save_config: true })
+            body: JSON.stringify({ preset: activeTvBrandId, only_safe: Boolean(onlySafe), save_config: true })
         });
         const data = await res.json();
         if (res.ok) {

@@ -23,6 +23,7 @@ router = APIRouter(tags=["tv"])
 
 class DnsSinkholePresetRequest(BaseModel):
     preset: str
+    only_safe: Optional[bool] = False
 
 
 class DnsSinkholeToggleRequest(BaseModel):
@@ -98,7 +99,16 @@ async def block_tv_preset_api(req: DnsSinkholePresetRequest):
     if preset_id not in TV_BRAND_PRESETS:
         raise HTTPException(status_code=400, detail=f"Неизвестный пресет ТВ: {req.preset}")
 
-    target_domains = [item["domain"] for item in TV_BRAND_PRESETS[preset_id]["domains"]]
+    if req.only_safe:
+        target_domains = [
+            item["domain"] for item in TV_BRAND_PRESETS[preset_id]["domains"]
+            if item.get("safety", "safe") == "safe"
+        ]
+        msg_title = f"Безопасный фильтр '{TV_BRAND_PRESETS[preset_id]['name']}'"
+    else:
+        target_domains = [item["domain"] for item in TV_BRAND_PRESETS[preset_id]["domains"]]
+        msg_title = f"Пресет '{TV_BRAND_PRESETS[preset_id]['name']}'"
+
     blocked, failed = await keenetic_client.add_dns_sinkholes(target_domains)
 
     await ws_manager.broadcast({
@@ -114,7 +124,7 @@ async def block_tv_preset_api(req: DnsSinkholePresetRequest):
         "blocked": blocked,
         "failed": failed,
         "count": len(blocked),
-        "message": f"Пресет '{TV_BRAND_PRESETS[preset_id]['name']}' применен: заблокировано {len(blocked)} доменов (0.0.0.0)"
+        "message": f"{msg_title} применен: заблокировано {len(blocked)} доменов (0.0.0.0)"
     }
 
 
