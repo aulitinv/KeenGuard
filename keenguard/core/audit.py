@@ -14,119 +14,44 @@ from keenguard.core.keenetic import keenetic_client
 
 logger = logging.getLogger("keenguard.audit")
 
-KNOWN_SERVICES: Dict[int, Dict[str, Any]] = {
-    53: {"name": "DNS (Резолвинг доменов)", "encrypted": False, "risk": "safe"},
-    80: {"name": "HTTP (Открытый веб/API)", "encrypted": False, "risk": "warning"},
-    443: {"name": "HTTPS (Шифрованный SSL/TLS)", "encrypted": True, "risk": "safe"},
-    123: {"name": "NTP (Синхронизация времени)", "encrypted": False, "risk": "safe"},
-    554: {"name": "RTSP (Видеопоток камеры)", "encrypted": False, "risk": "safe"},
-    1883: {"name": "MQTT (Нешифрованный IoT)", "encrypted": False, "risk": "warning"},
-    8883: {"name": "MQTTS (Шифрованный IoT TLS)", "encrypted": True, "risk": "safe"},
-    4443: {"name": "HTTPS-Alt (Облачный порт IoT)", "encrypted": True, "risk": "safe"},
-    11883: {"name": "Qingping IoT Protocol", "encrypted": True, "risk": "safe"},
-    16387: {"name": "Smart AC IoT Protocol", "encrypted": True, "risk": "safe"},
-    19973: {"name": "Dreame P2P/Telemetry", "encrypted": True, "risk": "safe"},
-    28141: {"name": "Cloud Push / Keepalive", "encrypted": True, "risk": "safe"},
-    21: {"name": "FTP (Передача файлов)", "encrypted": False, "risk": "critical"},
-    22: {"name": "SSH (Терминал)", "encrypted": True, "risk": "critical"},
-    23: {"name": "Telnet (Незащищенный терминал)", "encrypted": False, "risk": "critical"},
-    139: {"name": "NetBIOS", "encrypted": False, "risk": "critical"},
-    445: {"name": "SMB (Сетевые папки)", "encrypted": False, "risk": "critical"},
-    3389: {"name": "RDP (Удаленный рабочий стол)", "encrypted": True, "risk": "critical"},
-    5555: {"name": "ADB (Отладка Android)", "encrypted": False, "risk": "critical"},
-}
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def load_known_services() -> Dict[int, Dict[str, Any]]:
+    """Loads well-known network service port descriptions from static JSON catalog."""
+    json_path = _DATA_DIR / "known_services.json"
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            return {int(port): info for port, info in raw.items()}
+        except Exception as e:
+            logger.warning("Failed to load known services catalog from %s: %s", json_path, e)
+    return {}
+
+
+KNOWN_SERVICES: Dict[int, Dict[str, Any]] = load_known_services()
 
 import ipaddress
 
-CIDR_PROVIDERS = [
-    # Google Cloud & Services
-    (ipaddress.ip_network("34.64.0.0/10"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("34.128.0.0/10"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("35.184.0.0/13"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("35.192.0.0/12"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("35.208.0.0/12"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("35.224.0.0/12"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("35.240.0.0/13"), "Google Cloud Platform", "US", "🇺🇸"),
-    (ipaddress.ip_network("142.250.0.0/15"), "Google Cloud / YouTube", "US", "🇺🇸"),
-    (ipaddress.ip_network("172.217.0.0/16"), "Google Services", "US", "🇺🇸"),
-    (ipaddress.ip_network("216.58.192.0/19"), "Google Infrastructure", "US", "🇺🇸"),
-    (ipaddress.ip_network("74.125.0.0/16"), "Google Backbone", "US", "🇺🇸"),
-    (ipaddress.ip_network("8.8.8.8/32"), "Google Public DNS", "US", "🇺🇸"),
-    (ipaddress.ip_network("8.8.4.4/32"), "Google Public DNS", "US", "🇺🇸"),
 
-    # Amazon AWS
-    (ipaddress.ip_network("3.0.0.0/9"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("3.128.0.0/10"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("13.32.0.0/11"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("13.64.0.0/11"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("15.177.0.0/16"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("18.128.0.0/9"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("44.192.0.0/10"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("50.16.0.0/14"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("52.0.0.0/11"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("54.0.0.0/10"), "Amazon AWS Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("99.84.0.0/16"), "Amazon CloudFront CDN", "US", "🇺🇸"),
+def load_cidr_providers() -> List[Any]:
+    """Loads cloud provider and CDN CIDR ranges from static JSON catalog."""
+    json_path = _DATA_DIR / "cidr_providers.json"
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            return [
+                (ipaddress.ip_network(item["cidr"]), item["name"], item["country"], item["flag"])
+                for item in raw
+            ]
+        except Exception as e:
+            logger.warning("Failed to load CIDR providers catalog from %s: %s", json_path, e)
+    return []
 
-    # Microsoft Azure
-    (ipaddress.ip_network("20.0.0.0/8"), "Microsoft Azure Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("40.64.0.0/10"), "Microsoft Azure Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("40.112.0.0/12"), "Microsoft Azure Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("51.103.0.0/16"), "Microsoft Azure UK/Europe", "GB", "🇬🇧"),
-    (ipaddress.ip_network("51.104.0.0/16"), "Microsoft Azure UK/Europe", "GB", "🇬🇧"),
-    (ipaddress.ip_network("51.105.0.0/16"), "Microsoft Azure UK/Europe", "GB", "🇬🇧"),
-    (ipaddress.ip_network("65.52.0.0/14"), "Microsoft Azure US", "US", "🇺🇸"),
-    (ipaddress.ip_network("104.40.0.0/13"), "Microsoft Azure Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("137.116.0.0/16"), "Microsoft Azure Cloud", "US", "🇺🇸"),
-    (ipaddress.ip_network("168.61.0.0/16"), "Microsoft Azure Cloud", "US", "🇺🇸"),
 
-    # Cloudflare
-    (ipaddress.ip_network("1.1.1.1/32"), "Cloudflare Anycast DNS", "US", "🇺🇸"),
-    (ipaddress.ip_network("1.0.0.1/32"), "Cloudflare Anycast DNS", "US", "🇺🇸"),
-    (ipaddress.ip_network("104.16.0.0/12"), "Cloudflare CDN / Edge", "US", "🇺🇸"),
-    (ipaddress.ip_network("162.158.0.0/15"), "Cloudflare Proxy", "US", "🇺🇸"),
-    (ipaddress.ip_network("172.64.0.0/13"), "Cloudflare CDN", "US", "🇺🇸"),
-    (ipaddress.ip_network("188.114.96.0/20"), "Cloudflare Europe", "EU", "🇪🇺"),
-
-    # Russian Platforms (Yandex, VK, Selectel)
-    (ipaddress.ip_network("77.88.0.0/18"), "Яндекс Инфраструктура", "RU", "🇷🇺"),
-    (ipaddress.ip_network("87.250.224.0/19"), "Яндекс Сервер", "RU", "🇷🇺"),
-    (ipaddress.ip_network("93.158.128.0/18"), "Яндекс CDN", "RU", "🇷🇺"),
-    (ipaddress.ip_network("5.255.192.0/18"), "Яндекс Cloud", "RU", "🇷🇺"),
-    (ipaddress.ip_network("178.154.128.0/17"), "Яндекс Сеть", "RU", "🇷🇺"),
-    (ipaddress.ip_network("185.32.186.0/24"), "Яндекс Дзен/Медиа", "RU", "🇷🇺"),
-    (ipaddress.ip_network("213.180.192.0/19"), "Яндекс Портал", "RU", "🇷🇺"),
-    (ipaddress.ip_network("95.163.0.0/16"), "VK Cloud Infrastructure", "RU", "🇷🇺"),
-    (ipaddress.ip_network("128.140.128.0/18"), "VK / Mail.ru Group", "RU", "🇷🇺"),
-    (ipaddress.ip_network("217.69.128.0/20"), "VK / Одноклассники", "RU", "🇷🇺"),
-    (ipaddress.ip_network("185.89.12.0/22"), "VK CDN", "RU", "🇷🇺"),
-    (ipaddress.ip_network("95.213.0.0/16"), "Selectel Datacenter", "RU", "🇷🇺"),
-    (ipaddress.ip_network("95.214.0.0/16"), "Selectel Cloud", "RU", "🇷🇺"),
-    (ipaddress.ip_network("178.249.128.0/17"), "Selectel Сеть", "RU", "🇷🇺"),
-    (ipaddress.ip_network("188.93.16.0/20"), "Selectel Hosting", "RU", "🇷🇺"),
-
-    # Smart Home & IoT Clouds
-    (ipaddress.ip_network("47.74.0.0/15"), "Alibaba Cloud / Dreame IoT", "DE", "🇩🇪"),
-    (ipaddress.ip_network("47.88.0.0/14"), "Alibaba Cloud IoT", "DE", "🇩🇪"),
-    (ipaddress.ip_network("47.91.0.0/16"), "Alibaba Cloud / Dreame IoT", "DE", "🇩🇪"),
-    (ipaddress.ip_network("47.241.0.0/16"), "Alibaba Cloud SG", "SG", "🇸🇬"),
-    (ipaddress.ip_network("47.242.0.0/16"), "Alibaba Cloud HK", "HK", "🇭🇰"),
-    (ipaddress.ip_network("47.254.0.0/16"), "Alibaba Cloud IoT", "DE", "🇩🇪"),
-    (ipaddress.ip_network("46.8.0.0/16"), "Dreame P2P Media Server", "RU", "🇷🇺"),
-    (ipaddress.ip_network("152.32.0.0/16"), "Tuya Smart IoT Cloud", "DE", "🇩🇪"),
-    (ipaddress.ip_network("161.117.0.0/16"), "Qingping Air IoT Cloud", "SG", "🇸🇬"),
-    (ipaddress.ip_network("46.46.0.0/16"), "Qingping IoT Server", "RU", "🇷🇺"),
-    (ipaddress.ip_network("89.232.0.0/16"), "Gree / Smart AC Cloud", "RU", "🇷🇺"),
-    (ipaddress.ip_network("212.41.0.0/16"), "Tantos Cloud / Домофония", "RU", "🇷🇺"),
-
-    # Messengers & CDNs
-    (ipaddress.ip_network("149.154.160.0/20"), "Telegram Messenger DC", "NL", "🇳🇱"),
-    (ipaddress.ip_network("91.108.4.0/22"), "Telegram Messenger DC", "NL", "🇳🇱"),
-    (ipaddress.ip_network("91.108.8.0/22"), "Telegram Messenger DC", "NL", "🇳🇱"),
-    (ipaddress.ip_network("91.108.12.0/22"), "Telegram Messenger DC", "NL", "🇳🇱"),
-    (ipaddress.ip_network("91.108.16.0/22"), "Telegram Messenger DC", "NL", "🇳🇱"),
-    (ipaddress.ip_network("91.108.56.0/22"), "Telegram Messenger DC", "NL", "🇳🇱"),
-    (ipaddress.ip_network("17.0.0.0/8"), "Apple iCloud / Services", "US", "🇺🇸"),
-]
+CIDR_PROVIDERS = load_cidr_providers()
 
 # For backwards compatibility with any component iterating KNOWN_PROVIDERS
 KNOWN_PROVIDERS = [

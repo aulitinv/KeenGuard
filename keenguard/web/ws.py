@@ -95,6 +95,11 @@ async def broadcast_event(event: SecurityEvent):
     })
 
 
+_last_ws_poll_time: float = 0.0
+REFRESH_DEBOUNCE_SECONDS: float = 3.0
+MAX_WS_MESSAGES_PER_SECOND: int = 30
+
+
 @router.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
@@ -104,10 +109,25 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Import do_keenetic_poll dynamically to avoid circular import issues
     from keenguard.web.workers import do_keenetic_poll
+    from keenguard.core.classifier import is_valid_mac
+
+    global _last_ws_poll_time
+    recent_msg_timestamps: List[float] = []
 
     try:
         while True:
             raw_data = await websocket.receive_text()
+            now = time.time()
+            recent_msg_timestamps = [t for t in recent_msg_timestamps if now - t < 1.0]
+            if len(recent_msg_timestamps) >= MAX_WS_MESSAGES_PER_SECOND:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Rate limit exceeded (max {MAX_WS_MESSAGES_PER_SECOND} msgs/sec)"
+                })
+                await asyncio.sleep(0.2)
+                continue
+            recent_msg_timestamps.append(now)
+
             try:
                 msg = json.loads(raw_data)
                 cmd = msg.get("command") or msg.get("type")
@@ -124,23 +144,31 @@ async def websocket_endpoint(websocket: WebSocket):
                         "timestamp": time.time()
                     })
                 elif cmd == "refresh":
-                    create_tracked_task(do_keenetic_poll())
-                    await websocket.send_json({"type": "refresh_ack", "status": "polling_started"})
+                    if now - _last_ws_poll_time < REFRESH_DEBOUNCE_SECONDS:
+                        await websocket.send_json({
+                            "type": "refresh_ack",
+                            "status": "debounced",
+                            "message": f"Polling already requested within last {REFRESH_DEBOUNCE_SECONDS}s"
+                        })
+                    else:
+                        _last_ws_poll_time = now
+                        create_tracked_task(do_keenetic_poll())
+                        await websocket.send_json({"type": "refresh_ack", "status": "polling_started"})
                 elif cmd == "start_audit":
                     mac = msg.get("mac")
                     duration = int(msg.get("duration", 60))
-                    if mac:
+                    if not mac or not is_valid_mac(mac):
+                        await websocket.send_json({"type": "error", "message": f"Valid MAC address is required for start_audit (received: {mac})"})
+                    else:
                         create_tracked_task(audit_manager.start_audit(mac=mac, duration_seconds=duration))
                         await websocket.send_json({"type": "audit_started", "mac": mac, "duration": duration})
-                    else:
-                        await websocket.send_json({"type": "error", "message": "MAC address is required for start_audit"})
                 elif cmd == "stop_audit":
                     mac = msg.get("mac")
-                    if mac:
+                    if not mac or not is_valid_mac(mac):
+                        await websocket.send_json({"type": "error", "message": f"Valid MAC address is required for stop_audit (received: {mac})"})
+                    else:
                         audit_manager.stop_audit(mac)
                         await websocket.send_json({"type": "audit_stopped", "mac": mac})
-                    else:
-                        await websocket.send_json({"type": "error", "message": "MAC address is required for stop_audit"})
                 else:
                     await websocket.send_json({"type": "ack", "received": cmd})
             except json.JSONDecodeError:

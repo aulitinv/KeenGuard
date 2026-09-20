@@ -4,7 +4,8 @@
 !.env.example
 
 # Database & PCAP Data
-data/
+/data/
+!keenguard/data/
 *.pcap
 *.db
 *.sqlite

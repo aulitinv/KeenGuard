@@ -1,6 +1,7 @@
 """Asynchronous SQLite database operations for KeenGuard."""
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -101,14 +102,17 @@ class Database:
     def __init__(self, db_path: Optional[Any] = None):
         self.db_path = Path(db_path) if db_path else settings.db_path
 
-    def get_connection(self):
-        """Returns an async connection context manager for SQLite."""
-        return aiosqlite.connect(self.db_path)
+    @asynccontextmanager
+    async def get_connection(self):
+        """Returns an async connection context manager for SQLite with foreign keys enabled."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("PRAGMA foreign_keys = ON;")
+            yield conn
 
     async def init_db(self):
         """Creates tables and indexes if they do not exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             await conn.execute("PRAGMA journal_mode=WAL;")
             await conn.execute("PRAGMA synchronous=NORMAL;")
             await conn.execute("""

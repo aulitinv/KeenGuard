@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import shutil
 import sys
 import time
 from typing import Dict, Optional, Any
@@ -119,10 +120,24 @@ device_traffic_rates: Dict[str, tuple] = {}  # mac -> (timestamp, rx_bytes, tx_b
 _poll_counter: int = 0
 _poller_running: bool = False
 _poller_task: Optional[asyncio.Task] = None
+_poll_lock: Optional[asyncio.Lock] = None
+
+
+def get_poll_lock() -> asyncio.Lock:
+    """Returns or lazily creates an asyncio.Lock for synchronizing Keenetic polls."""
+    global _poll_lock
+    if _poll_lock is None:
+        _poll_lock = asyncio.Lock()
+    return _poll_lock
 
 
 async def do_keenetic_poll():
     """Polls Keenetic router for active hosts, synchronizes state with database, and checks security policies."""
+    async with get_poll_lock():
+        return await _do_keenetic_poll_internal()
+
+
+async def _do_keenetic_poll_internal():
     global _poll_counter
     # Check if app module has monkeypatched _poll_counter
     app_mod = sys.modules.get("keenguard.web.app")
@@ -454,9 +469,7 @@ def _backup_production_database():
             bak_path = prod_db.with_suffix(".db.bak")
             if bak_path.exists():
                 bak1_path = prod_db.with_suffix(".db.bak1")
-                import shutil
                 shutil.copy2(bak_path, bak1_path)
-            import shutil
             shutil.copy2(prod_db, bak_path)
             logger.info("Automatic startup database snapshot created: %s", bak_path)
     except Exception as e:

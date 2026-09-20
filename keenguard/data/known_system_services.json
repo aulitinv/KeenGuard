@@ -1,0 +1,52 @@
+[
+  {
+    "name": "OCSP / CRL Проверка сертификатов",
+    "category": "system_crl_ocsp",
+    "description": "Служебный трафик проверки отзыва SSL/TLS-сертификатов (DigiCert, Let's Encrypt, Sectigo, Akamai). Намеренно передается по HTTP (порт 80), чтобы избежать циклической ошибки при установлении TLS-соединения. Является безопасным фоновым поведением ОС.",
+    "risk": "safe",
+    "ports": [
+      80
+    ],
+    "keywords": [
+      "ocsp",
+      "crl",
+      "digicert",
+      "sectigo",
+      "letsencrypt",
+      "verisign",
+      "globalsign",
+      "symantec",
+      "usertrust"
+    ]
+  },
+  {
+    "name": "NCSI / Проверка подключения к интернету (Captive Portal)",
+    "category": "system_connectivity",
+    "description": "Фоновая проверка доступности сети Windows (msftconnecttest.com / ipv6.msftncsi.com) или Google/Android (connectivitycheck.gstatic.com / generate_204). Выполняется по обычному HTTP (порт 80). Опасности не представляет.",
+    "risk": "safe",
+    "ports": [
+      80
+    ],
+    "keywords": [
+      "msftconnecttest",
+      "msftncsi",
+      "connectivitycheck",
+      "gstatic",
+      "captive",
+      "clients3.google.com"
+    ]
+  },
+  {
+    "name": "Веб-интерфейс роутера Keenetic",
+    "category": "router_admin",
+    "description": "Обращение к веб-интерфейсу роутера по незашифрованному HTTP (порт 80). Рекомендуется включить принудительный HTTPS в настройках роутера (Сетевые правила -> Доменное имя -> SSL-сертификат).",
+    "risk": "advisory",
+    "ports": [
+      80
+    ],
+    "keywords": [
+      "192.168.1.1",
+      "keenetic"
+    ]
+  }
+]

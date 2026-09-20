@@ -1,0 +1,446 @@
+[
+  {
+    "cidr": "34.64.0.0/10",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "34.128.0.0/10",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "35.184.0.0/13",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "35.192.0.0/12",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "35.208.0.0/12",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "35.224.0.0/12",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "35.240.0.0/13",
+    "name": "Google Cloud Platform",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "142.250.0.0/15",
+    "name": "Google Cloud / YouTube",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "172.217.0.0/16",
+    "name": "Google Services",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "216.58.192.0/19",
+    "name": "Google Infrastructure",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "74.125.0.0/16",
+    "name": "Google Backbone",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "8.8.8.8/32",
+    "name": "Google Public DNS",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "8.8.4.4/32",
+    "name": "Google Public DNS",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "3.0.0.0/9",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "3.128.0.0/10",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "13.32.0.0/11",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "13.64.0.0/11",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "15.177.0.0/16",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "18.128.0.0/9",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "44.192.0.0/10",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "50.16.0.0/14",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "52.0.0.0/11",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "54.0.0.0/10",
+    "name": "Amazon AWS Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "99.84.0.0/16",
+    "name": "Amazon CloudFront CDN",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "20.0.0.0/8",
+    "name": "Microsoft Azure Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "40.64.0.0/10",
+    "name": "Microsoft Azure Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "40.112.0.0/12",
+    "name": "Microsoft Azure Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "51.103.0.0/16",
+    "name": "Microsoft Azure UK/Europe",
+    "country": "GB",
+    "flag": "🇬🇧"
+  },
+  {
+    "cidr": "51.104.0.0/16",
+    "name": "Microsoft Azure UK/Europe",
+    "country": "GB",
+    "flag": "🇬🇧"
+  },
+  {
+    "cidr": "51.105.0.0/16",
+    "name": "Microsoft Azure UK/Europe",
+    "country": "GB",
+    "flag": "🇬🇧"
+  },
+  {
+    "cidr": "65.52.0.0/14",
+    "name": "Microsoft Azure US",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "104.40.0.0/13",
+    "name": "Microsoft Azure Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "137.116.0.0/16",
+    "name": "Microsoft Azure Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "168.61.0.0/16",
+    "name": "Microsoft Azure Cloud",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "1.1.1.1/32",
+    "name": "Cloudflare Anycast DNS",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "1.0.0.1/32",
+    "name": "Cloudflare Anycast DNS",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "104.16.0.0/12",
+    "name": "Cloudflare CDN / Edge",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "162.158.0.0/15",
+    "name": "Cloudflare Proxy",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "172.64.0.0/13",
+    "name": "Cloudflare CDN",
+    "country": "US",
+    "flag": "🇺🇸"
+  },
+  {
+    "cidr": "188.114.96.0/20",
+    "name": "Cloudflare Europe",
+    "country": "EU",
+    "flag": "🇪🇺"
+  },
+  {
+    "cidr": "77.88.0.0/18",
+    "name": "Яндекс Инфраструктура",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "87.250.224.0/19",
+    "name": "Яндекс Сервер",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "93.158.128.0/18",
+    "name": "Яндекс CDN",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "5.255.192.0/18",
+    "name": "Яндекс Cloud",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "178.154.128.0/17",
+    "name": "Яндекс Сеть",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "185.32.186.0/24",
+    "name": "Яндекс Дзен/Медиа",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "213.180.192.0/19",
+    "name": "Яндекс Портал",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "95.163.0.0/16",
+    "name": "VK Cloud Infrastructure",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "128.140.128.0/18",
+    "name": "VK / Mail.ru Group",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "217.69.128.0/20",
+    "name": "VK / Одноклассники",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "185.89.12.0/22",
+    "name": "VK CDN",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "95.213.0.0/16",
+    "name": "Selectel Datacenter",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "95.214.0.0/16",
+    "name": "Selectel Cloud",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "178.249.128.0/17",
+    "name": "Selectel Сеть",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "188.93.16.0/20",
+    "name": "Selectel Hosting",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "47.74.0.0/15",
+    "name": "Alibaba Cloud / Dreame IoT",
+    "country": "DE",
+    "flag": "🇩🇪"
+  },
+  {
+    "cidr": "47.88.0.0/14",
+    "name": "Alibaba Cloud IoT",
+    "country": "DE",
+    "flag": "🇩🇪"
+  },
+  {
+    "cidr": "47.91.0.0/16",
+    "name": "Alibaba Cloud / Dreame IoT",
+    "country": "DE",
+    "flag": "🇩🇪"
+  },
+  {
+    "cidr": "47.241.0.0/16",
+    "name": "Alibaba Cloud SG",
+    "country": "SG",
+    "flag": "🇸🇬"
+  },
+  {
+    "cidr": "47.242.0.0/16",
+    "name": "Alibaba Cloud HK",
+    "country": "HK",
+    "flag": "🇭🇰"
+  },
+  {
+    "cidr": "47.254.0.0/16",
+    "name": "Alibaba Cloud IoT",
+    "country": "DE",
+    "flag": "🇩🇪"
+  },
+  {
+    "cidr": "46.8.0.0/16",
+    "name": "Dreame P2P Media Server",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "152.32.0.0/16",
+    "name": "Tuya Smart IoT Cloud",
+    "country": "DE",
+    "flag": "🇩🇪"
+  },
+  {
+    "cidr": "161.117.0.0/16",
+    "name": "Qingping Air IoT Cloud",
+    "country": "SG",
+    "flag": "🇸🇬"
+  },
+  {
+    "cidr": "46.46.0.0/16",
+    "name": "Qingping IoT Server",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "89.232.0.0/16",
+    "name": "Gree / Smart AC Cloud",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "212.41.0.0/16",
+    "name": "Tantos Cloud / Домофония",
+    "country": "RU",
+    "flag": "🇷🇺"
+  },
+  {
+    "cidr": "149.154.160.0/20",
+    "name": "Telegram Messenger DC",
+    "country": "NL",
+    "flag": "🇳🇱"
+  },
+  {
+    "cidr": "91.108.4.0/22",
+    "name": "Telegram Messenger DC",
+    "country": "NL",
+    "flag": "🇳🇱"
+  },
+  {
+    "cidr": "91.108.8.0/22",
+    "name": "Telegram Messenger DC",
+    "country": "NL",
+    "flag": "🇳🇱"
+  },
+  {
+    "cidr": "91.108.12.0/22",
+    "name": "Telegram Messenger DC",
+    "country": "NL",
+    "flag": "🇳🇱"
+  },
+  {
+    "cidr": "91.108.16.0/22",
+    "name": "Telegram Messenger DC",
+    "country": "NL",
+    "flag": "🇳🇱"
+  },
+  {
+    "cidr": "91.108.56.0/22",
+    "name": "Telegram Messenger DC",
+    "country": "NL",
+    "flag": "🇳🇱"
+  },
+  {
+    "cidr": "17.0.0.0/8",
+    "name": "Apple iCloud / Services",
+    "country": "US",
+    "flag": "🇺🇸"
+  }
+]

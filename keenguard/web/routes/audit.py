@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from keenguard.config import settings
+from keenguard.core.classifier import DeviceClassifier
 from keenguard.web.state import (
     get_db,
     get_audit_manager,
@@ -18,6 +19,18 @@ from keenguard.web.ws import ws_manager
 logger = logging.getLogger("keenguard.web.routes.audit")
 
 router = APIRouter(tags=["audit"])
+
+NETWORK_AUDIT_TARGETS = {"NETWORK", "__ALL_NETWORK__", "__IOT_ONLY__", "__UNTRUSTED__"}
+
+
+def _validate_audit_target(target: str) -> str:
+    """Validates audit target string (either special keyword or valid IEEE 802 MAC)."""
+    cleaned = target.upper()
+    if cleaned in NETWORK_AUDIT_TARGETS:
+        return cleaned
+    if not DeviceClassifier.is_valid_mac(cleaned):
+        raise HTTPException(status_code=400, detail=f"Invalid MAC address format: {target}")
+    return cleaned
 
 
 class AuditStartRequest(BaseModel):
@@ -34,7 +47,7 @@ class NetworkAuditStartRequest(BaseModel):
 async def start_device_audit(mac: str, req: AuditStartRequest):
     db = get_db()
     audit_manager = get_audit_manager()
-    mac_upper = mac.upper()
+    mac_upper = _validate_audit_target(mac)
     dur_sec = req.duration_seconds if req.duration_seconds is not None else 300
     if mac_upper in ("NETWORK", "__ALL_NETWORK__", "__IOT_ONLY__", "__UNTRUSTED__"):
         target_scope = "iot_only" if mac_upper == "__IOT_ONLY__" else ("untrusted" if mac_upper == "__UNTRUSTED__" else (req.scope or "all"))
@@ -63,7 +76,7 @@ async def start_device_audit(mac: str, req: AuditStartRequest):
 @router.post("/api/audit/{mac}/stop")
 async def stop_device_audit(mac: str):
     audit_manager = get_audit_manager()
-    mac_upper = mac.upper()
+    mac_upper = _validate_audit_target(mac)
     if mac_upper == "NETWORK":
         report = await audit_manager.stop_network_audit()
         if not report:
@@ -126,13 +139,14 @@ async def get_latest_network_audit_report_endpoint():
 @router.get("/api/audit/{mac}/status")
 async def get_audit_status(mac: str):
     audit_manager = get_audit_manager()
-    if mac.upper() == "NETWORK":
+    target = _validate_audit_target(mac)
+    if target == "NETWORK":
         status = audit_manager.get_network_audit_status()
         if not status:
             return {"is_active": False}
         return status
 
-    session = audit_manager.get_session(mac.upper())
+    session = audit_manager.get_session(target)
     if not session or not session.is_active:
         return {"is_active": False}
     elapsed = int((datetime.now(timezone.utc) - session.start_time).total_seconds())
@@ -155,7 +169,8 @@ async def get_audit_status(mac: str):
 @router.get("/api/audit/{mac}/latest_report")
 async def get_latest_audit_report(mac: str):
     db = get_db()
-    if mac.upper() == "NETWORK":
+    target = _validate_audit_target(mac)
+    if target == "NETWORK":
         reports = await db.get_audit_reports(limit=50)
         net_reports = [r for r in reports if r.mac == "NETWORK" or r.id.startswith("net_audit_")]
         if not net_reports:
@@ -166,7 +181,7 @@ async def get_latest_audit_report(mac: str):
         except Exception:
             return r.model_dump()
 
-    reports = await db.get_audit_reports(mac=mac.upper(), limit=1)
+    reports = await db.get_audit_reports(mac=target, limit=1)
     if not reports:
         raise HTTPException(status_code=404, detail="No audit reports found for this device")
     r = reports[0]

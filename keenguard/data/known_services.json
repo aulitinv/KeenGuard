@@ -1,0 +1,97 @@
+{
+  "53": {
+    "name": "DNS (Резолвинг доменов)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "80": {
+    "name": "HTTP (Открытый веб/API)",
+    "encrypted": false,
+    "risk": "warning"
+  },
+  "443": {
+    "name": "HTTPS (Шифрованный SSL/TLS)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "123": {
+    "name": "NTP (Синхронизация времени)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "554": {
+    "name": "RTSP (Видеопоток камеры)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "1883": {
+    "name": "MQTT (Нешифрованный IoT)",
+    "encrypted": false,
+    "risk": "warning"
+  },
+  "8883": {
+    "name": "MQTTS (Шифрованный IoT TLS)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "4443": {
+    "name": "HTTPS-Alt (Облачный порт IoT)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "11883": {
+    "name": "Qingping IoT Protocol",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "16387": {
+    "name": "Smart AC IoT Protocol",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "19973": {
+    "name": "Dreame P2P/Telemetry",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "28141": {
+    "name": "Cloud Push / Keepalive",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "21": {
+    "name": "FTP (Передача файлов)",
+    "encrypted": false,
+    "risk": "critical"
+  },
+  "22": {
+    "name": "SSH (Терминал)",
+    "encrypted": true,
+    "risk": "critical"
+  },
+  "23": {
+    "name": "Telnet (Незащищенный терминал)",
+    "encrypted": false,
+    "risk": "critical"
+  },
+  "139": {
+    "name": "NetBIOS",
+    "encrypted": false,
+    "risk": "critical"
+  },
+  "445": {
+    "name": "SMB (Сетевые папки)",
+    "encrypted": false,
+    "risk": "critical"
+  },
+  "3389": {
+    "name": "RDP (Удаленный рабочий стол)",
+    "encrypted": true,
+    "risk": "critical"
+  },
+  "5555": {
+    "name": "ADB (Отладка Android)",
+    "encrypted": false,
+    "risk": "critical"
+  }
+}

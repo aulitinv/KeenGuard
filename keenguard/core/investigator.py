@@ -6,7 +6,9 @@ threat intelligence deep links (VirusTotal, AbuseIPDB, IPinfo), and actionable r
 with strict technical realism regarding VPN and DoH/DoT constraints.
 """
 
+import json
 import logging
+from pathlib import Path
 import re
 import urllib.parse
 from datetime import datetime, timezone
@@ -14,33 +16,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("keenguard.core.investigator")
 
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def load_known_system_services() -> List[Dict[str, Any]]:
+    """Loads known legitimate system service categories from static JSON catalog."""
+    json_path = _DATA_DIR / "known_system_services.json"
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning("Failed to load known system services from %s: %s", json_path, e)
+    return []
+
+
 # Known legitimate service categories for destination IPs and ports
-KNOWN_SYSTEM_SERVICES = [
-    {
-        "name": "OCSP / CRL Проверка сертификатов",
-        "category": "system_crl_ocsp",
-        "description": "Служебный трафик проверки отзыва SSL/TLS-сертификатов (DigiCert, Let's Encrypt, Sectigo, Akamai). Намеренно передается по HTTP (порт 80), чтобы избежать циклической ошибки при установлении TLS-соединения. Является безопасным фоновым поведением ОС.",
-        "risk": "safe",
-        "ports": [80],
-        "keywords": ["ocsp", "crl", "digicert", "sectigo", "letsencrypt", "verisign", "globalsign", "symantec", "usertrust"]
-    },
-    {
-        "name": "NCSI / Проверка подключения к интернету (Captive Portal)",
-        "category": "system_connectivity",
-        "description": "Фоновая проверка доступности сети Windows (msftconnecttest.com / ipv6.msftncsi.com) или Google/Android (connectivitycheck.gstatic.com / generate_204). Выполняется по обычному HTTP (порт 80). Опасности не представляет.",
-        "risk": "safe",
-        "ports": [80],
-        "keywords": ["msftconnecttest", "msftncsi", "connectivitycheck", "gstatic", "captive", "clients3.google.com"]
-    },
-    {
-        "name": "Веб-интерфейс роутера Keenetic",
-        "category": "router_admin",
-        "description": "Обращение к веб-интерфейсу роутера по незашифрованному HTTP (порт 80). Рекомендуется включить принудительный HTTPS в настройках роутера (Сетевые правила -> Доменное имя -> SSL-сертификат).",
-        "risk": "advisory",
-        "ports": [80],
-        "keywords": ["192.168.1.1", "keenetic"]
-    }
-]
+KNOWN_SYSTEM_SERVICES = load_known_system_services()
+
 
 class IncidentInvestigator:
     """Core intelligence and workflow orchestrator for security incident investigations."""

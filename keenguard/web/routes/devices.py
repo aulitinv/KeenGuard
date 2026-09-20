@@ -24,6 +24,13 @@ logger = logging.getLogger("keenguard.web.routes.devices")
 router = APIRouter(tags=["devices"])
 
 
+def _validate_mac(mac: str) -> str:
+    """Validates IEEE 802 MAC format and normalizes to uppercase, raising 400 on invalid input."""
+    if not DeviceClassifier.is_valid_mac(mac):
+        raise HTTPException(status_code=400, detail=f"Invalid MAC address format: {mac}")
+    return mac.upper()
+
+
 class ProfileUpdate(BaseModel):
     profile: str
 
@@ -127,7 +134,7 @@ async def get_devices():
 async def get_device(mac: str):
     db = get_db()
     keenetic_client = get_keenetic_client()
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -175,7 +182,7 @@ async def get_device(mac: str):
 @router.delete("/api/devices/{mac}")
 async def delete_single_device(mac: str):
     db = get_db()
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     success = await db.delete_device(clean_mac)
     if not success:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -193,7 +200,7 @@ async def delete_all_offline_devices():
 
 @router.post("/api/devices/{mac}/policy")
 async def set_device_policy_api(mac: str, req: DevicePolicyUpdateRequest):
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     updated = await policy_manager.apply_policy(
         mac=clean_mac,
         policy_id=req.policy_id,
@@ -214,7 +221,7 @@ async def set_device_policy_api(mac: str, req: DevicePolicyUpdateRequest):
 
 @router.post("/api/devices/{mac}/profile")
 async def set_profile(mac: str, update: ProfileUpdate):
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     updated = await policy_manager.apply_policy(clean_mac, policy_id=update.profile)
     if not updated:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -224,17 +231,19 @@ async def set_profile(mac: str, update: ProfileUpdate):
 
 @router.post("/api/devices/{mac}/toggle_wan")
 async def toggle_wan(mac: str, req: ToggleRequest):
-    success = await profile_manager.toggle_wan(mac, block=req.enabled)
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
+    clean_mac = _validate_mac(mac)
+    success = await profile_manager.toggle_wan(clean_mac, block=req.enabled)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "blocked_wan": req.enabled, "success": success}
 
 
 @router.post("/api/devices/{mac}/toggle_lan")
 async def toggle_lan(mac: str, req: ToggleRequest):
     db = get_db()
-    success = await profile_manager.toggle_lan_isolation(mac, isolate=req.enabled)
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
-    dev = await db.get_device(mac.upper())
+    clean_mac = _validate_mac(mac)
+    success = await profile_manager.toggle_lan_isolation(clean_mac, isolate=req.enabled)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
+    dev = await db.get_device(clean_mac)
     is_iso = dev.is_isolated_lan if dev else False
     msg = None
     if req.enabled and not is_iso:
@@ -244,30 +253,34 @@ async def toggle_lan(mac: str, req: ToggleRequest):
 
 @router.post("/api/devices/{mac}/toggle_airplay")
 async def toggle_airplay(mac: str, req: ToggleRequest):
-    success = await profile_manager.toggle_airplay(mac, allow=req.enabled)
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
+    clean_mac = _validate_mac(mac)
+    success = await profile_manager.toggle_airplay(clean_mac, allow=req.enabled)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "airplay_allowed": req.enabled, "success": success}
 
 
 @router.post("/api/devices/{mac}/toggle_dlna")
 async def toggle_dlna(mac: str, req: ToggleRequest):
-    success = await profile_manager.toggle_dlna(mac, allow=req.enabled)
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
+    clean_mac = _validate_mac(mac)
+    success = await profile_manager.toggle_dlna(clean_mac, allow=req.enabled)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "dlna_allowed": req.enabled, "success": success}
 
 
 @router.post("/api/devices/{mac}/toggle_night")
 async def toggle_night(mac: str, req: ToggleRequest):
-    success = await profile_manager.toggle_night_mode(mac, enable=req.enabled)
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
+    clean_mac = _validate_mac(mac)
+    success = await profile_manager.toggle_night_mode(clean_mac, enable=req.enabled)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "night_mode": req.enabled, "success": success}
 
 
 @router.post("/api/devices/{mac}/rename")
 async def rename_device(mac: str, req: RenameRequest):
     db = get_db()
-    success = await db.update_device_policy(mac, custom_name=req.custom_name)
-    await ws_manager.broadcast({"type": "device_updated", "mac": mac.upper()})
+    clean_mac = _validate_mac(mac)
+    success = await db.update_device_policy(clean_mac, custom_name=req.custom_name)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "success": success}
 
 
@@ -351,7 +364,7 @@ async def delete_preset(preset_id: str):
 @router.post("/api/devices/{mac}/lan-policy")
 async def update_device_lan_policy(mac: str, req: DeviceLanPolicyRequest):
     db = get_db()
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
@@ -375,7 +388,7 @@ async def update_device_lan_policy(mac: str, req: DeviceLanPolicyRequest):
 @router.get("/api/wizard/device/{mac}")
 async def get_device_wizard_context(mac: str):
     db = get_db()
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
@@ -425,7 +438,7 @@ async def get_device_wizard_context(mac: str):
 async def submit_device_wizard(mac: str, req: DeviceWizardSubmitRequest):
     db = get_db()
     audit_manager = get_audit_manager()
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
@@ -475,7 +488,8 @@ async def submit_device_wizard(mac: str, req: DeviceWizardSubmitRequest):
 @router.get("/api/devices/{mac}/traffic")
 async def get_device_traffic(mac: str, limit: int = 60):
     db = get_db()
-    history = await db.get_device_traffic_history(mac.upper(), limit=limit)
+    clean_mac = _validate_mac(mac)
+    history = await db.get_device_traffic_history(clean_mac, limit=limit)
     return history
 
 
@@ -483,16 +497,17 @@ async def get_device_traffic(mac: str, limit: int = 60):
 async def get_device_payloads(mac: str, limit: int = 100):
     """Returns captured payload data specifically for a given device MAC."""
     db = get_db()
-    payloads = await db.get_iot_payloads(mac=mac, limit=limit)
+    clean_mac = _validate_mac(mac)
+    payloads = await db.get_iot_payloads(mac=clean_mac, limit=limit)
     storage = await db.get_iot_storage_stats()
-    return {"status": "ok", "mac": mac.upper(), "payloads": payloads, "storage": storage}
+    return {"status": "ok", "mac": clean_mac, "payloads": payloads, "storage": storage}
 
 
 @router.get("/api/devices/{mac}/packets")
 async def get_device_packets(mac: str, limit: int = 50, protocol: Optional[str] = None):
     """Returns recently captured raw/dissected packets for a specific device."""
     sniffer = get_sniffer()
-    clean_mac = mac.upper()
+    clean_mac = _validate_mac(mac)
     ring = sniffer.ring_buffers.get(clean_mac)
     if not ring:
         return {"status": "ok", "mac": clean_mac, "total_buffered": 0, "packets": []}
