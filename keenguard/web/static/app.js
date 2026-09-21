@@ -599,7 +599,6 @@ function connectWebSocket() {
                 if (activeTab === 'tv_forensics') loadTvBrandPresets();
                 if (activeTab === 'dns' && typeof loadDnsQueries === 'function') loadDnsQueries();
                 if (typeof loadDnsProviderStatus === 'function') loadDnsProviderStatus();
-            }
             } else if (data.type === 'error' && data.auth_required) {
                 showLoginModal();
                 return;
@@ -1367,10 +1366,12 @@ async function switchTab(tabId) {
 
 // Data Loaders
 async function refreshAllData() {
-    await loadStatus();
-    await loadDevices();
-    await loadUpnp();
-    await loadEvents();
+    await Promise.allSettled([
+        loadStatus(),
+        loadDevices(),
+        loadUpnp(),
+        loadEvents()
+    ]);
     if (activeTab === 'dashboard') {
         loadWifiAudit();
         checkRouterUpdates();
@@ -1398,7 +1399,9 @@ async function refreshAllData() {
 async function loadStatus() {
     try {
         const res = await fetch('/api/status');
+        if (!res.ok) return;
         const data = await res.json();
+        if (!data || !data.router) return;
         currentRouterInfo = data.router;
         if (currentRouterInfo) {
             const rName = currentRouterInfo.model || 'Keenetic';

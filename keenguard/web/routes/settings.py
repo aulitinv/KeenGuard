@@ -149,13 +149,6 @@ async def get_system_status():
         has_pwd = bool(keenetic_client.password or settings.router_password)
 
     wan_ip = getattr(router_health, "wan_ip", None)
-    if not wan_ip:
-        try:
-            wan_ip = await backend.get_wan_ip()
-            if wan_ip:
-                router_health.wan_ip = wan_ip
-        except Exception:
-            pass
 
     mem_info = getattr(router_health, "memory", None)
 
