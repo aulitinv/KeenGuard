@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Optional, Dict, Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
 from keenguard.config import (
@@ -11,7 +11,9 @@ from keenguard.config import (
     save_env_router_credentials,
     save_env_openwrt_credentials,
     save_env_telegram_settings,
+    persist_web_auth_settings,
 )
+from keenguard.web.auth import hash_password, is_auth_required
 from keenguard.core.forensics import forensics
 from keenguard.core.notifier import notifier
 from keenguard.core.profiles import PROFILE_TEMPLATES
@@ -78,6 +80,16 @@ class SettingsUpdate(BaseModel):
     iot_payload_capture_enabled: Optional[bool] = None
     iot_payload_max_storage_gb: Optional[float] = None
     iot_payload_retention_days: Optional[int] = None
+    web_host: Optional[str] = None
+    web_auth_enabled: Optional[str] = None
+    web_auth_exempt_localhost: Optional[bool] = None
+
+
+class NetworkAccessUpdateRequest(BaseModel):
+    web_host: Optional[str] = None
+    web_auth_enabled: Optional[str] = None
+    web_auth_exempt_localhost: Optional[bool] = None
+    new_password: Optional[str] = None
 
 
 class TestConnRequest(BaseModel):
@@ -223,7 +235,11 @@ async def get_app_settings():
         "scheduled_audit_duration": getattr(settings, "scheduled_audit_duration", 60),
         "iot_payload_capture_enabled": getattr(settings, "iot_payload_capture_enabled", True),
         "iot_payload_max_storage_gb": getattr(settings, "iot_payload_max_storage_gb", 1.0),
-        "iot_payload_retention_days": getattr(settings, "iot_payload_retention_days", 7)
+        "iot_payload_retention_days": getattr(settings, "iot_payload_retention_days", 7),
+        "web_host": settings.web_host,
+        "web_auth_enabled": settings.web_auth_enabled,
+        "web_auth_exempt_localhost": settings.web_auth_exempt_localhost,
+        "has_web_password": bool(settings.web_password_hash or settings.web_password),
     }
 
 
@@ -536,6 +552,31 @@ async def save_app_settings(s: SettingsUpdate):
         await db.save_setting("iot_payload_retention_days", str(settings.iot_payload_retention_days))
         create_tracked_task(db.prune_iot_payloads())
 
+    # Web UI access & authentication settings
+    web_settings_changed = False
+    if s.web_host is not None and s.web_host.strip():
+        new_wh = s.web_host.strip()
+        if new_wh in ("127.0.0.1", "0.0.0.0") and new_wh != settings.web_host:
+            settings.web_host = new_wh
+            await db.save_setting("web_host", new_wh)
+            web_settings_changed = True
+    if s.web_auth_enabled is not None:
+        clean_mode = s.web_auth_enabled.strip().lower()
+        if clean_mode in ("auto", "true", "false", "1", "0"):
+            settings.web_auth_enabled = clean_mode
+            await db.save_setting("web_auth_enabled", clean_mode)
+            web_settings_changed = True
+    if s.web_auth_exempt_localhost is not None:
+        settings.web_auth_exempt_localhost = bool(s.web_auth_exempt_localhost)
+        await db.save_setting("web_auth_exempt_localhost", "true" if settings.web_auth_exempt_localhost else "false")
+        web_settings_changed = True
+    if web_settings_changed:
+        persist_web_auth_settings(
+            web_host=settings.web_host,
+            web_auth_enabled=settings.web_auth_enabled,
+            web_auth_exempt_localhost=settings.web_auth_exempt_localhost,
+        )
+
     # Synchronize in-memory reactive config_service cache and notify subscribers
     try:
         from keenguard.core.config_service import config_service
@@ -694,3 +735,84 @@ async def save_iot_storage_settings(body: Dict[str, Any] = Body(...)):
         "retention_days": settings.iot_payload_retention_days
     }
     return {"status": "ok", "config": cfg, "storage_stats": stats, "message": "Настройки хранилища сохранены", **stats}
+
+
+@router.get("/api/settings/network_access")
+async def get_network_access_settings():
+    """Returns current web interface bind host, port, authentication mode, and protection status."""
+    return {
+        "status": "ok",
+        "web_host": settings.web_host,
+        "web_port": settings.web_port,
+        "web_auth_enabled": settings.web_auth_enabled,
+        "web_auth_exempt_localhost": settings.web_auth_exempt_localhost,
+        "has_web_password": bool(settings.web_password_hash or settings.web_password),
+        "is_lan_exposed": settings.web_host not in ("127.0.0.1", "localhost", "::1"),
+        "auth_required": is_auth_required(),
+    }
+
+
+@router.post("/api/settings/network_access")
+async def update_network_access_settings(req: NetworkAccessUpdateRequest):
+    """Updates network binding interface, authentication policy, and administrator password."""
+    db = get_db()
+    host_changed = False
+    if req.web_host is not None and req.web_host.strip():
+        new_wh = req.web_host.strip()
+        if new_wh in ("127.0.0.1", "0.0.0.0"):
+            if new_wh != settings.web_host:
+                host_changed = True
+                settings.web_host = new_wh
+                await db.save_setting("web_host", new_wh)
+
+    if req.web_auth_enabled is not None:
+        clean_mode = req.web_auth_enabled.strip().lower()
+        if clean_mode in ("auto", "true", "false", "1", "0"):
+            settings.web_auth_enabled = clean_mode
+            await db.save_setting("web_auth_enabled", clean_mode)
+
+    if req.web_auth_exempt_localhost is not None:
+        settings.web_auth_exempt_localhost = bool(req.web_auth_exempt_localhost)
+        await db.save_setting("web_auth_exempt_localhost", "true" if settings.web_auth_exempt_localhost else "false")
+
+    if req.new_password is not None and req.new_password.strip():
+        new_pw = req.new_password.strip()
+        if len(new_pw) < 6:
+            raise HTTPException(status_code=400, detail="Пароль должен содержать не менее 6 символов")
+        new_hash = hash_password(new_pw)
+        settings.web_password_hash = new_hash
+        settings.web_password = ""
+        await db.save_setting("web_password_hash", new_hash)
+        persist_web_auth_settings(web_password_hash=new_hash)
+
+    persist_web_auth_settings(
+        web_host=settings.web_host,
+        web_auth_enabled=settings.web_auth_enabled,
+        web_auth_exempt_localhost=settings.web_auth_exempt_localhost,
+    )
+
+    # Sync config service
+    try:
+        from keenguard.core.config_service import config_service
+        config_service._cache["web_host"] = settings.web_host
+        config_service._cache["web_auth_enabled"] = settings.web_auth_enabled
+        config_service._cache["web_auth_exempt_localhost"] = settings.web_auth_exempt_localhost
+    except Exception as ex:
+        logger.debug("Failed to sync config_service for web auth: %s", ex)
+
+    msg = "Настройки сетевого доступа сохранены."
+    if host_changed:
+        msg += f" Сетевой интерфейс изменен на {settings.web_host}. Для применения на сокете перезапустите приложение."
+
+    return {
+        "status": "ok",
+        "message": msg,
+        "requires_restart": host_changed,
+        "web_host": settings.web_host,
+        "web_port": settings.web_port,
+        "web_auth_enabled": settings.web_auth_enabled,
+        "web_auth_exempt_localhost": settings.web_auth_exempt_localhost,
+        "has_web_password": bool(settings.web_password_hash or settings.web_password),
+        "is_lan_exposed": settings.web_host not in ("127.0.0.1", "localhost", "::1"),
+        "auth_required": is_auth_required(),
+    }

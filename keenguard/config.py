@@ -110,10 +110,39 @@ def save_env_dns_provider_settings(
     except Exception as e:
         logger.warning("Failed to persist DNS provider settings to .env: %s", e)
 
+def persist_web_auth_settings(
+    web_host: Optional[str] = None,
+    web_auth_enabled: Optional[str] = None,
+    web_password_hash: Optional[str] = None,
+    web_auth_exempt_localhost: Optional[bool] = None,
+    web_session_secret: Optional[str] = None,
+):
+    """Persists Web authentication and network binding settings into .env file."""
+    try:
+        if web_host is not None:
+            set_key(str(ENV_FILE), "WEB_HOST", web_host)
+        if web_auth_enabled is not None:
+            set_key(str(ENV_FILE), "WEB_AUTH_ENABLED", web_auth_enabled)
+        if web_password_hash is not None:
+            set_key(str(ENV_FILE), "WEB_PASSWORD_HASH", web_password_hash)
+        if web_auth_exempt_localhost is not None:
+            set_key(str(ENV_FILE), "WEB_AUTH_EXEMPT_LOCALHOST", "true" if web_auth_exempt_localhost else "false")
+        if web_session_secret is not None:
+            set_key(str(ENV_FILE), "WEB_SESSION_SECRET", web_session_secret)
+    except Exception as e:
+        logger.warning("Failed to persist web auth settings to .env: %s", e)
+
 class Settings(BaseModel):
-    # Web server configuration (User selected port 9989)
-    web_host: str = Field(default="0.0.0.0", description="Web interface bind host")
+    # Web server configuration (User selected port 9989, localhost-only by default for security)
+    web_host: str = Field(default=os.getenv("WEB_HOST", "127.0.0.1"), description="Web interface bind host")
     web_port: int = Field(default=9989, description="Web interface bind port")
+
+    # Web Security & Authentication
+    web_auth_enabled: str = Field(default=os.getenv("WEB_AUTH_ENABLED", "auto"), description="Web auth mode: 'auto', 'true', 'false'")
+    web_password_hash: str = Field(default=os.getenv("WEB_PASSWORD_HASH", ""), description="PBKDF2-HMAC-SHA256 password hash")
+    web_password: str = Field(default=os.getenv("WEB_PASSWORD", ""), description="Plaintext password fallback from .env")
+    web_auth_exempt_localhost: bool = Field(default=os.getenv("WEB_AUTH_EXEMPT_LOCALHOST", "true").lower() in ("true", "1", "yes"), description="Exempt requests from 127.0.0.1/::1 from authentication")
+    web_session_secret: str = Field(default=os.getenv("WEB_SESSION_SECRET", ""), description="Secret key for signing session tokens")
 
     # Router Platform Configuration ("keenetic" | "openwrt")
     router_type: str = Field(default=os.getenv("ROUTER_TYPE", "keenetic").lower(), description="Router backend: 'keenetic' or 'openwrt'")

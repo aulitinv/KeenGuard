@@ -102,6 +102,30 @@ MAX_WS_MESSAGES_PER_SECOND: int = 30
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
+    # Verify authentication for LAN clients
+    from keenguard.config import settings
+    from keenguard.web.auth import (
+        is_auth_required,
+        is_localhost_ip,
+        validate_session,
+        COOKIE_NAME,
+    )
+
+    client_ip = websocket.client.host if websocket.client else "127.0.0.1"
+    if is_auth_required():
+        is_local = is_localhost_ip(client_ip)
+        if not (settings.web_auth_exempt_localhost and is_local):
+            token = websocket.cookies.get(COOKIE_NAME) or websocket.query_params.get("token")
+            if not validate_session(token):
+                await websocket.accept()
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Unauthorized: Authentication required",
+                    "auth_required": True,
+                })
+                await websocket.close(code=1008)
+                return
+
     await ws_manager.connect(websocket)
     router_health = get_router_health()
     sniffer = get_sniffer()

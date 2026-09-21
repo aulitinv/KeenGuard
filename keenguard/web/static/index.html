@@ -68,6 +68,10 @@
                 <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                 <span class="text-slate-300">Порт: 9989</span>
             </div>
+            <div id="auth-status-badge" onclick="navigateToSettingsSubTab('web-access')" title="Сетевой доступ и защита интерфейса" class="cursor-pointer hover:bg-slate-700/80 transition flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700">
+                <i data-lucide="shield-check" id="auth-status-icon" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span id="auth-status-text" class="text-slate-300">127.0.0.1 (Локально)</span>
+            </div>
         </div>
     </header>
 
@@ -204,6 +208,10 @@
                         <button type="button" onclick="navigateToSettingsSubTab('dns-security')" id="subtab-btn-dns-security" class="sidebar-subtab-btn settings-subtab-btn flex items-center space-x-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition w-full text-left text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
                             <i data-lucide="shield" class="w-3.5 h-3.5 text-blue-400"></i>
                             <span class="truncate">DNS-безопасность</span>
+                        </button>
+                        <button type="button" onclick="navigateToSettingsSubTab('web-access')" id="subtab-btn-web-access" class="sidebar-subtab-btn settings-subtab-btn flex items-center space-x-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition w-full text-left text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
+                            <i data-lucide="lock" class="w-3.5 h-3.5 text-rose-400"></i>
+                            <span class="truncate">Сетевой доступ & Пароль</span>
                         </button>
                     </div>
                 </div>
@@ -3671,6 +3679,126 @@
                     </div>
                 </div>
 
+                <!-- SUB-PANE 10: WEB NETWORK ACCESS & AUTH -->
+                <div id="settings-subpane-web-access" class="settings-subpane hidden space-y-6">
+                    <!-- Network Binding Card -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/60 pb-4">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="network" class="w-5 h-5 text-indigo-400"></i>
+                                    <span>Сетевой интерфейс и доступ из локальной сети (LAN)</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Определяет, доступен ли веб-интерфейс только с текущего ПК или для других устройств в вашей домашней сети</p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span id="web-access-mode-badge" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    127.0.0.1 (Закрыт)
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Bind Selection Options -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Option 1: 127.0.0.1 -->
+                            <label class="relative flex flex-col p-4 bg-surface-950 border border-slate-800 rounded-xl cursor-pointer hover:border-indigo-500/50 transition">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center space-x-2.5">
+                                        <input type="radio" name="cfg-web-host-radio" value="127.0.0.1" id="cfg-web-host-local" class="text-indigo-600 focus:ring-indigo-500" onchange="onWebHostRadioChange('127.0.0.1')">
+                                        <span class="font-bold text-sm text-white">Только этот ПК (127.0.0.1)</span>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300">По умолчанию</span>
+                                </div>
+                                <p class="text-xs text-slate-400">
+                                    Веб-интерфейс полностью скрыт от локальной сети. Любые устройства, телефоны, Smart TV или гости в Wi-Fi не смогут обнаружить порт 9989.
+                                </p>
+                            </label>
+
+                            <!-- Option 2: 0.0.0.0 -->
+                            <label class="relative flex flex-col p-4 bg-surface-950 border border-slate-800 rounded-xl cursor-pointer hover:border-indigo-500/50 transition">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center space-x-2.5">
+                                        <input type="radio" name="cfg-web-host-radio" value="0.0.0.0" id="cfg-web-host-any" class="text-indigo-600 focus:ring-indigo-500" onchange="onWebHostRadioChange('0.0.0.0')">
+                                        <span class="font-bold text-sm text-white">Вся локальная сеть (0.0.0.0)</span>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300">LAN-доступ</span>
+                                </div>
+                                <p class="text-xs text-slate-400">
+                                    Интерфейс доступен с любого смартфона, планшета или ПК в домашней сети по IP этого компьютера. Обязательно действует парольная защита и защита от брутфорса.
+                                </p>
+                            </label>
+                        </div>
+
+                        <!-- Localhost Exemption Setting -->
+                        <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-200">Авторизация для локального хоста (127.0.0.1)</label>
+                                <p class="text-[11px] text-slate-400">Не запрашивать пароль, если вы открываете панель прямо с компьютера, где запущен KeenGuard</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="cfg-web-auth-exempt-localhost" class="sr-only peer" checked>
+                                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Administrator Password Card -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+                        <div class="border-b border-slate-800/60 pb-3">
+                            <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                <i data-lucide="key-round" class="w-5 h-5 text-indigo-400"></i>
+                                <span>Пароль администратора Веб-интерфейса</span>
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Используется для входа при доступе из локальной сети или при включенной авторизации</p>
+                        </div>
+
+                        <div class="space-y-4 max-w-lg">
+                            <div id="web-pw-status-box" class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+                                <span class="text-slate-400">Текущий статус пароля:</span>
+                                <span id="web-pw-status-text" class="font-semibold text-emerald-400">Установлен</span>
+                            </div>
+
+                            <div id="box-old-password" class="space-y-1.5">
+                                <label class="block text-xs font-medium text-slate-300">Текущий пароль (если уже задан)</label>
+                                <input type="password" id="cfg-web-old-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-medium text-slate-300">Новый пароль</label>
+                                <input type="password" id="cfg-web-new-password" placeholder="Не менее 6 символов" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-medium text-slate-300">Подтверждение нового пароля</label>
+                                <input type="password" id="cfg-web-confirm-password" placeholder="Повторите новый пароль" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+
+                            <div class="flex items-center space-x-3 pt-2">
+                                <button type="button" onclick="submitChangeWebPassword()" id="btn-save-web-password" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl font-semibold transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/20">
+                                    <i data-lucide="check" class="w-4 h-4"></i>
+                                    <span>Сменить пароль</span>
+                                </button>
+                                <button type="button" onclick="generateRandomWebPassword()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition flex items-center space-x-1.5">
+                                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
+                                    <span>Сгенерировать надежный</span>
+                                </button>
+                            </div>
+                            <p id="web-pw-feedback" class="text-xs hidden"></p>
+                        </div>
+                    </div>
+
+                    <!-- Brute Force Security Info -->
+                    <div class="p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-2xl flex items-start space-x-3 text-xs text-slate-300">
+                        <i data-lucide="shield-alert" class="w-5 h-5 text-indigo-400 shrink-0 mt-0.5"></i>
+                        <div class="space-y-1">
+                            <h4 class="font-bold text-white">Встроенная защита от атак перебором (Brute-Force Guard)</h4>
+                            <p class="text-slate-400">
+                                При 5 неудачных попытках ввода пароля с одного IP-адреса доступ для него блокируется на 15 минут, а в Telegram немедленно направляется оповещение безопасности с указанием IP злоумышленника.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
             </form>
         </section>
     </main>
@@ -5791,6 +5919,50 @@
                 <button type="button" onclick="closeDnsActiveRulesModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition">
                     Закрыть
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Web UI Login Authentication -->
+    <div id="login-modal" class="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4 select-none">
+        <div class="bg-surface-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <!-- Header Icon & Titles -->
+            <div class="text-center space-y-2">
+                <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <i data-lucide="lock" class="w-7 h-7 text-white"></i>
+                </div>
+                <h2 class="text-xl font-bold text-white">KeenGuard Security</h2>
+                <p class="text-xs text-slate-400">Веб-интерфейс защищен от несанкционированного доступа из локальной сети</p>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" onsubmit="submitLogin(event)" class="space-y-4">
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">Пароль администратора</label>
+                    <div class="relative">
+                        <i data-lucide="key" class="w-4 h-4 text-slate-500 absolute left-3.5 top-3"></i>
+                        <input type="password" id="login-password-input" placeholder="Введите пароль..." required autofocus class="w-full bg-surface-950 border border-slate-700 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono transition">
+                        <button type="button" onclick="toggleLoginPasswordVisibility()" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 p-0.5" title="Показать/скрыть пароль">
+                            <i data-lucide="eye" id="login-pwd-eye-icon" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Error Box -->
+                <div id="login-error-box" class="hidden p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-xs text-rose-300 flex items-start space-x-2">
+                    <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>
+                    <span id="login-error-message">Неверный пароль</span>
+                </div>
+
+                <button type="submit" id="btn-login-submit" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-sm rounded-xl font-bold transition shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2">
+                    <i data-lucide="log-in" class="w-4 h-4"></i>
+                    <span id="login-submit-text">Войти в панель</span>
+                </button>
+            </form>
+
+            <div class="text-center text-[11px] text-slate-500 flex items-center justify-center space-x-1.5">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-slate-500"></i>
+                <span>Защита от перебора: 5 попыток / 15 минут</span>
             </div>
         </div>
     </div>

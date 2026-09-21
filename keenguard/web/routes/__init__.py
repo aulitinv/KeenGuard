@@ -9,8 +9,10 @@ from keenguard.web.routes.audit import router as audit_router
 from keenguard.web.routes.security import router as security_router
 from keenguard.web.routes.settings import router as settings_router
 from keenguard.web.routes.export import router as export_router
+from keenguard.web.routes.auth import router as auth_router
 
 all_routers: List[APIRouter] = [
+    auth_router,
     devices_router,
     tv_router,
     dns_router,
@@ -22,6 +24,7 @@ all_routers: List[APIRouter] = [
 
 __all__ = [
     "all_routers",
+    "auth_router",
     "devices_router",
     "tv_router",
     "dns_router",

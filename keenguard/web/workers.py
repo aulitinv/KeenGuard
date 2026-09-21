@@ -523,6 +523,12 @@ async def lifespan(app: FastAPI):
     from keenguard.core.config_service import config_service
     await config_service.initialize(database=db)
 
+    # Web UI LAN protection: ensure initial password if exposed without one
+    from keenguard.web.auth import ensure_initial_credentials
+    initial_pwd = ensure_initial_credentials()
+    if initial_pwd:
+        logger.warning("KeenGuard Web UI is open to network. Initial password generated: %s", initial_pwd)
+
     # 2. Get active router backend
     from keenguard.core.routers import router_manager
     active_backend = router_manager.get_backend()

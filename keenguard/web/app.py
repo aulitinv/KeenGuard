@@ -2,9 +2,12 @@
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, status
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+# Authentication & LAN access guard
+from keenguard.web.routes.auth import is_request_authorized
 
 # Core singletons and database
 from keenguard.db.database import db
@@ -59,6 +62,50 @@ async def serve_index():
     if index_file.exists():
         return FileResponse(str(index_file))
     return {"message": "KeenGuard backend is active. Web UI index.html not found."}
+
+
+PUBLIC_EXACT_PATHS = {
+    "/",
+    "/favicon.ico",
+    "/api/auth/login",
+    "/api/auth/status",
+    "/api/auth/logout",
+}
+
+PUBLIC_PATH_PREFIXES = (
+    "/static/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+)
+
+
+@app.middleware("http")
+async def web_auth_middleware(request: Request, call_next):
+    """Guards protected REST endpoints from unauthorized LAN access.
+    Requests from localhost are exempt by default.
+    Static assets, index page, and auth endpoints are always accessible.
+    """
+    path = request.url.path
+
+    # Public exemptions
+    if path in PUBLIC_EXACT_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PATH_PREFIXES):
+        return await call_next(request)
+
+    # CORS pre-flight
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Enforce authentication on all protected API routes
+    if path.startswith("/api/"):
+        if not is_request_authorized(request):
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Требуется авторизация", "auth_required": True},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    return await call_next(request)
 
 
 # Mount all modular routers
