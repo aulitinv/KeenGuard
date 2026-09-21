@@ -227,6 +227,30 @@ class KeeneticBackend(BaseRouterBackend):
     async def check_firmware_updates(self) -> Dict[str, Any]:
         return await self.client.check_firmware_updates()
 
+    async def get_wan_ip(self) -> Optional[str]:
+        if hasattr(self.client, "get_wan_ip"):
+            res = self.client.get_wan_ip()
+            if asyncio.iscoroutine(res):
+                return await res
+            return res
+        try:
+            resp = await self.client._send_request("POST", "/rci/", json_data=[{"show": {"interface": {}}}])
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    ifaces = data[0].get("show", {}).get("interface", {})
+                    for if_name, if_data in ifaces.items():
+                        if isinstance(if_data, dict) and (if_data.get("defaultgw") or if_data.get("global")):
+                            addr = if_data.get("address")
+                            if addr and addr != "0.0.0.0":
+                                return str(addr)
+        except Exception:
+            pass
+        return None
+
+    async def get_interface_stats(self, dev_name: str = "wan") -> Dict[str, int]:
+        return {"rx_bytes": 0, "tx_bytes": 0}
+
     async def get_dns_proxy_status(self) -> Dict[str, Any]:
         return await self.client.get_dns_proxy_status()
 

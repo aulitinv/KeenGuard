@@ -148,6 +148,17 @@ async def get_system_status():
         router_macs = list(keenetic_client.router_macs) if keenetic_client.router_macs else []
         has_pwd = bool(keenetic_client.password or settings.router_password)
 
+    wan_ip = getattr(router_health, "wan_ip", None)
+    if not wan_ip:
+        try:
+            wan_ip = await backend.get_wan_ip()
+            if wan_ip:
+                router_health.wan_ip = wan_ip
+        except Exception:
+            pass
+
+    mem_info = getattr(router_health, "memory", None)
+
     return {
         "router": {
             "platform": backend.platform_id,
@@ -156,7 +167,11 @@ async def get_system_status():
             "connected": bool(router_health.is_connected),
             "model": router_health.model or backend.platform_name,
             "version": router_health.version,
+            "channel": "openwrt-release" if backend.platform_id == "openwrt" else "release",
             "host": router_host,
+            "wan_ip": wan_ip,
+            "memory": mem_info,
+            "active_hosts": online_count,
             "router_ips": router_ips,
             "router_macs": router_macs,
             "has_password": has_pwd,

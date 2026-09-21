@@ -140,6 +140,12 @@ class RouterManager:
     async def check_firmware_updates(self) -> Dict[str, Any]:
         return await self.get_backend().check_firmware_updates()
 
+    async def get_wan_ip(self) -> Optional[str]:
+        return await self.get_backend().get_wan_ip()
+
+    async def get_interface_stats(self, dev_name: str = "wan") -> Dict[str, int]:
+        return await self.get_backend().get_interface_stats(dev_name)
+
     async def get_dns_proxy_status(self) -> Dict[str, Any]:
         return await self.get_backend().get_dns_proxy_status()
 

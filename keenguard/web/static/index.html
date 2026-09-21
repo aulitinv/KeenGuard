@@ -33,6 +33,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico">
 </head>
 <body class="bg-surface-950 text-slate-100 h-screen flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white overflow-hidden">
 
@@ -77,6 +78,9 @@
 
     <!-- App Body: Collapsible Left Sidebar + Main Content -->
     <div class="flex-1 flex overflow-hidden min-h-0 relative">
+        <!-- Backdrop overlay for mobile / tablet drawer -->
+        <div id="sidebar-backdrop" onclick="toggleSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 hidden lg:hidden transition-opacity"></div>
+
         <!-- Collapsible Left Sidebar -->
         <aside id="app-sidebar" class="bg-surface-900 border-r border-slate-800 flex flex-col shrink-0 select-none z-20 w-60 shadow-lg lg:shadow-none">
             <!-- Sidebar Header / Controls -->
@@ -360,7 +364,7 @@
                                 </div>
                                 <div>
                                     <h3 class="font-semibold text-sm text-slate-200">Безопасность Wi-Fi</h3>
-                                    <p class="text-[11px] text-slate-400">Аудит радиоинтерфейсов Keenetic</p>
+                                    <p id="wifi-card-subtitle" class="text-[11px] text-slate-400">Аудит радиоинтерфейсов</p>
                                 </div>
                             </div>
                             <div class="flex items-center space-x-1.5">
@@ -403,14 +407,14 @@
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="font-semibold text-sm text-slate-200 flex items-center space-x-2">
                                 <i data-lucide="cpu" class="w-4 h-4 text-indigo-400"></i>
-                                <span>Статус прошивки KeeneticOS</span>
+                                <span id="router-card-title">Статус прошивки</span>
                             </h3>
                             <span id="router-update-badge" class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Актуальна</span>
                         </div>
                         <div class="space-y-2 text-xs text-slate-300">
                             <div class="flex justify-between py-1 border-b border-slate-800/60">
                                 <span class="text-slate-400">Модель роутера:</span>
-                                <span id="router-card-model" class="font-bold text-white">Keenetic Giga</span>
+                                <span id="router-card-model" class="font-bold text-white">—</span>
                             </div>
                             <div class="flex justify-between py-1 border-b border-slate-800/60">
                                 <span class="text-slate-400">Текущая версия:</span>

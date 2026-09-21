@@ -1195,15 +1195,27 @@ function appendSnifferFeed(event) {
 }
 
 // Sidebar Collapse / Expand State and Handling
-function toggleSidebar() {
+function toggleSidebar(forcedState) {
     const sidebar = document.getElementById('app-sidebar');
     if (!sidebar) return;
-    const isCollapsed = sidebar.classList.toggle('sidebar-collapsed');
-    try {
-        localStorage.setItem('kg_sidebar_collapsed', isCollapsed ? '1' : '0');
-    } catch (e) {}
+    const shouldCollapse = (typeof forcedState === 'boolean')
+        ? forcedState
+        : !sidebar.classList.contains('sidebar-collapsed');
 
-    updateSidebarUI(isCollapsed);
+    if (shouldCollapse) {
+        sidebar.classList.add('sidebar-collapsed');
+    } else {
+        sidebar.classList.remove('sidebar-collapsed');
+    }
+
+    // Only persist manual user toggle if window is wide enough (>= 1180px)
+    if (typeof forcedState !== 'boolean' && window.innerWidth >= 1180) {
+        try {
+            localStorage.setItem('kg_sidebar_collapsed', shouldCollapse ? '1' : '0');
+        } catch (e) {}
+    }
+
+    updateSidebarUI(shouldCollapse);
 }
 
 function updateSidebarUI(isCollapsed) {
@@ -1227,6 +1239,17 @@ function updateSidebarUI(isCollapsed) {
     if (footerText) {
         footerText.textContent = isCollapsed ? '' : 'Свернуть меню';
     }
+
+    // Mobile / Tablet drawer backdrop
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (backdrop) {
+        if (!isCollapsed && window.innerWidth < 1024) {
+            backdrop.classList.remove('hidden');
+        } else {
+            backdrop.classList.add('hidden');
+        }
+    }
+
     if (window.lucide) {
         lucide.createIcons();
     }
@@ -1235,22 +1258,39 @@ function updateSidebarUI(isCollapsed) {
 function initSidebarState() {
     const sidebar = document.getElementById('app-sidebar');
     if (!sidebar) return;
-    let isCollapsed = false;
-    try {
-        const saved = localStorage.getItem('kg_sidebar_collapsed');
-        if (saved !== null) {
-            isCollapsed = saved === '1';
-        } else if (window.innerWidth < 1024) {
-            isCollapsed = true;
-        }
-    } catch (e) {}
 
-    if (isCollapsed) {
-        sidebar.classList.add('sidebar-collapsed');
-    } else {
-        sidebar.classList.remove('sidebar-collapsed');
+    function applyResponsiveState() {
+        const w = window.innerWidth;
+        let isCollapsed = false;
+        if (w < 1180) {
+            // Under 1180px (tablets, split-screen with DevTools, narrow laptops): auto-collapse
+            isCollapsed = true;
+        } else {
+            try {
+                const saved = localStorage.getItem('kg_sidebar_collapsed');
+                if (saved !== null) {
+                    isCollapsed = (saved === '1');
+                }
+            } catch (e) {}
+        }
+        if (isCollapsed) {
+            sidebar.classList.add('sidebar-collapsed');
+        } else {
+            sidebar.classList.remove('sidebar-collapsed');
+        }
+        updateSidebarUI(isCollapsed);
     }
-    updateSidebarUI(isCollapsed);
+
+    applyResponsiveState();
+
+    // Window resize listener with debounce
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            applyResponsiveState();
+        }, 120);
+    });
 
     // Keyboard shortcut '[' or 'Ctrl+B' to toggle sidebar
     document.addEventListener('keydown', (e) => {
@@ -1274,11 +1314,11 @@ async function switchTab(tabId) {
     updateAllDisplayModeButtons();
     initSourceFilterCheckboxes();
 
-    // On mobile screens, automatically collapse sidebar drawer on navigation
+    // On mobile / tablet screens, automatically collapse sidebar drawer on navigation
     if (window.innerWidth < 1024) {
         const sidebar = document.getElementById('app-sidebar');
         if (sidebar && !sidebar.classList.contains('sidebar-collapsed')) {
-            toggleSidebar();
+            toggleSidebar(true);
         }
     }
 
@@ -1391,10 +1431,16 @@ async function loadStatus() {
             }
         }
 
+        // Platform title, model, and channel in Firmware card
+        const isOwr = data.router.platform === 'openwrt';
+        safeSetText('router-card-title', `Статус прошивки ${isOwr ? 'OpenWrt' : 'KeeneticOS'}`);
+        safeSetText('router-card-model', data.router.model || (isOwr ? 'OpenWrt Device' : 'Keenetic'));
+        safeSetText('router-card-channel', data.router.channel || (isOwr ? 'Официальный релиз OpenWrt' : 'Официальный релиз'));
+
         // WAN IP
         safeSetText('router-wan-ip', data.router.wan_ip || '—');
 
-        // KeeneticOS version
+        // Firmware / OS version
         const osVer = data.router.version || '—';
         safeSetText('router-os-version', osVer);
         safeSetText('router-card-version', osVer);
@@ -1403,14 +1449,15 @@ async function loadStatus() {
         safeSetText('sniffer-active-mode', data.sniffer?.mode === 'active' ? 'ACTIVE (Pcap/Raw)' : 'INACTIVE');
 
         // Memory usage
-        if (data.router.memory) {
+        if (data.router.memory && typeof data.router.memory.total_mb === 'number') {
             safeSetText('router-mem-usage', `${data.router.memory.used_mb} / ${data.router.memory.total_mb} МБ`);
+        } else {
+            safeSetText('router-mem-usage', '—');
         }
 
         // Active Devices Count
-        if (data.router.active_hosts !== undefined) {
-            safeSetText('router-active-devices', data.router.active_hosts);
-        }
+        const activeCount = data.router.active_hosts !== undefined ? data.router.active_hosts : (data.online_devices !== undefined ? data.online_devices : '—');
+        safeSetText('router-active-devices', activeCount);
 
         // Night mode
         const nText = document.getElementById('night-status-text');
@@ -4520,6 +4567,13 @@ async function loadWifiAudit() {
         const res = await fetch('/api/security/wifi');
         const data = await res.json();
 
+        // 0. Update Card Subtitle
+        const wifiSub = document.getElementById('wifi-card-subtitle');
+        if (wifiSub) {
+            const pName = data.platform === 'openwrt' ? 'OpenWrt' : (currentRouterInfo?.platform === 'openwrt' ? 'OpenWrt' : 'Keenetic');
+            wifiSub.textContent = `Аудит радиоинтерфейсов ${pName}`;
+        }
+
         // 1. Grade Badge
         const gradeBadge = document.getElementById('wifi-grade-badge');
         if (gradeBadge) {
@@ -4554,7 +4608,18 @@ async function loadWifiAudit() {
                         iconName = 'shield';
                     }
 
-                    const bandText = ap.band || (ap.interface && ap.interface.includes('WifiMaster1') ? '5 ГГц' : '2.4 ГГц');
+                    // Determine band with OpenWrt and Keenetic fallback
+                    let bandText = ap.band;
+                    if (!bandText) {
+                        const iface = (ap.interface || '').toLowerCase();
+                        const dev = (ap.device || '').toLowerCase();
+                        const ssidLower = (ap.ssid || '').toLowerCase();
+                        if (iface.includes('wifimaster1') || iface.includes('5g') || dev.includes('5g') || dev === 'radio0' || ssidLower.includes('5g')) {
+                            bandText = '5 ГГц';
+                        } else {
+                            bandText = '2.4 ГГц';
+                        }
+                    }
 
                     return `
                         <div class="flex items-center justify-between bg-surface-950/70 border border-slate-800/70 rounded-xl px-3 py-2 transition hover:border-slate-700">
@@ -4562,7 +4627,7 @@ async function loadWifiAudit() {
                                 <div class="w-2 h-2 rounded-full ${isOpen ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'} shrink-0"></div>
                                 <div class="min-w-0">
                                     <div class="flex items-center space-x-1.5">
-                                        <span class="font-semibold text-xs text-white truncate max-w-[130px] sm:max-w-[160px]">${escapeHtml(ap.ssid)}</span>
+                                        <span class="font-semibold text-xs text-white truncate max-w-[140px] sm:max-w-[200px] cursor-help" title="${escapeHtml(ap.ssid)}" data-tooltip="${escapeHtml(ap.ssid)}">${escapeHtml(ap.ssid)}</span>
                                         <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800/90 text-slate-400 shrink-0">${bandText}</span>
                                     </div>
                                 </div>
@@ -4608,8 +4673,12 @@ async function loadWifiAudit() {
         // 4. Recommendation Box
         const recElem = document.getElementById('wifi-recommendations');
         const recIcon = document.getElementById('wifi-rec-icon');
-        if (recElem && data.recommendations && data.recommendations.length > 0) {
-            recElem.textContent = data.recommendations[0];
+        if (recElem) {
+            if (data.recommendations && data.recommendations.length > 0) {
+                recElem.textContent = data.recommendations[0];
+            } else {
+                recElem.textContent = 'Все активные Wi-Fi сети защищены современным шифрованием WPA3/WPA2.';
+            }
             if (recIcon) {
                 if (data.score >= 90) {
                     recIcon.setAttribute('data-lucide', 'shield-check');
@@ -4642,22 +4711,30 @@ async function checkRouterUpdates() {
         const msg = document.getElementById('router-update-msg');
         const ver = document.getElementById('router-card-version');
         const channel = document.getElementById('router-card-channel');
+        const model = document.getElementById('router-card-model');
+        const title = document.getElementById('router-card-title');
 
-        if (ver) ver.textContent = data.current_version;
-        if (channel) channel.textContent = data.channel;
+        if (ver && data.current_version) ver.textContent = data.current_version;
+        if (channel && data.channel) channel.textContent = data.channel;
+        if (model && data.model) model.textContent = data.model;
+        if (title) {
+            const pName = data.platform === 'openwrt' ? 'OpenWrt' : 'KeeneticOS';
+            title.textContent = `Статус прошивки ${pName}`;
+        }
 
-        if (data.has_update) {
+        const isUpd = data.has_update || data.update_available;
+        if (isUpd) {
             if (badge) {
                 badge.textContent = 'Доступно обновление!';
                 badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse';
             }
-            if (msg) msg.textContent = `Доступна KeeneticOS ${data.latest_version}`;
+            if (msg) msg.textContent = `Доступна версия ${data.latest_version || ''}`;
         } else {
             if (badge) {
                 badge.textContent = 'Актуальна';
                 badge.className = 'px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
             }
-            if (msg) msg.textContent = 'Патчи безопасности актуальны';
+            if (msg) msg.textContent = data.message || 'Патчи безопасности актуальны';
         }
     } catch (e) {
         console.error('Error checking router updates', e);
@@ -4673,15 +4750,15 @@ async function updateLiveTrafficChart() {
         const data = await res.json();
 
         const labels = data.map(d => new Date(d.timestamp).toLocaleTimeString());
-        const rxData = data.map(d => Math.round(d.total_rx_kbps || 0));
-        const txData = data.map(d => Math.round(d.total_tx_kbps || 0));
+        const rxData = data.map(d => Math.max(0, Math.round(d.total_rx_kbps || 0)));
+        const txData = data.map(d => Math.max(0, Math.round(d.total_tx_kbps || 0)));
 
         if (data.length > 0) {
             const latest = data[data.length - 1];
             const rxElem = document.getElementById('live-rx-rate');
             const txElem = document.getElementById('live-tx-rate');
-            if (rxElem) rxElem.textContent = Math.round(latest.total_rx_kbps || 0);
-            if (txElem) txElem.textContent = Math.round(latest.total_tx_kbps || 0);
+            if (rxElem) rxElem.textContent = Math.max(0, Math.round(latest.total_rx_kbps || 0));
+            if (txElem) txElem.textContent = Math.max(0, Math.round(latest.total_tx_kbps || 0));
         }
 
         if (liveTrafficChart) {
@@ -4702,7 +4779,10 @@ async function updateLiveTrafficChart() {
                             backgroundColor: 'rgba(52, 211, 153, 0.1)',
                             borderWidth: 2,
                             tension: 0.35,
-                            fill: true
+                            fill: true,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHitRadius: 10
                         },
                         {
                             label: 'Исходящий (Kbps)',
@@ -4711,20 +4791,47 @@ async function updateLiveTrafficChart() {
                             backgroundColor: 'rgba(56, 189, 248, 0.1)',
                             borderWidth: 2,
                             tension: 0.35,
-                            fill: true
+                            fill: true,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHitRadius: 10
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                            titleColor: '#cbd5e1',
+                            bodyColor: '#f1f5f9',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 8,
+                            displayColors: true
+                        }
+                    },
                     scales: {
                         x: { display: false },
                         y: {
                             display: true,
+                            beginAtZero: true,
+                            min: 0,
+                            suggestedMax: 10,
                             grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            ticks: { color: '#64748b', font: { size: 9 } }
+                            ticks: {
+                                color: '#64748b',
+                                font: { size: 9 },
+                                callback: function(val) {
+                                    return val >= 0 ? val : '';
+                                }
+                            }
                         }
                     }
                 }
@@ -4746,14 +4853,14 @@ async function loadDeviceTrafficChart(mac) {
         const history = Array.isArray(rawHistory) ? rawHistory : [];
 
         const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString());
-        const rxData = history.map(h => h.rx_rate_kbps || 0);
-        const txData = history.map(h => h.tx_rate_kbps || 0);
+        const rxData = history.map(h => Math.max(0, h.rx_rate_kbps || 0));
+        const txData = history.map(h => Math.max(0, h.tx_rate_kbps || 0));
 
         if (history.length > 0) {
             const latest = history[history.length - 1];
             const rateElem = document.getElementById('modal-traffic-rate-now');
             if (rateElem) {
-                rateElem.textContent = `↓ ${latest.rx_rate_kbps || 0} Kbps  ↑ ${latest.tx_rate_kbps || 0} Kbps`;
+                rateElem.textContent = `↓ ${Math.max(0, latest.rx_rate_kbps || 0)} Kbps  ↑ ${Math.max(0, latest.tx_rate_kbps || 0)} Kbps`;
             }
         }
 
@@ -4773,7 +4880,10 @@ async function loadDeviceTrafficChart(mac) {
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         borderWidth: 1.5,
                         tension: 0.3,
-                        fill: true
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        pointHitRadius: 10
                     },
                     {
                         label: 'Исходящий (Tx)',
@@ -4782,20 +4892,36 @@ async function loadDeviceTrafficChart(mac) {
                         backgroundColor: 'rgba(6, 182, 212, 0.1)',
                         borderWidth: 1.5,
                         tension: 0.3,
-                        fill: true
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        pointHitRadius: 10
                     }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
                 plugins: { legend: { display: false } },
                 scales: {
                     x: { display: false },
                     y: {
                         display: true,
+                        beginAtZero: true,
+                        min: 0,
+                        suggestedMax: 10,
                         grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: { color: '#64748b', font: { size: 9 } }
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 9 },
+                            callback: function(val) {
+                                return val >= 0 ? val : '';
+                            }
+                        }
                     }
                 }
             }

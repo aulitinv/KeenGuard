@@ -52,6 +52,9 @@ class RouterHealthMonitor:
         self.version: str = "Firmware"
         self.host: str = settings.router_host
         self.platform_name: str = "Router"
+        self.wan_ip: Optional[str] = None
+        self.memory: Optional[Dict[str, Any]] = None
+        self.active_hosts: int = 0
         self.last_heartbeat: Optional[datetime] = None
         self.last_error: Optional[str] = None
         self.failure_count: int = 0
@@ -62,6 +65,9 @@ class RouterHealthMonitor:
         model: Optional[str] = None,
         version: Optional[str] = None,
         error: Optional[str] = None,
+        wan_ip: Optional[str] = None,
+        memory: Optional[Dict[str, Any]] = None,
+        active_hosts: Optional[int] = None,
     ):
         from keenguard.core.routers import router_manager
         backend = router_manager.get_backend()
@@ -72,6 +78,12 @@ class RouterHealthMonitor:
             self.model = model
         if version:
             self.version = version
+        if wan_ip:
+            self.wan_ip = wan_ip
+        if memory is not None:
+            self.memory = memory
+        if active_hosts is not None:
+            self.active_hosts = active_hosts
         self.host = backend.host
         self.platform_name = backend.platform_name
 
@@ -94,6 +106,9 @@ class RouterHealthMonitor:
                     "model": self.model,
                     "version": self.version,
                     "host": self.host,
+                    "wan_ip": self.wan_ip,
+                    "memory": self.memory,
+                    "active_hosts": self.active_hosts,
                     "platform": backend.platform_id,
                     "platform_name": self.platform_name
                 })
@@ -169,10 +184,36 @@ async def _do_keenetic_poll_internal():
     try:
         hosts = await active_backend.get_hosts()
         sys_info = await active_backend.get_system_info()
+
+        wan_ip = None
+        try:
+            wan_ip = await active_backend.get_wan_ip()
+        except Exception:
+            pass
+
+        mem_info = None
+        if sys_info.memory_total > 0:
+            if sys_info.memory_total > 10_000_000:
+                tot_mb = round(sys_info.memory_total / (1024 * 1024))
+                used_mb = round((sys_info.memory_total - sys_info.memory_free) / (1024 * 1024))
+            else:
+                tot_mb = round(sys_info.memory_total / 1024)
+                used_mb = round((sys_info.memory_total - sys_info.memory_free) / 1024)
+            mem_info = {
+                "total_mb": tot_mb,
+                "used_mb": max(0, used_mb),
+                "free_mb": max(0, tot_mb - used_mb)
+            }
+
+        online_h_count = sum(1 for h in hosts if (getattr(h, "link", "up") == "up" and bool(getattr(h, "active", True))))
+
         await router_health.update_status(
             connected=True,
             model=sys_info.model,
-            version=sys_info.firmware_version
+            version=sys_info.firmware_version,
+            wan_ip=wan_ip,
+            memory=mem_info,
+            active_hosts=online_h_count
         )
         upnp_rules = await active_backend.get_upnp_mappings()
     except Exception as e:
@@ -343,6 +384,28 @@ async def _do_keenetic_poll_internal():
 
         if existing.profile == "camera":
             await anomaly_detector.check_camera_upload_leak(existing, h.txbytes)
+
+    # For OpenWrt: Poll WAN interface byte counters to calculate real-time network traffic
+    if getattr(active_backend, "platform_id", None) == "openwrt":
+        try:
+            wan_stats = await active_backend.get_interface_stats("wan")
+            rx_b = wan_stats.get("rx_bytes") or 0
+            tx_b = wan_stats.get("tx_bytes") or 0
+            if rx_b > 0 or tx_b > 0:
+                now_t = time.time()
+                prev_wan = device_traffic_rates.get("__WAN__")
+                device_traffic_rates["__WAN__"] = (now_t, rx_b, tx_b)
+                if prev_wan:
+                    dt = now_t - prev_wan[0]
+                    if dt >= 3.0:
+                        drx = max(0, rx_b - prev_wan[1])
+                        dtx = max(0, tx_b - prev_wan[2])
+                        rx_kbps = (drx * 8) / (dt * 1024)
+                        tx_kbps = (dtx * 8) / (dt * 1024)
+                        # Store in traffic_history under router placeholder MAC
+                        await db.record_traffic_snapshot("02:00:00:00:00:01", rx_b, tx_b, rx_kbps, tx_kbps)
+        except Exception as e:
+            logger.debug("OpenWrt WAN interface traffic polling error: %s", e)
 
     # Mark devices that disappeared from Keenetic active hotspot as offline
     all_db_devices = await db.get_all_devices()

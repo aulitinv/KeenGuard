@@ -198,6 +198,14 @@ class BaseRouterBackend(ABC):
             "channel": "stable"
         }
 
+    async def get_wan_ip(self) -> Optional[str]:
+        """Returns external WAN IPv4 address if available."""
+        return None
+
+    async def get_interface_stats(self, dev_name: str = "wan") -> Dict[str, int]:
+        """Queries network interface rx_bytes / tx_bytes."""
+        return {"rx_bytes": 0, "tx_bytes": 0}
+
     async def get_dns_proxy_status(self) -> Dict[str, Any]:
         """Returns router DNS server/proxy status."""
         return {"status": "ok", "mode": "standard"}

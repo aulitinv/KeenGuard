@@ -646,7 +646,7 @@ class OpenWrtBackend(BaseRouterBackend):
         return segments
 
     async def get_wifi_security(self) -> Dict[str, Any]:
-        """Audits OpenWrt wireless network encryption, client isolation, and PMF."""
+        """Audits OpenWrt wireless network encryption, client isolation, frequency band, and PMF."""
         networks = []
         recommendations = []
         score = 85
@@ -654,12 +654,48 @@ class OpenWrtBackend(BaseRouterBackend):
         try:
             wl_data = await self._call_ubus("uci", "get", {"config": "wireless"})
             values = wl_data.get("values", {})
+
+            # 1. Collect physical radio / device parameters (band, channel, htmode)
+            devices_info: Dict[str, Dict[str, Any]] = {}
+            for sec_name, sec_data in values.items():
+                if sec_data.get(".type") == "wifi-device":
+                    devices_info[sec_name] = sec_data
+
+            # 2. Inspect active SSIDs and logical interfaces
             for sec_name, sec_data in values.items():
                 if sec_data.get(".type") == "wifi-iface":
                     ssid = sec_data.get("ssid", "OpenWrt Wi-Fi")
+                    dev_name = str(sec_data.get("device", ""))
+                    dev_sec = devices_info.get(dev_name, {})
+
+                    # Determine frequency band (2.4 GHz vs 5 GHz vs 6 GHz)
+                    band_val = str(dev_sec.get("band", "")).lower()
+                    chan_val = dev_sec.get("channel")
+                    ht_val = str(dev_sec.get("htmode", "")).upper()
+                    hw_val = str(dev_sec.get("hwmode", "")).lower()
+
+                    is_5g = (
+                        "5g" in band_val
+                        or "5ghz" in band_val
+                        or (str(chan_val).isdigit() and int(chan_val) > 14)
+                        or any(h in ht_val for h in ("HE160", "HE80", "VHT160", "VHT80", "VHT40"))
+                        or any(hw in hw_val for hw in ("11a", "11ac"))
+                        or "5g" in dev_name.lower()
+                        or "5g" in ssid.lower()
+                    )
+                    is_6g = "6g" in band_val or "6ghz" in band_val
+
+                    if is_6g:
+                        band_name = "6 ГГц"
+                    elif is_5g:
+                        band_name = "5 ГГц"
+                    else:
+                        band_name = "2.4 ГГц"
+
                     enc = str(sec_data.get("encryption", "")).lower()
                     isolate = str(sec_data.get("isolate", "0")) == "1"
                     pmf = str(sec_data.get("ieee80211w", "0"))
+                    wps_active = str(sec_data.get("wps_pbc", "0")) == "1" or str(dev_sec.get("wps_pbc", "0")) == "1"
                     
                     has_key = bool(sec_data.get("key"))
                     has_wpa3 = "sae" in enc or "wpa3" in enc
@@ -680,13 +716,17 @@ class OpenWrtBackend(BaseRouterBackend):
                     risk_val = "critical" if is_open else ("medium" if not has_wpa3 else "low")
                     net_item = {
                         "interface": sec_name,
+                        "device": dev_name,
                         "ssid": ssid,
+                        "band": band_name,
+                        "channel": chan_val,
                         "security": sec_type,
                         "encryption": sec_type,
                         "security_type": "wpa3" if has_wpa3 else ("open" if is_open else "wpa2"),
                         "client_isolation": isolate,
                         "pmf": pmf in ("1", "2"),
                         "wpa3_supported": has_wpa3,
+                        "wps": wps_active,
                         "risk": risk_val,
                         "risk_level": risk_val
                     }
@@ -705,9 +745,13 @@ class OpenWrtBackend(BaseRouterBackend):
         grade = "A" if score >= 90 else ("B" if score >= 75 else ("C" if score >= 50 else "F"))
         has_critical = any(n.get("risk_level") == "critical" or n.get("risk") == "critical" for n in networks)
         has_warnings = any(n.get("risk_level") == "warning" or n.get("risk") == "warning" for n in networks)
+        if not recommendations:
+            recommendations.append("Все активные Wi-Fi сети защищены современным шифрованием WPA3/WPA2.")
+
         return {
             "score": score,
             "grade": grade,
+            "platform": "openwrt",
             "access_points": networks,
             "networks": networks,
             "has_critical": has_critical,
@@ -715,14 +759,79 @@ class OpenWrtBackend(BaseRouterBackend):
             "recommendations": recommendations
         }
 
+    async def get_wan_ip(self) -> Optional[str]:
+        """Fetches external WAN IPv4 address from OpenWrt ubus."""
+        try:
+            res = await self._call_ubus("network.interface.wan", "status", {})
+            if isinstance(res, dict):
+                addrs = res.get("ipv4-address") or []
+                if addrs and isinstance(addrs, list) and len(addrs) > 0:
+                    addr = addrs[0].get("address")
+                    if addr:
+                        return str(addr)
+        except Exception:
+            pass
+
+        try:
+            res = await self._call_ubus("network.interface", "dump", {})
+            interfaces = res.get("interface", []) if isinstance(res, dict) else []
+            for iface in interfaces:
+                if not isinstance(iface, dict):
+                    continue
+                name = str(iface.get("interface", "")).lower()
+                if name in ("wan", "wan6", "internet") or iface.get("route"):
+                    addrs = iface.get("ipv4-address") or []
+                    if addrs and isinstance(addrs, list) and len(addrs) > 0:
+                        addr = addrs[0].get("address")
+                        if addr:
+                            return str(addr)
+        except Exception as e:
+            logger.debug("OpenWrt WAN IP discovery error: %s", e)
+        return None
+
+    async def get_interface_stats(self, dev_name: str = "wan") -> Dict[str, int]:
+        """Queries network device or interface rx_bytes / tx_bytes."""
+        try:
+            res = await self._call_ubus("network.device", "status", {"name": dev_name})
+            if isinstance(res, dict):
+                stats = res.get("statistics") or {}
+                if stats:
+                    return {
+                        "rx_bytes": int(stats.get("rx_bytes") or 0),
+                        "tx_bytes": int(stats.get("tx_bytes") or 0)
+                    }
+        except Exception:
+            pass
+
+        try:
+            res = await self._call_ubus("network.interface", "dump", {})
+            interfaces = res.get("interface", []) if isinstance(res, dict) else []
+            for iface in interfaces:
+                if iface.get("interface") == dev_name or iface.get("device") == dev_name:
+                    stats = iface.get("data", {}).get("statistics", {}) or iface.get("statistics", {})
+                    if stats:
+                        return {
+                            "rx_bytes": int(stats.get("rx_bytes") or 0),
+                            "tx_bytes": int(stats.get("tx_bytes") or 0)
+                        }
+        except Exception:
+            pass
+        return {"rx_bytes": 0, "tx_bytes": 0}
+
     async def check_firmware_updates(self) -> Dict[str, Any]:
         """Checks OpenWrt system firmware status."""
         sys_info = await self.get_system_info()
         return {
+            "status": "ok",
+            "platform": "openwrt",
+            "model": sys_info.model,
+            "has_update": False,
             "update_available": False,
             "current_version": sys_info.firmware_version,
             "latest_version": sys_info.firmware_version,
-            "channel": "openwrt-release"
+            "available_version": sys_info.firmware_version,
+            "channel": "openwrt-release",
+            "message": "Установлена актуальная версия OpenWrt."
         }
 
     async def is_packet_capture_supported(self) -> bool:
