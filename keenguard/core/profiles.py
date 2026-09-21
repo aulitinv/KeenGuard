@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional, List
 
 from keenguard.db.models import DeviceRecord, SecurityEvent
 from keenguard.db.database import db
-from keenguard.core.keenetic import keenetic_client, is_host_lan_isolated
+from keenguard.core.keenetic import is_host_lan_isolated
 
 logger = logging.getLogger("keenguard.profiles")
 
@@ -181,22 +181,23 @@ class PolicyManager:
         else:
             want_blocked_wan = tpl.get("is_blocked_wan", False)
 
-        # Hardware WAN enforcement on Keenetic
-        access = "deny" if want_blocked_wan else "permit"
+        # Hardware WAN enforcement on active router
+        from keenguard.core.routers import router_manager
+        backend = router_manager.get_backend()
         try:
-            await keenetic_client.set_device_policy(clean_mac, access=access)
+            await backend.set_wan_access(clean_mac, allow=not want_blocked_wan)
         except Exception as e:
-            logger.warning("Could not mutate Keenetic WAN policy for %s: %s", clean_mac, e)
+            logger.warning("Could not mutate router WAN policy for %s: %s", clean_mac, e)
 
         # 3. Check real L2 physical isolation status
         is_isolated = False
-        if keenetic_client.mock_mode:
+        if getattr(backend, "mock_mode", False) and backend.platform_id == "keenetic":
             is_isolated = tpl.get("is_isolated_lan", False)
         else:
-            hosts = await keenetic_client.get_hotspot_hosts()
+            hosts = await backend.get_hosts()
             matching_host = next((h for h in hosts if h.mac == clean_mac), None)
             if matching_host:
-                is_isolated = is_host_lan_isolated(matching_host.interface, matching_host.ip)
+                is_isolated = is_host_lan_isolated(getattr(matching_host, "interface", None), matching_host.ip)
             elif existing_dev:
                 is_isolated = is_host_lan_isolated(None, existing_dev.ip)
 
@@ -231,7 +232,7 @@ class PolicyManager:
         updated = await db.get_device(clean_mac)
         if updated and updated.ip and target_profile == "smart_tv":
             try:
-                await keenetic_client.set_dlna_access(clean_mac, updated.ip, allow=tpl.get("dlna_allowed", True))
+                await backend.set_dlna_access(clean_mac, updated.ip, allow=tpl.get("dlna_allowed", True))
             except Exception as e:
                 logger.debug("DLNA access rule error: %s", e)
 
@@ -274,19 +275,22 @@ class PolicyManager:
     @staticmethod
     async def toggle_wan(mac: str, block: bool) -> bool:
         clean_mac = mac.upper()
-        access = "deny" if block else "permit"
-        success = await keenetic_client.set_device_policy(clean_mac, access=access)
+        from keenguard.core.routers import router_manager
+        backend = router_manager.get_backend()
+        success = await backend.set_wan_access(clean_mac, allow=not block)
         await db.update_device_policy(clean_mac, is_blocked_wan=block)
         return success
 
     @staticmethod
     async def toggle_lan_isolation(mac: str, isolate: bool) -> bool:
         clean_mac = mac.upper()
-        hosts = await keenetic_client.get_hotspot_hosts()
+        from keenguard.core.routers import router_manager
+        backend = router_manager.get_backend()
+        hosts = await backend.get_hosts()
         matching_host = next((h for h in hosts if h.mac == clean_mac), None)
         is_really_isolated = False
         if matching_host:
-            is_really_isolated = is_host_lan_isolated(matching_host.interface, matching_host.ip)
+            is_really_isolated = is_host_lan_isolated(getattr(matching_host, "interface", None), matching_host.ip)
         else:
             dev = await db.get_device(clean_mac)
             if dev:
@@ -310,7 +314,8 @@ class PolicyManager:
         if allow:
             device = await db.get_device(clean_mac)
             if device and device.is_isolated_lan:
-                await keenetic_client.enable_mdns_relay()
+                from keenguard.core.routers import router_manager
+                await router_manager.enable_mdns_relay()
 
         return True
 
@@ -319,10 +324,11 @@ class PolicyManager:
         clean_mac = mac.upper()
         await db.update_device_policy(clean_mac, dlna_allowed=allow)
 
-        # Enforce DLNA access on the Keenetic router
+        # Enforce DLNA access on the router
         device = await db.get_device(clean_mac)
         if device and device.ip:
-            await keenetic_client.set_dlna_access(clean_mac, device.ip, allow=allow)
+            from keenguard.core.routers import router_manager
+            await router_manager.set_dlna_access(clean_mac, device.ip, allow=allow)
 
         return True
 

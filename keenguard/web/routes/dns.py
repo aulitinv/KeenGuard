@@ -14,9 +14,9 @@ from keenguard.core.domain_analyzer import (
     domain_analyzer,
     TV_BRAND_PRESETS,
 )
+from keenguard.core.routers import router_manager
 from keenguard.web.state import (
     get_db,
-    get_keenetic_client,
 )
 from keenguard.web.ws import ws_manager
 
@@ -86,20 +86,19 @@ CURATED_DNS_PRESETS = {
 @router.get("/api/dns/queries")
 async def get_dns_queries(limit: int = 100):
     db = get_db()
-    keenetic_client = get_keenetic_client()
     queries = await db.get_top_dns_queries(limit=limit)
     domains = [q["domain"] for q in queries]
     devices_by_domain = await db.get_dns_device_counts_for_domains(domains)
     all_devs = await db.get_all_devices()
     dev_map = {d.mac: d for d in all_devs}
 
-    # Batch verify router DNS sinkhole status (e.g. NextDNS / AdGuard 0.0.0.0 & Keenetic static hosts)
+    # Batch verify router DNS sinkhole status (e.g. NextDNS / AdGuard 0.0.0.0 & router static hosts)
     sinkhole_map = {}
     active_static_sinkholes = set()
     try:
-        active_static_sinkholes = set(await keenetic_client.get_active_sinkholes())
+        active_static_sinkholes = set(await router_manager.get_active_sinkholes())
     except Exception as e:
-        logger.debug("Keenetic active sinkholes error: %s", e)
+        logger.debug("Active sinkholes query error: %s", e)
 
     if domains:
         try:
@@ -187,13 +186,12 @@ async def analyze_dns_domain(domain: str):
         raise HTTPException(status_code=400, detail="Domain parameter required")
 
     db = get_db()
-    keenetic_client = get_keenetic_client()
     clean_dom = domain.lower().strip().strip(".")
     active_static_sinkholes = set()
     try:
-        active_static_sinkholes = set(await keenetic_client.get_active_sinkholes())
+        active_static_sinkholes = set(await router_manager.get_active_sinkholes())
     except Exception as e:
-        logger.debug("Keenetic active sinkholes error: %s", e)
+        logger.debug("Active sinkholes query error: %s", e)
 
     is_static_sinkhole = clean_dom in active_static_sinkholes
 
@@ -217,7 +215,7 @@ async def analyze_dns_domain(domain: str):
                 break
 
     if is_static_sinkhole:
-        blocked_reason = "Заблокирован на Keenetic (0.0.0.0)"
+        blocked_reason = f"Заблокирован на {router_manager.get_backend().platform_name} (0.0.0.0)"
     elif is_blocked:
         blocked_reason = "Заблокирован DNS-фильтром (0.0.0.0)"
     else:
@@ -304,13 +302,12 @@ async def clear_dns_queries_api(
     return {"status": "ok", "deleted": count}
 
 
-# --- Smart DNS Sinkhole Management Endpoints (Keenetic Static 0.0.0.0) ---
+# --- Smart DNS Sinkhole Management Endpoints (Router Static 0.0.0.0) ---
 
 @router.get("/api/dns/sinkholes")
 async def get_dns_sinkholes_api():
-    """Returns list of active 0.0.0.0 sinkholes configured on Keenetic router."""
-    keenetic_client = get_keenetic_client()
-    sinkholes = await keenetic_client.get_active_sinkholes()
+    """Returns list of active 0.0.0.0 sinkholes configured on router."""
+    sinkholes = await router_manager.get_active_sinkholes()
     enriched = []
     for d in sinkholes:
         analysis = domain_analyzer.analyze_domain(d)
@@ -333,8 +330,7 @@ async def preview_dns_preset_api(preset: str):
         raise HTTPException(status_code=400, detail="Поддерживаемые пресеты: 'ads', 'tv_telemetry'")
 
     db = get_db()
-    keenetic_client = get_keenetic_client()
-    active_sinkholes = set(await keenetic_client.get_active_sinkholes())
+    active_sinkholes = set(await router_manager.get_active_sinkholes())
     all_entries = await db.get_all_dns_domains()
 
     detected = []
@@ -377,15 +373,17 @@ async def preview_dns_preset_api(preset: str):
         d_clean = cur["domain"].lower().strip()
         curated.append({
             "domain": d_clean,
-            "vendor": cur["vendor"],
-            "description": cur["description"],
+            "category": cur.get("category", "ads"),
+            "safety_label": "Безопасно",
+            "safety_color": "emerald",
+            "vendor": cur.get("vendor", ""),
+            "description": cur.get("description", ""),
             "is_active": d_clean in active_sinkholes
         })
 
     return {
         "status": "ok",
         "preset": preset_key,
-        "title": "Блокировка рекламы" if preset_key == "ads" else "Отключение телеметрии Smart TV",
         "detected": detected,
         "detected_count": len(detected),
         "curated": curated,
@@ -395,61 +393,61 @@ async def preview_dns_preset_api(preset: str):
 
 @router.post("/api/dns/sinkhole/block_selected")
 async def block_selected_domains_api(req: BlockSelectedSinkholeRequest):
-    keenetic_client = get_keenetic_client()
     domains = [d.lower().strip().strip(".") for d in req.domains if d and "." in d]
-    blocked, failed = await keenetic_client.add_dns_sinkholes(domains)
+    blocked, failed = await router_manager.add_dns_sinkholes(domains)
     await ws_manager.broadcast({"type": "dns_sinkhole_updated", "action": "bulk_blocked", "count": len(blocked)})
+    platform_name = router_manager.get_backend().platform_name
     return {
         "status": "ok" if not failed else ("partial" if blocked else "error"),
         "blocked": blocked,
         "blocked_count": len(blocked),
         "failed": failed,
         "failed_count": len(failed),
-        "message": f"Успешно создано {len(blocked)} правил перехвата (0.0.0.0) на Keenetic"
+        "message": f"Успешно создано {len(blocked)} правил перехвата (0.0.0.0) на {platform_name}"
     }
 
 
 @router.post("/api/dns/sinkhole/unblock_selected")
 async def unblock_selected_domains_api(req: BlockSelectedSinkholeRequest):
-    keenetic_client = get_keenetic_client()
     domains = [d.lower().strip().strip(".") for d in req.domains if d and "." in d]
-    unblocked, failed = await keenetic_client.remove_dns_sinkholes(domains)
+    unblocked, failed = await router_manager.remove_dns_sinkholes(domains)
     await ws_manager.broadcast({"type": "dns_sinkhole_updated", "action": "bulk_unblocked", "count": len(unblocked)})
+    platform_name = router_manager.get_backend().platform_name
     return {
         "status": "ok" if not failed else ("partial" if unblocked else "error"),
         "unblocked": unblocked,
         "unblocked_count": len(unblocked),
         "failed": failed,
         "failed_count": len(failed),
-        "message": f"Успешно удалено {len(unblocked)} правил перехвата с Keenetic"
+        "message": f"Успешно удалено {len(unblocked)} правил перехвата с {platform_name}"
     }
 
 
 @router.post("/api/dns/sinkhole/block")
 async def block_dns_sinkhole_api(req: DnsSinkholeRequest):
-    """Adds a static 0.0.0.0 sinkhole rule on Keenetic for a domain."""
-    keenetic_client = get_keenetic_client()
+    """Adds a static 0.0.0.0 sinkhole rule on router for a domain."""
     domain = (req.domain or "").strip().lower().strip(".")
     if not domain or "." not in domain:
         raise HTTPException(status_code=400, detail="Некорректное доменное имя")
-    success = await keenetic_client.add_dns_sinkhole(domain)
+    success = await router_manager.add_dns_sinkhole(domain)
+    platform_name = router_manager.get_backend().platform_name
     if success:
         await ws_manager.broadcast({"type": "dns_sinkhole_updated", "domain": domain, "action": "blocked"})
-        return {"status": "ok", "domain": domain, "action": "blocked", "message": f"Домен {domain} успешно заблокирован на Keenetic (0.0.0.0)"}
+        return {"status": "ok", "domain": domain, "action": "blocked", "message": f"Домен {domain} успешно заблокирован на {platform_name} (0.0.0.0)"}
     raise HTTPException(status_code=500, detail=f"Не удалось заблокировать домен {domain} на роутере")
 
 
 @router.post("/api/dns/sinkhole/unblock")
 async def unblock_dns_sinkhole_api(req: DnsSinkholeRequest):
-    """Removes a static 0.0.0.0 sinkhole rule from Keenetic."""
-    keenetic_client = get_keenetic_client()
+    """Removes a static 0.0.0.0 sinkhole rule from router."""
     domain = (req.domain or "").strip().lower().strip(".")
     if not domain:
         raise HTTPException(status_code=400, detail="Некорректное доменное имя")
-    success = await keenetic_client.remove_dns_sinkhole(domain)
+    success = await router_manager.remove_dns_sinkhole(domain)
+    platform_name = router_manager.get_backend().platform_name
     if success:
         await ws_manager.broadcast({"type": "dns_sinkhole_updated", "domain": domain, "action": "unblocked"})
-        return {"status": "ok", "domain": domain, "action": "unblocked", "message": f"Домен {domain} разблокирован на Keenetic"}
+        return {"status": "ok", "domain": domain, "action": "unblocked", "message": f"Домен {domain} разблокирован на {platform_name}"}
     raise HTTPException(status_code=500, detail=f"Не удалось разблокировать домен {domain} на роутере")
 
 
@@ -457,11 +455,11 @@ async def unblock_dns_sinkhole_api(req: DnsSinkholeRequest):
 async def block_dns_preset_api(req: DnsSinkholePresetRequest):
     """Applies a 1-click curated sinkhole preset (ads or tv_telemetry)."""
     db = get_db()
-    keenetic_client = get_keenetic_client()
     preset = req.preset.lower().strip()
+    platform_name = router_manager.get_backend().platform_name
     if preset in TV_BRAND_PRESETS:
         target_domains = [item["domain"] for item in TV_BRAND_PRESETS[preset]["domains"]]
-        blocked, failed = await keenetic_client.add_dns_sinkholes(target_domains)
+        blocked, failed = await router_manager.add_dns_sinkholes(target_domains)
         await ws_manager.broadcast({"type": "dns_preset_applied", "preset": preset, "count": len(blocked)})
         return {
             "status": "ok" if not failed else ("partial" if blocked else "error"),
@@ -469,7 +467,7 @@ async def block_dns_preset_api(req: DnsSinkholePresetRequest):
             "blocked_count": len(blocked),
             "failed_count": len(failed),
             "domains": blocked,
-            "message": f"Пресет '{TV_BRAND_PRESETS[preset]['name']}' применен: заблокировано {len(blocked)} доменов на Keenetic"
+            "message": f"Пресет '{TV_BRAND_PRESETS[preset]['name']}' применен: заблокировано {len(blocked)} доменов на {platform_name}"
         }
 
     if preset not in ("ads", "tv_telemetry"):
@@ -493,7 +491,7 @@ async def block_dns_preset_api(req: DnsSinkholePresetRequest):
                 if any(x in clean_d for x in ("lg", "samsung", "tv", "acr", "qbe", "hicloud", "xiaomi", "miui")):
                     candidates.add(clean_d)
 
-    blocked, failed = await keenetic_client.add_dns_sinkholes(list(candidates))
+    blocked, failed = await router_manager.add_dns_sinkholes(list(candidates))
 
     await ws_manager.broadcast({"type": "dns_preset_applied", "preset": preset, "count": len(blocked)})
     return {
@@ -502,23 +500,23 @@ async def block_dns_preset_api(req: DnsSinkholePresetRequest):
         "blocked_count": len(blocked),
         "failed_count": len(failed),
         "domains": blocked,
-        "message": f"Пресет '{preset}' применен: заблокировано {len(blocked)} доменов на Keenetic"
+        "message": f"Пресет '{preset}' применен: заблокировано {len(blocked)} доменов на {platform_name}"
     }
 
 
 @router.post("/api/dns/sinkhole/unblock_all")
 async def unblock_all_dns_sinkholes_api():
-    """Removes all static sinkhole domains configured by KeenGuard from Keenetic."""
-    keenetic_client = get_keenetic_client()
-    active = await keenetic_client.get_active_sinkholes()
-    unblocked, failed = await keenetic_client.remove_dns_sinkholes(active)
+    """Removes all static sinkhole domains configured by KeenGuard from router."""
+    active = await router_manager.get_active_sinkholes()
+    unblocked, failed = await router_manager.remove_dns_sinkholes(active)
     await ws_manager.broadcast({"type": "dns_all_unblocked", "count": len(unblocked)})
+    platform_name = router_manager.get_backend().platform_name
     return {
         "status": "ok",
         "unblocked_count": len(unblocked),
         "failed_count": len(failed),
         "domains": unblocked,
-        "message": f"Разблокировано {len(unblocked)} доменов на Keenetic"
+        "message": f"Разблокировано {len(unblocked)} доменов на {platform_name}"
     }
 
 

@@ -48,9 +48,10 @@ logger = logging.getLogger("keenguard.web.workers")
 class RouterHealthMonitor:
     def __init__(self):
         self.is_connected: Optional[bool] = None
-        self.model: str = "Keenetic"
-        self.version: str = "KeeneticOS"
+        self.model: str = "Router"
+        self.version: str = "Firmware"
         self.host: str = settings.router_host
+        self.platform_name: str = "Router"
         self.last_heartbeat: Optional[datetime] = None
         self.last_error: Optional[str] = None
         self.failure_count: int = 0
@@ -62,7 +63,8 @@ class RouterHealthMonitor:
         version: Optional[str] = None,
         error: Optional[str] = None,
     ):
-        keenetic_client = get_keenetic_client()
+        from keenguard.core.routers import router_manager
+        backend = router_manager.get_backend()
         db = get_db()
         was_connected = self.is_connected
         self.is_connected = connected
@@ -70,7 +72,8 @@ class RouterHealthMonitor:
             self.model = model
         if version:
             self.version = version
-        self.host = keenetic_client.host
+        self.host = backend.host
+        self.platform_name = backend.platform_name
 
         if connected:
             self.last_heartbeat = datetime.now(timezone.utc)
@@ -79,18 +82,20 @@ class RouterHealthMonitor:
 
             # Record event on connection restoration/establishment
             if was_connected is False or was_connected is None:
-                logger.info("Router connection ONLINE: %s (%s, %s)", self.host, self.model, self.version)
+                logger.info("Router connection ONLINE: %s (%s, %s, %s)", self.host, self.platform_name, self.model, self.version)
                 await db.record_event(SecurityEvent(
                     event_type="router_online",
                     severity="info",
-                    description=f"Связь с роутером Keenetic ({self.host}) установлена. Модель: {self.model}, KeeneticOS {self.version}."
+                    description=f"Связь с роутером {self.platform_name} ({self.host}) установлена. Модель: {self.model}, ПО: {self.version}."
                 ))
                 await ws_manager.broadcast({
                     "type": "router_status_change",
                     "connected": True,
                     "model": self.model,
                     "version": self.version,
-                    "host": self.host
+                    "host": self.host,
+                    "platform": backend.platform_id,
+                    "platform_name": self.platform_name
                 })
         else:
             self.failure_count += 1
@@ -102,7 +107,7 @@ class RouterHealthMonitor:
                 offline_ev = SecurityEvent(
                     event_type="router_offline",
                     severity="critical",
-                    description=f"Внимание: Потеряна связь с роутером Keenetic ({self.host})! Причина: {self.last_error}. Защита переведена в автономный режим."
+                    description=f"Внимание: Потеряна связь с роутером {self.platform_name} ({self.host})! Причина: {self.last_error}. Защита переведена в автономный режим."
                 )
                 await db.record_event(offline_ev)
                 create_tracked_task(notifier.send_alert(offline_ev))
@@ -110,7 +115,9 @@ class RouterHealthMonitor:
                     "type": "router_status_change",
                     "connected": False,
                     "error": self.last_error,
-                    "host": self.host
+                    "host": self.host,
+                    "platform": backend.platform_id,
+                    "platform_name": self.platform_name
                 })
 
 
@@ -132,7 +139,7 @@ def get_poll_lock() -> asyncio.Lock:
 
 
 async def do_keenetic_poll():
-    """Polls Keenetic router for active hosts, synchronizes state with database, and checks security policies."""
+    """Polls active router for active hosts, synchronizes state with database, and checks security policies."""
     async with get_poll_lock():
         return await _do_keenetic_poll_internal()
 
@@ -144,35 +151,34 @@ async def _do_keenetic_poll_internal():
     if app_mod and hasattr(app_mod, "_poll_counter"):
         _poll_counter = app_mod._poll_counter
 
-    keenetic_client = get_keenetic_client()
     db = get_db()
     audit_manager = get_audit_manager()
     sniffer = get_sniffer()
 
+    from keenguard.core.routers import router_manager
+    active_backend = router_manager.get_backend()
+
+    if getattr(active_backend, "platform_id", None) == "keenetic":
+        try:
+            k_client = get_keenetic_client()
+            if k_client is not None:
+                active_backend._client = k_client
+        except Exception:
+            pass
+
     try:
-        hosts = await keenetic_client.get_hotspot_hosts()
-        if not hosts and not keenetic_client.mock_mode:
-            test_res = await keenetic_client.test_connection()
-            if test_res.get("status") != "ok":
-                await router_health.update_status(connected=False, error=test_res.get("message"))
-                return
-            else:
-                await router_health.update_status(
-                    connected=True,
-                    model=test_res.get("model") or keenetic_client.last_model,
-                    version=test_res.get("version") or keenetic_client.last_version
-                )
-        else:
-            await router_health.update_status(
-                connected=True,
-                model=keenetic_client.last_model,
-                version=keenetic_client.last_version
-            )
+        hosts = await active_backend.get_hosts()
+        sys_info = await active_backend.get_system_info()
+        await router_health.update_status(
+            connected=True,
+            model=sys_info.model,
+            version=sys_info.firmware_version
+        )
+        upnp_rules = await active_backend.get_upnp_mappings()
     except Exception as e:
+        logger.debug("Poll error in worker: %s", e)
         await router_health.update_status(connected=False, error=str(e))
         return
-
-    upnp_rules = await keenetic_client.get_upnp_mappings()
     current_devices_map: Dict[str, DeviceRecord] = {}
     seen_macs = set()
 
@@ -375,7 +381,7 @@ async def _do_keenetic_poll_internal():
 
     if _poll_counter % 6 == 0:
         try:
-            dns_cache = await keenetic_client.get_dns_cache()
+            dns_cache = await active_backend.get_dns_cache()
             for entry in dns_cache:
                 if entry.get("domain"):
                     await db.record_dns_query(entry["domain"], ip=entry.get("ip"))
@@ -384,7 +390,7 @@ async def _do_keenetic_poll_internal():
 
     # Track domain activity and LAN inter-device communications from router conntrack/NAT
     try:
-        nat_entries = await keenetic_client.get_nat_table()
+        nat_entries = await active_backend.get_nat_table()
         if nat_entries:
             await dns_tracker.track_nat_connections(nat_entries, current_devices_map)
             lan_tracker.integrate_router_conntrack(nat_entries, devices_map=current_devices_map)
@@ -513,43 +519,64 @@ async def lifespan(app: FastAPI):
     await db.init_db()
     await domain_analyzer.load_custom_rules_and_signatures()
 
-    # 1. Synchronize credentials between .env and DB
-    saved_pass = await db.get_setting("router_password")
-    if saved_pass and not settings.router_password:
-        settings.router_password = saved_pass
-    elif settings.router_password and not saved_pass:
-        await db.save_setting("router_password", settings.router_password)
-
-    if settings.router_password:
-        keenetic_client.password = settings.router_password
-        save_env_router_credentials(settings.router_host, settings.router_user, settings.router_password, settings.router_port)
-
-    saved_host = await db.get_setting("router_host")
-    if saved_host:
-        settings.router_host = saved_host
-        keenetic_client.host = saved_host
-        keenetic_client.base_url = f"{keenetic_client.schema}://{saved_host}:{settings.router_port}"
-    saved_user = await db.get_setting("router_user")
-    if saved_user:
-        settings.router_user = saved_user
-        keenetic_client.user = saved_user
-
-    # 2. Initial connection test on boot
-    auth_res = await keenetic_client.authenticate()
-    if auth_res.get("status") == "ok":
-        await router_health.update_status(
-            connected=True,
-            model=auth_res.get("model") or keenetic_client.last_model,
-            version=auth_res.get("version") or keenetic_client.last_version
-        )
-        await keenetic_client.refresh_router_interfaces()
-        await db.cleanup_router_false_events()
-    else:
-        await router_health.update_status(connected=False, error=auth_res.get("message"))
-
-    # 3. Synchronize all settings via reactive ConfigService (SQLite > .env > Pydantic defaults)
+    # 1. Synchronize all settings via reactive ConfigService (SQLite > .env > Pydantic defaults)
     from keenguard.core.config_service import config_service
     await config_service.initialize(database=db)
+
+    # 2. Get active router backend
+    from keenguard.core.routers import router_manager
+    active_backend = router_manager.get_backend()
+
+    # 3. Synchronize credentials between .env and DB based on active router platform
+    if active_backend.platform_id == "openwrt":
+        saved_ow_pass = await db.get_setting("openwrt_password")
+        if saved_ow_pass and not settings.openwrt_password:
+            settings.openwrt_password = saved_ow_pass
+        elif settings.openwrt_password and not saved_ow_pass:
+            await db.save_setting("openwrt_password", settings.openwrt_password)
+        saved_ow_host = await db.get_setting("openwrt_host")
+        if saved_ow_host:
+            settings.openwrt_host = saved_ow_host
+        saved_ow_user = await db.get_setting("openwrt_username")
+        if saved_ow_user:
+            settings.openwrt_username = saved_ow_user
+    else:
+        saved_pass = await db.get_setting("router_password")
+        if saved_pass and not settings.router_password:
+            settings.router_password = saved_pass
+        elif settings.router_password and not saved_pass:
+            await db.save_setting("router_password", settings.router_password)
+
+        if settings.router_password:
+            keenetic_client.password = settings.router_password
+            save_env_router_credentials(settings.router_host, settings.router_user, settings.router_password, settings.router_port)
+
+        saved_host = await db.get_setting("router_host")
+        if saved_host:
+            settings.router_host = saved_host
+            keenetic_client.host = saved_host
+            keenetic_client.base_url = f"{keenetic_client.schema}://{saved_host}:{settings.router_port}"
+        saved_user = await db.get_setting("router_user")
+        if saved_user:
+            settings.router_user = saved_user
+            keenetic_client.user = saved_user
+
+    # 4. Initial connection test on boot
+    connected = await active_backend.connect()
+    if connected:
+        sys_info = await active_backend.get_system_info()
+        await router_health.update_status(
+            connected=True,
+            model=sys_info.model,
+            version=sys_info.firmware_version
+        )
+        if active_backend.platform_id == "keenetic":
+            await db.cleanup_router_false_events()
+    else:
+        await router_health.update_status(
+            connected=False,
+            error=f"Не удалось подключиться к роутеру {active_backend.platform_name} ({active_backend.host})"
+        )
 
     # Wire Traffic Audit Guard callback for suspicious device auto-quarantine
     async def on_audit_suspicious_device(mac: str, ip: str, hostname: str, reason: str):

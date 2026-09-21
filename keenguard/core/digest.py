@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 
 from keenguard.config import settings
 from keenguard.db.database import db
-from keenguard.core.notifier import notifier
+from keenguard.core.notifier import notifier, render_progress_bar
 
 logger = logging.getLogger("keenguard.digest")
 
@@ -60,10 +60,12 @@ class SecurityDigestGenerator:
 
         # Build Telegram text representation (HTML)
         period_str = f"за последние {hours} ч." if hours < 48 else f"за последние {hours//24} дн."
+        score_bar = render_progress_bar(score, 100)
+        dev_bar = render_progress_bar(online_devices, total_devices) if total_devices > 0 else "[──────────]"
         telegram_lines = [
             f"🛡️ <b>Дайджест безопасности KeenGuard ({period_str})</b>\n",
-            f"<b>Индекс безопасности:</b> {score}/100 ({status_text})",
-            f"<b>Устройства:</b> {online_devices} онлайн из {total_devices}",
+            f"<b>Индекс безопасности:</b> {score_bar} <b>{score}/100</b> ({status_text})",
+            f"<b>Устройства онлайн:</b>   {dev_bar} <b>{online_devices}</b> из {total_devices}",
             f"<b>Инциденты:</b> 🚨 Критических: {critical_count} | ⚠️ Предупреждений: {warning_count}",
         ]
 

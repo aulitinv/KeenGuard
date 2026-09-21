@@ -2588,45 +2588,94 @@
                 <!-- SUB-PANE 1: ROUTER CONNECTION -->
                 <div id="settings-subpane-router" class="settings-subpane space-y-4">
                     <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
-                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/60 pb-3">
                             <div>
                                 <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
                                     <i data-lucide="router" class="w-5 h-5 text-indigo-400"></i>
-                                    <span>Подключение к роутеру Keenetic</span>
+                                    <span>Подключение к роутеру</span>
                                 </h2>
-                                <p class="text-xs text-slate-400 mt-0.5">Укажите адрес и параметры доступа к роутеру для работы с RCI API</p>
+                                <p class="text-xs text-slate-400 mt-0.5">Выберите платформу роутера и параметры доступа для API</p>
                             </div>
-                            <span class="px-2.5 py-1 rounded-lg text-xs font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">Keenetic RCI</span>
+                            <div class="flex items-center space-x-1.5 bg-surface-950 p-1 rounded-xl border border-slate-800">
+                                <button type="button" onclick="switchRouterPlatform('keenetic')" id="btn-router-plat-keenetic" class="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition">
+                                    Keenetic (RCI)
+                                </button>
+                                <button type="button" onclick="switchRouterPlatform('openwrt')" id="btn-router-plat-openwrt" class="px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
+                                    OpenWrt (ubus)
+                                </button>
+                            </div>
                         </div>
 
-                        <div>
-                            <label class="block text-xs font-medium text-slate-300 mb-1.5">IP-адрес роутера (шлюз сети)</label>
-                            <input type="text" id="cfg-host" value="192.168.1.1" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
-                            <span class="text-[10px] text-slate-500 mt-1 block">Обычно 192.168.1.1. KeenGuard подключается к роутеру через этот IP.</span>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- KEENETIC CONFIG FORM -->
+                        <div id="router-form-keenetic" class="space-y-4">
                             <div>
-                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Логин администратора</label>
-                                <input type="text" id="cfg-user" value="admin" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">IP-адрес роутера (шлюз сети)</label>
+                                <input type="text" id="cfg-host" value="192.168.1.1" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Обычно 192.168.1.1. KeenGuard подключается к Keenetic через этот IP.</span>
                             </div>
-                            <div>
-                                <div class="flex items-center justify-between mb-1.5">
-                                    <label class="block text-xs font-medium text-slate-300">Пароль администратора</label>
-                                    <span id="cfg-password-saved-badge" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
-                                        <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
-                                        <span>Пароль сохранен</span>
-                                    </span>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Логин администратора</label>
+                                    <input type="text" id="cfg-user" value="admin" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
                                 </div>
-                                <input type="password" id="cfg-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
-                                <span class="text-[10px] text-slate-500 mt-1 block" id="cfg-password-help">Пароль сохраняется в зашифрованном окружении и подключается автоматически.</span>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">Пароль администратора</label>
+                                        <span id="cfg-password-saved-badge" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Пароль сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block" id="cfg-password-help">Пароль сохраняется в зашифрованном окружении и подключается автоматически.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- OPENWRT CONFIG FORM -->
+                        <div id="router-form-openwrt" class="hidden space-y-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="sm:col-span-2">
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">IP-адрес / Хост OpenWrt</label>
+                                    <input type="text" id="cfg-openwrt-host" value="192.168.1.1" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">IP-адрес или доменное имя роутера с установленным LuCI / ubus.</span>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Порт HTTP(S)</label>
+                                    <input type="number" id="cfg-openwrt-port" value="80" min="1" max="65535" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Стандартно 80 (HTTP) или 443 (HTTPS).</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center space-x-2 py-1">
+                                <input type="checkbox" id="cfg-openwrt-https" class="w-4 h-4 rounded text-indigo-600 bg-surface-950 border-slate-700">
+                                <label for="cfg-openwrt-https" class="text-xs font-medium text-slate-300 cursor-pointer">Использовать HTTPS (защищенное соединение SSL)</label>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Логин (обычно root)</label>
+                                    <input type="text" id="cfg-openwrt-user" value="root" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">Пароль root / ubus</label>
+                                        <span id="cfg-openwrt-password-saved-badge" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Пароль сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-openwrt-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Пароль учетной записи OpenWrt для вызова RPC-методов /ubus.</span>
+                                </div>
                             </div>
                         </div>
 
                         <div class="flex items-center justify-between pt-3 border-t border-slate-800">
-                            <button type="button" onclick="testKeeneticConnection()" class="px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-2">
+                            <button type="button" onclick="testRouterConnection()" class="px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-2">
                                 <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
-                                <span>Проверить связь с Keenetic</span>
+                                <span id="btn-test-router-text">Проверить связь с роутером</span>
                             </button>
                             <button type="button" onclick="saveRouterSettings()" class="px-4 py-2 rounded-xl text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
                                 <i data-lucide="check" class="w-3.5 h-3.5"></i>

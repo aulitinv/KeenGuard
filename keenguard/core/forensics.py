@@ -8,7 +8,7 @@ from keenguard.config import settings
 from keenguard.db.models import SecurityEvent
 from keenguard.db.database import db
 from keenguard.core.sniffer import sniffer
-from keenguard.core.keenetic import keenetic_client
+from keenguard.core.routers import router_manager
 from scapy.all import wrpcap, rdpcap, Ether, IP, ARP
 
 logger = logging.getLogger("keenguard.forensics")
@@ -164,20 +164,21 @@ class ForensicsEngine:
             logger.info("Recording post-wake packets for %s (%s) for %d seconds...", tv_name, clean_mac, post_seconds)
             self.active_wake_collectors[clean_mac] = []
 
-            # Try Keenetic hardware packet capture directly on router kernel
+            # Try hardware packet capture directly on router kernel
+            backend = router_manager.get_backend()
             if ip and ip != "0.0.0.0":
                 try:
-                    if await keenetic_client.is_packet_capture_supported():
-                        start_res = await keenetic_client.start_packet_capture(
+                    if await backend.is_packet_capture_supported():
+                        start_res = await backend.start_packet_capture(
                             interface="Bridge0",
                             target_ip=ip,
                             duration_seconds=post_seconds
                         )
                         if start_res and start_res.get("status") == "ok":
                             hw_capture_active = True
-                            logger.info("Keenetic hardware packet capture started for TV %s (%s)", tv_name, ip)
+                            logger.info("%s hardware packet capture started for TV %s (%s)", backend.platform_name, tv_name, ip)
                 except Exception as e:
-                    logger.debug("Could not start Keenetic hardware capture for TV %s: %s", tv_name, e)
+                    logger.debug("Could not start %s hardware capture for TV %s: %s", backend.platform_name, tv_name, e)
 
             try:
                 await asyncio.sleep(post_seconds)
@@ -186,10 +187,10 @@ class ForensicsEngine:
 
             if hw_capture_active:
                 try:
-                    cap_file = await keenetic_client.stop_packet_capture(interface="Bridge0")
+                    cap_file = await backend.stop_packet_capture(interface="Bridge0")
                     if cap_file:
                         temp_dest = settings.pcap_dir / f"temp_rci_{clean_mac.replace(':', '')}_{int(wake_time)}.pcap"
-                        downloaded = await keenetic_client.download_capture_file(cap_file, temp_dest)
+                        downloaded = await backend.download_capture_file(cap_file, temp_dest)
                         if downloaded and temp_dest.exists():
                             try:
                                 rci_pkts = list(rdpcap(str(temp_dest)))
@@ -197,8 +198,8 @@ class ForensicsEngine:
                                     post_packets = rci_pkts
                                     capture_source = "router_hardware"
                                     logger.info(
-                                        "Retrieved %d hardware packets from Keenetic for TV %s",
-                                        len(rci_pkts), tv_name
+                                        "Retrieved %d hardware packets from %s for TV %s",
+                                        len(rci_pkts), backend.platform_name, tv_name
                                     )
                             except Exception as pe:
                                 logger.debug("Error parsing downloaded router PCAP: %s", pe)
@@ -207,9 +208,9 @@ class ForensicsEngine:
                                     temp_dest.unlink(missing_ok=True)
                                 except OSError as oe:
                                     logger.debug("Failed unlinking temp PCAP %s: %s", temp_dest, oe)
-                        await keenetic_client.reset_packet_capture(interface="Bridge0")
+                        await backend.reset_packet_capture(interface="Bridge0")
                 except Exception as e:
-                    logger.error("Error finalizing Keenetic hardware capture for TV %s: %s", tv_name, e)
+                    logger.error("Error finalizing %s hardware capture for TV %s: %s", backend.platform_name, tv_name, e)
 
             if not post_packets:
                 post_packets = local_packets

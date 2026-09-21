@@ -1,4 +1,4 @@
-﻿"""Checklist evaluator orchestrating all 11 security checks."""
+"""Checklist evaluator orchestrating all 11 security checks."""
 import logging
 from typing import Dict, Any, List
 from datetime import datetime, timezone
@@ -19,7 +19,7 @@ from keenguard.core.checklist.network_checks import (
     evaluate_arp_mac_spoofing,
     evaluate_hardware_segmentation,
 )
-from keenguard.core.keenetic import keenetic_client
+from keenguard.core.routers import router_manager
 
 logger = logging.getLogger("keenguard.checklist.evaluator")
 
@@ -32,7 +32,7 @@ class SecurityChecklistEvaluator:
 
         dns_proxy = {}
         try:
-            dns_proxy = await keenetic_client.get_dns_proxy_status()
+            dns_proxy = await router_manager.get_backend().get_dns_proxy_status()
         except Exception as e:
             logger.debug("Failed querying dns proxy status for checklist: %s", e)
 

@@ -51,6 +51,20 @@ class DeviceClassifier:
         except Exception:
             return False
 
+    @staticmethod
+    def infer_profile_from_vendor(vendor: str) -> str:
+        """Infers default security profile from vendor name."""
+        v = vendor.lower()
+        if any(k in v for k in ["camera", "hikvision", "dahua", "reolink", "ezviz", "uniview", "axis"]):
+            return "camera"
+        if any(k in v for k in ["espressif", "tuya", "sonoff", "allterco", "shelly", "broadlink"]):
+            return "iot"
+        if any(k in v for k in ["tpv", "tcl", "hisense", "roku", "skyworth"]):
+            return "smart_tv"
+        if any(k in v for k in ["meta", "oculus", "apple", "samsung", "google", "intel", "microsoft", "dell", "hp", "lenovo", "asustek", "oneplus", "huawei", "honor", "xiaomi"]):
+            return "trusted"
+        return "unassigned"
+
     @classmethod
     def classify(cls, mac: str, hostname: Optional[str] = None, vendor_hint: Optional[str] = None) -> Tuple[str, str, bool]:
         """
@@ -63,13 +77,25 @@ class DeviceClassifier:
         detected_vendor = vendor_hint or ("Locally Administered (Random MAC)" if is_random else "Unknown Vendor")
         suggested_profile = "unassigned"
 
-        # Check OUI prefix
+        # Check OUI prefix in curated catalog
         prefix_3 = ":".join(clean_mac.split(":")[:3])
         for v_name, (prefixes, prof) in OUI_DATABASE.items():
             if prefix_3 in prefixes:
                 detected_vendor = v_name
                 suggested_profile = prof
                 break
+
+        # Fallback to comprehensive Scapy MANUFDB (50 825+ IEEE OUI entries)
+        if detected_vendor in ("Unknown Vendor", "Unknown", None) and not is_random:
+            try:
+                from scapy.data import MANUFDB
+                short_m, long_m = MANUFDB._get_manuf_couple(clean_mac.lower())
+                if long_m and long_m.lower() != clean_mac.lower():
+                    detected_vendor = long_m
+                    if suggested_profile == "unassigned":
+                        suggested_profile = cls.infer_profile_from_vendor(long_m)
+            except Exception as e:
+                logger.debug("MANUFDB lookup failed for %s: %s", clean_mac, e)
 
         # Hostname heuristics refinement
         if hostname:
@@ -127,6 +153,12 @@ class DeviceClassifier:
                         detected_vendor = "Google Pixel (Random MAC)"
                     else:
                         detected_vendor = "Google LLC"
+
+            # VR Headsets (Meta Quest, Pico, Vive, Index)
+            elif any(k in h_lower for k in ["quest", "oculus", "pico", "vive", "index"]):
+                suggested_profile = "trusted"
+                if "vr" not in detected_vendor.lower() and "quest" not in detected_vendor.lower():
+                    detected_vendor += " (VR Headset)"
 
         return detected_vendor, suggested_profile, is_random
 

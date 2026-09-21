@@ -331,8 +331,8 @@ class NetworkSniffer:
             elif ARP in pkt and pkt[ARP].op == 1:  # who-has request
                 src_ip = pkt[ARP].psrc
                 dst_ip = pkt[ARP].pdst
-                from keenguard.core.keenetic import keenetic_client
-                if not keenetic_client.is_router_entity(ip=src_ip, mac=src_mac):
+                from keenguard.core.routers import router_manager
+                if not router_manager.is_router_entity(ip=src_ip, mac=src_mac):
                     self._emit_event({
                         "event_type": "arp_probe",
                         "severity": "info",
@@ -404,10 +404,10 @@ class NetworkSniffer:
                 dst_ip = "0.0.0.0"
 
             # Determine target device MAC and direction
-            from keenguard.core.keenetic import keenetic_client
+            from keenguard.core.routers import router_manager
 
-            is_src_router = keenetic_client.is_router_entity(mac=src_mac)
-            is_dst_router = keenetic_client.is_router_entity(mac=dst_mac)
+            is_src_router = router_manager.is_router_entity(mac=src_mac)
+            is_dst_router = router_manager.is_router_entity(mac=dst_mac)
 
             if is_src_router and dst_mac:
                 target_mac = dst_mac

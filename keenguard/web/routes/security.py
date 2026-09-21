@@ -20,12 +20,12 @@ from keenguard.core.dissector import PacketDissector
 from keenguard.core.dns_tracker import LOCAL_PREFIXES, dns_tracker
 from keenguard.core.domain_analyzer import domain_analyzer
 from keenguard.core.investigator import investigator
-from keenguard.core.keenetic import is_host_lan_isolated, is_unsafe_ip_for_blackhole
+from keenguard.core.keenetic import is_unsafe_ip_for_blackhole
 from keenguard.core.lan_tracker import lan_tracker
 from keenguard.core.profiles import profile_manager
+from keenguard.core.routers import router_manager
 from keenguard.web.state import (
     get_db,
-    get_keenetic_client,
     get_sniffer,
 )
 from keenguard.web.ws import ws_manager
@@ -181,7 +181,6 @@ async def download_pcap(filename: str):
 @router.get("/api/smarthome/overview")
 async def get_smarthome_overview():
     db = get_db()
-    keenetic_client = get_keenetic_client()
     devices = await db.get_all_devices()
 
     category_defs = {
@@ -272,7 +271,7 @@ async def get_smarthome_overview():
 
     cloud_connections = []
     try:
-        nat_table = await keenetic_client.get_nat_table()
+        nat_table = await router_manager.get_nat_table()
         dev_by_ip = {d["ip"]: d for d in smarthome_devs if d.get("ip")}
         seen_pairs = set()
 
@@ -380,14 +379,13 @@ async def get_security_checklist():
 
 @router.get("/api/security/segments")
 async def get_security_segments():
-    """Returns Keenetic hardware network segments and evaluates L2 bypass risks."""
+    """Returns router hardware network segments and evaluates L2 bypass risks."""
     db = get_db()
-    keenetic_client = get_keenetic_client()
-    segments = await keenetic_client.get_network_segments()
+    segments = await router_manager.get_network_segments()
     devices = await db.get_all_devices()
     enriched_devices = []
     for d in devices:
-        risk = keenetic_client.evaluate_segment_risk(d.profile, d.segment or "Home", d.ip or "")
+        risk = router_manager.evaluate_segment_risk(d.profile, d.segment or "Home", d.ip or "")
         enriched_devices.append({
             "mac": d.mac,
             "ip": d.ip,
@@ -558,8 +556,7 @@ async def apply_security_wizard(req: SecurityWizardApplyRequest):
 
 @router.get("/api/security/wifi")
 async def get_wifi_audit():
-    keenetic_client = get_keenetic_client()
-    audit = await keenetic_client.get_wifi_security()
+    audit = await router_manager.get_wifi_security()
     return audit
 
 
@@ -567,8 +564,7 @@ async def get_wifi_audit():
 
 @router.get("/api/router/updates")
 async def get_router_updates():
-    keenetic_client = get_keenetic_client()
-    updates = await keenetic_client.check_firmware_updates()
+    updates = await router_manager.check_firmware_updates()
     return updates
 
 
@@ -590,15 +586,13 @@ async def send_security_digest(hours: int = 24):
 
 @router.get("/api/upnp")
 async def get_upnp():
-    keenetic_client = get_keenetic_client()
-    mappings = await keenetic_client.get_upnp_mappings()
+    mappings = await router_manager.get_upnp_mappings()
     return [m.model_dump() for m in mappings]
 
 
 @router.post("/api/upnp/delete")
 async def delete_upnp(req: DeleteUPnPRequest):
-    keenetic_client = get_keenetic_client()
-    success = await keenetic_client.delete_upnp_mapping(req.protocol, req.ext_port)
+    success = await router_manager.delete_upnp_mapping(req.protocol, req.ext_port)
     return {"status": "ok", "success": success}
 
 
@@ -993,8 +987,7 @@ async def analyze_incident(req: AnalyzeIncidentRequest):
 
 @router.post("/api/investigator/block")
 async def block_investigator_target(req: InvestigatorBlockRequest):
-    """Enforces hardware DNS sinkhole (0.0.0.0) block on Keenetic router."""
-    keenetic_client = get_keenetic_client()
+    """Enforces hardware DNS sinkhole (0.0.0.0) block on router."""
     raw_target = (req.domain or req.ip or "").strip()
     if not raw_target:
         raise HTTPException(status_code=400, detail="Необходимо указать доменное имя для блокировки")
@@ -1005,13 +998,13 @@ async def block_investigator_target(req: InvestigatorBlockRequest):
         raise HTTPException(
             status_code=400,
             detail="DNS Sinkhole предназначен для блокировки доменных имен (FQDN), а не прямых IP-адресов. "
-                   "Для ограничения доступа к IP используйте профиль изоляции устройства или правила межсетевого экрана Keenetic."
+                   "Для ограничения доступа к IP используйте профиль изоляции устройства или правила межсетевого экрана роутера."
         )
 
     if is_forbidden_or_local_domain(clean_target):
         raise HTTPException(
             status_code=400,
-            detail="Запрещено блокировать локальные или системные домены управления роутером Keenetic."
+            detail="Запрещено блокировать локальные или системные домены управления роутером."
         )
 
     if "." not in clean_target or len(clean_target) < 3:
@@ -1020,11 +1013,12 @@ async def block_investigator_target(req: InvestigatorBlockRequest):
             detail="Укажите корректное доменное имя (например, bad-tracker.com)."
         )
 
-    success = await keenetic_client.add_dns_sinkhole(clean_target)
+    success = await router_manager.add_dns_sinkhole(clean_target)
+    platform_name = router_manager.get_backend().platform_name
     return {
         "status": "ok" if success else "failed",
         "target": clean_target,
-        "message": f"Домен {clean_target} успешно направлен в аппаратный 0.0.0.0 Sinkhole на Keenetic" if success else f"Ошибка добавления правила для {clean_target} на Keenetic"
+        "message": f"Домен {clean_target} успешно направлен в аппаратный 0.0.0.0 Sinkhole на {platform_name}" if success else f"Ошибка добавления правила для {clean_target} на {platform_name}"
     }
 
 
@@ -1032,11 +1026,10 @@ async def block_investigator_target(req: InvestigatorBlockRequest):
 
 @router.get("/api/firewall/ip_blackholes")
 async def get_ip_blackholes_list():
-    """Returns active IP blackholes stored in database and running on Keenetic router."""
+    """Returns active IP blackholes stored in database and running on router."""
     db = get_db()
-    keenetic_client = get_keenetic_client()
     rules = await db.get_ip_blackholes(active_only=True)
-    router_active = await keenetic_client.get_active_ip_blackholes()
+    router_active = await router_manager.get_active_ip_blackholes()
 
     router_set = set(router_active)
     for r in rules:
@@ -1111,9 +1104,8 @@ async def check_ip_blackhole_preflight(req: IpBlackholeRequest):
 
 @router.post("/api/firewall/ip_blackhole/block")
 async def add_ip_blackhole_endpoint(req: IpBlackholeRequest):
-    """Enforces hardware reject route on Keenetic router and records in SQLite."""
+    """Enforces hardware reject route on router and records in SQLite."""
     db = get_db()
-    keenetic_client = get_keenetic_client()
     clean_ip = req.ip.strip()
     try:
         ip_obj = ipaddress.ip_address(clean_ip)
@@ -1136,9 +1128,10 @@ async def add_ip_blackhole_endpoint(req: IpBlackholeRequest):
             detail=f"IP {clean_ip} принадлежит CDN ({provider}). Блокировка может нарушить работу других сервисов. Подтвердите принудительную блокировку."
         )
 
-    succeeded, failed = await keenetic_client.add_ip_blackholes([clean_ip])
+    platform_name = router_manager.get_backend().platform_name
+    succeeded, failed = await router_manager.add_ip_blackholes([clean_ip])
     if clean_ip not in succeeded:
-        raise HTTPException(status_code=500, detail=f"Роутер Keenetic отклонил добавление маршрута reject для {clean_ip}")
+        raise HTTPException(status_code=500, detail=f"Роутер {platform_name} отклонил добавление маршрута reject для {clean_ip}")
 
     reason_text = req.reason.strip() if req.reason else "Ручная блокировка узла"
     await db.add_ip_blackhole_record(
@@ -1155,26 +1148,26 @@ async def add_ip_blackhole_endpoint(req: IpBlackholeRequest):
         "ip": clean_ip,
         "provider": provider,
         "is_cdn": is_cdn,
-        "message": f"IP-адрес {clean_ip} успешно заблокирован на Keenetic (маршрут reject в ядре роутера)"
+        "message": f"IP-адрес {clean_ip} успешно заблокирован на {platform_name} (маршрут reject в ядре роутера)"
     }
 
 
 @router.post("/api/firewall/ip_blackhole/unblock")
 async def remove_ip_blackhole_endpoint(req: IpBlackholeUnblockRequest):
-    """Removes hardware reject route from Keenetic router and SQLite."""
+    """Removes hardware reject route from router and SQLite."""
     db = get_db()
-    keenetic_client = get_keenetic_client()
     clean_ip = req.ip.strip()
     if not clean_ip:
         raise HTTPException(status_code=400, detail="Необходимо указать IP для разблокировки")
 
-    succeeded, _ = await keenetic_client.remove_ip_blackholes([clean_ip])
+    succeeded, _ = await router_manager.remove_ip_blackholes([clean_ip])
     await db.delete_ip_blackhole_record(clean_ip)
+    platform_name = router_manager.get_backend().platform_name
 
     return {
         "status": "ok",
         "ip": clean_ip,
-        "message": f"Маршрут блокировки для {clean_ip} удален с роутера Keenetic"
+        "message": f"Маршрут блокировки для {clean_ip} удален с роутера {platform_name}"
     }
 
 
@@ -1182,7 +1175,6 @@ async def remove_ip_blackhole_endpoint(req: IpBlackholeUnblockRequest):
 async def block_investigator_ip_endpoint(req: IpBlackholeRequest):
     """Enforces hardware IP blackhole directly from Incident Investigation Wizard."""
     db = get_db()
-    keenetic_client = get_keenetic_client()
     clean_ip = req.ip.strip()
     try:
         ip_obj = ipaddress.ip_address(clean_ip)
@@ -1201,7 +1193,8 @@ async def block_investigator_ip_endpoint(req: IpBlackholeRequest):
             "message": f"IP-адрес {clean_ip} принадлежит публичному CDN ({provider}). Блокировка может затронуть другие сервисы. Вы уверены, что хотите заблокировать весь IP?"
         }
 
-    succeeded, failed = await keenetic_client.add_ip_blackholes([clean_ip])
+    platform_name = router_manager.get_backend().platform_name
+    succeeded, failed = await router_manager.add_ip_blackholes([clean_ip])
     if clean_ip in succeeded:
         await db.add_ip_blackhole_record(
             ip=clean_ip,
@@ -1215,7 +1208,7 @@ async def block_investigator_ip_endpoint(req: IpBlackholeRequest):
             "status": "ok",
             "ip": clean_ip,
             "provider": provider,
-            "message": f"IP-адрес {clean_ip} успешно заблокирован на Keenetic (L3 Blackhole Reject)"
+            "message": f"IP-адрес {clean_ip} успешно заблокирован на {platform_name} (L3 Blackhole Reject)"
         }
     else:
         raise HTTPException(status_code=500, detail=f"Ошибка роутера при блокировке {clean_ip}")

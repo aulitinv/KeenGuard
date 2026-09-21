@@ -1,8 +1,8 @@
-﻿"""Context builder for security checklist evaluation."""
+"""Context builder for security checklist evaluation."""
 import logging
 from typing import Dict, Any, List, Optional
 from keenguard.db.database import db
-from keenguard.core.keenetic import keenetic_client
+from keenguard.core.routers import router_manager
 from keenguard.core.classifier import DeviceClassifier
 from keenguard.db.models import DeviceRecord, SecurityEvent
 
@@ -56,18 +56,19 @@ class ChecklistContext:
             if d.profile == "unassigned" or (d.is_blocked_wan and d.is_isolated_lan and tier not in ("pure_local", "camera")):
                 ctx.quarantine_devs.append(d)
 
+        backend = router_manager.get_backend()
         try:
-            ctx.wifi_security = await keenetic_client.get_wifi_security()
+            ctx.wifi_security = await backend.get_wifi_security()
         except Exception as e:
             logger.debug("Failed to query wifi security for checklist: %s", e)
 
         try:
-            ctx.firmware_info = await keenetic_client.check_firmware_updates()
+            ctx.firmware_info = await backend.check_firmware_updates()
         except Exception as e:
             logger.debug("Failed to query firmware updates for checklist: %s", e)
 
         try:
-            ctx.upnp_entries = await keenetic_client.get_upnp_mappings()
+            ctx.upnp_entries = await backend.get_upnp_mappings()
         except Exception as e:
             logger.debug("Failed to query upnp table for checklist: %s", e)
 

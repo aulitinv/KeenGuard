@@ -10,10 +10,10 @@ from keenguard.core.classifier import DeviceClassifier
 from keenguard.core.dissector import PacketDissector
 from keenguard.core.keenetic import is_host_lan_isolated
 from keenguard.core.profiles import policy_manager, profile_manager
+from keenguard.core.routers import router_manager
 from keenguard.db.models import LanPolicyPreset
 from keenguard.web.state import (
     get_db,
-    get_keenetic_client,
     get_audit_manager,
     get_sniffer,
 )
@@ -89,7 +89,6 @@ class DeviceWizardSubmitRequest(BaseModel):
 @router.get("/api/devices")
 async def get_devices():
     db = get_db()
-    keenetic_client = get_keenetic_client()
     devices = await db.get_all_devices()
     rotations = DeviceClassifier.detect_mac_rotations(devices)
     mac_to_group = {}
@@ -102,7 +101,7 @@ async def get_devices():
         item = d.model_dump()
         is_rand = DeviceClassifier.is_randomized_mac(d.mac)
         item["is_random_mac"] = is_rand
-        item["segment_risk"] = keenetic_client.evaluate_segment_risk(d.profile, d.segment or "Home", d.ip or "")
+        item["segment_risk"] = router_manager.evaluate_segment_risk(d.profile, d.segment or "Home", d.ip or "")
         grp = mac_to_group.get(d.mac.upper())
         if grp:
             is_hw = not is_rand
@@ -133,7 +132,6 @@ async def get_devices():
 @router.get("/api/devices/{mac}")
 async def get_device(mac: str):
     db = get_db()
-    keenetic_client = get_keenetic_client()
     clean_mac = _validate_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
@@ -143,7 +141,7 @@ async def get_device(mac: str):
     dev_dict = dev.model_dump()
     is_rand = DeviceClassifier.is_randomized_mac(dev.mac)
     dev_dict["is_random_mac"] = is_rand
-    dev_dict["segment_risk"] = keenetic_client.evaluate_segment_risk(dev.profile, dev.segment or "Home", dev.ip or "")
+    dev_dict["segment_risk"] = router_manager.evaluate_segment_risk(dev.profile, dev.segment or "Home", dev.ip or "")
 
     devices = await db.get_all_devices()
     rotations = DeviceClassifier.detect_mac_rotations(devices)

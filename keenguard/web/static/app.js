@@ -527,7 +527,7 @@ function getRouterName() {
     if (currentRouterInfo?.model) {
         return currentRouterInfo.model;
     }
-    return "Роутер Keenetic";
+    return currentRouterPlatform === 'openwrt' ? "Роутер OpenWrt" : "Роутер Keenetic";
 }
 
 function isHubEntity(ip, mac) {
@@ -3108,15 +3108,69 @@ function switchSettingsSubTab(subtabId) {
 }
 window.switchSettingsSubTab = switchSettingsSubTab;
 
+let currentRouterPlatform = 'keenetic';
+
+function switchRouterPlatform(platform) {
+    currentRouterPlatform = platform || 'keenetic';
+    const btnK = document.getElementById('btn-router-plat-keenetic');
+    const btnO = document.getElementById('btn-router-plat-openwrt');
+    const formK = document.getElementById('router-form-keenetic');
+    const formO = document.getElementById('router-form-openwrt');
+    const testBtnText = document.getElementById('btn-test-router-text');
+
+    if (currentRouterPlatform === 'openwrt') {
+        if (btnK) btnK.className = 'px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition';
+        if (btnO) btnO.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition';
+        if (formK) formK.classList.add('hidden');
+        if (formO) formO.classList.remove('hidden');
+        if (testBtnText) testBtnText.textContent = 'Проверить связь с OpenWrt';
+    } else {
+        if (btnK) btnK.className = 'px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition';
+        if (btnO) btnO.className = 'px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition';
+        if (formK) formK.classList.remove('hidden');
+        if (formO) formO.classList.add('hidden');
+        if (testBtnText) testBtnText.textContent = 'Проверить связь с Keenetic';
+    }
+}
+window.switchRouterPlatform = switchRouterPlatform;
+
 // Settings
 async function loadSettings() {
     try {
         const res = await fetch('/api/settings');
         const s = await res.json();
+
+        // Router Platform
+        if (s.router_type) {
+            switchRouterPlatform(s.router_type);
+        }
+
+        // Keenetic inputs
         const hostEl = document.getElementById('cfg-host');
         if (hostEl && s.router_host !== undefined) hostEl.value = s.router_host;
         const userEl = document.getElementById('cfg-user');
         if (userEl && s.router_user !== undefined) userEl.value = s.router_user;
+
+        // OpenWrt inputs
+        const owHostEl = document.getElementById('cfg-openwrt-host');
+        if (owHostEl && s.openwrt_host !== undefined) owHostEl.value = s.openwrt_host;
+        const owPortEl = document.getElementById('cfg-openwrt-port');
+        if (owPortEl && s.openwrt_port !== undefined) owPortEl.value = s.openwrt_port;
+        const owHttpsEl = document.getElementById('cfg-openwrt-https');
+        if (owHttpsEl && s.openwrt_use_https !== undefined) owHttpsEl.checked = Boolean(s.openwrt_use_https);
+        const owUserEl = document.getElementById('cfg-openwrt-user');
+        if (owUserEl && s.openwrt_username !== undefined) owUserEl.value = s.openwrt_username;
+
+        const owSavedBadge = document.getElementById('cfg-openwrt-password-saved-badge');
+        const owPassInput = document.getElementById('cfg-openwrt-password');
+        if (s.openwrt_has_password) {
+            if (owSavedBadge) owSavedBadge.classList.remove('hidden');
+            if (owPassInput) owPassInput.placeholder = "•••••••• (сохранен)";
+        } else {
+            if (owSavedBadge) owSavedBadge.classList.add('hidden');
+            if (owPassInput) owPassInput.placeholder = "••••••••";
+        }
+
         const nightStartEl = document.getElementById('cfg-night-start');
         if (nightStartEl && s.night_mode_start_hour !== undefined) nightStartEl.value = s.night_mode_start_hour;
         const nightEndEl = document.getElementById('cfg-night-end');
@@ -3452,9 +3506,15 @@ async function saveSettings(e) {
     }
 
     const payload = {
+        router_type: currentRouterPlatform,
         router_host: document.getElementById('cfg-host')?.value?.trim() || undefined,
         router_user: document.getElementById('cfg-user')?.value?.trim() || undefined,
         router_password: passVal && passVal.trim() ? passVal.trim() : null,
+        openwrt_host: document.getElementById('cfg-openwrt-host')?.value?.trim() || undefined,
+        openwrt_port: parseInt(document.getElementById('cfg-openwrt-port')?.value || '80', 10),
+        openwrt_use_https: Boolean(document.getElementById('cfg-openwrt-https')?.checked),
+        openwrt_username: document.getElementById('cfg-openwrt-user')?.value?.trim() || undefined,
+        openwrt_password: (document.getElementById('cfg-openwrt-password')?.value || '').trim() || null,
         night_mode_start_hour: document.getElementById('cfg-night-start') ? parseInt(document.getElementById('cfg-night-start').value, 10) : undefined,
         night_mode_end_hour: document.getElementById('cfg-night-end') ? parseInt(document.getElementById('cfg-night-end').value, 10) : undefined,
         night_mode_auto_block_wan: document.getElementById('cfg-night-auto-block-wan') ? Boolean(document.getElementById('cfg-night-auto-block-wan').checked) : undefined,
@@ -3503,7 +3563,10 @@ async function saveSettings(e) {
     if (res.ok) {
         const data = await res.json();
         showToast('Все настройки успешно сохранены!');
-        document.getElementById('cfg-password').value = '';
+        const passEl = document.getElementById('cfg-password');
+        if (passEl) passEl.value = '';
+        const owPassEl = document.getElementById('cfg-openwrt-password');
+        if (owPassEl) owPassEl.value = '';
         await loadSettings();
         await refreshAllData();
     } else {
@@ -3514,21 +3577,44 @@ async function saveSettings(e) {
 
 // Granular Settings Handlers
 async function saveRouterSettings() {
-    const host = document.getElementById('cfg-host')?.value?.trim();
-    const user = document.getElementById('cfg-user')?.value?.trim();
-    const pass = document.getElementById('cfg-password')?.value;
-
-    if (!host || !user) {
-        showToast('Укажите IP-адрес роутера и имя пользователя', true);
-        return;
-    }
-
     const payload = {
-        router_host: host,
-        router_user: user
+        router_type: currentRouterPlatform
     };
-    if (pass && pass.trim()) {
-        payload.router_password = pass.trim();
+
+    if (currentRouterPlatform === 'openwrt') {
+        const host = document.getElementById('cfg-openwrt-host')?.value?.trim();
+        const port = parseInt(document.getElementById('cfg-openwrt-port')?.value || '80', 10);
+        const https = Boolean(document.getElementById('cfg-openwrt-https')?.checked);
+        const user = document.getElementById('cfg-openwrt-user')?.value?.trim();
+        const pass = document.getElementById('cfg-openwrt-password')?.value;
+
+        if (!host || !user) {
+            showToast('Укажите IP-адрес OpenWrt и имя пользователя (root)', true);
+            return;
+        }
+
+        payload.openwrt_host = host;
+        payload.openwrt_port = port;
+        payload.openwrt_use_https = https;
+        payload.openwrt_username = user;
+        if (pass && pass.trim()) {
+            payload.openwrt_password = pass.trim();
+        }
+    } else {
+        const host = document.getElementById('cfg-host')?.value?.trim();
+        const user = document.getElementById('cfg-user')?.value?.trim();
+        const pass = document.getElementById('cfg-password')?.value;
+
+        if (!host || !user) {
+            showToast('Укажите IP-адрес роутера и имя пользователя', true);
+            return;
+        }
+
+        payload.router_host = host;
+        payload.router_user = user;
+        if (pass && pass.trim()) {
+            payload.router_password = pass.trim();
+        }
     }
 
     try {
@@ -3538,9 +3624,12 @@ async function saveRouterSettings() {
             body: JSON.stringify(payload)
         });
         if (res.ok) {
-            showToast('Настройки подключения к Keenetic сохранены');
+            const platTitle = currentRouterPlatform === 'openwrt' ? 'OpenWrt' : 'Keenetic';
+            showToast(`Настройки подключения к ${platTitle} сохранены`);
             const passEl = document.getElementById('cfg-password');
             if (passEl) passEl.value = '';
+            const owPassEl = document.getElementById('cfg-openwrt-password');
+            if (owPassEl) owPassEl.value = '';
             await loadSettings();
             await refreshAllData();
         } else {
@@ -3706,30 +3795,58 @@ async function testTelegram() {
     }
 }
 
-async function testKeeneticConnection() {
-    const host = document.getElementById('cfg-host').value.trim();
-    const user = document.getElementById('cfg-user').value.trim();
-    const password = document.getElementById('cfg-password').value.trim();
+async function testRouterConnection() {
+    const payload = {
+        router_type: currentRouterPlatform
+    };
+
+    if (currentRouterPlatform === 'openwrt') {
+        const host = document.getElementById('cfg-openwrt-host')?.value?.trim();
+        const port = parseInt(document.getElementById('cfg-openwrt-port')?.value || '80', 10);
+        const https = Boolean(document.getElementById('cfg-openwrt-https')?.checked);
+        const user = document.getElementById('cfg-openwrt-user')?.value?.trim();
+        const password = document.getElementById('cfg-openwrt-password')?.value?.trim();
+
+        payload.openwrt_host = host;
+        payload.openwrt_port = port;
+        payload.openwrt_use_https = https;
+        payload.openwrt_username = user;
+        payload.openwrt_password = password || null;
+    } else {
+        const host = document.getElementById('cfg-host')?.value?.trim();
+        const user = document.getElementById('cfg-user')?.value?.trim();
+        const password = document.getElementById('cfg-password')?.value?.trim();
+
+        payload.router_host = host;
+        payload.router_user = user;
+        payload.router_password = password || null;
+    }
 
     try {
         const res = await fetch('/api/test_connection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ router_host: host, router_user: user, router_password: password || null })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.status === 'ok') {
-            alert(`Связь с Keenetic успешна!\nМодель: ${data.model}\nВерсия: ${data.version}\n\nПароль сохранен в системе и роутер подключен.`);
-            document.getElementById('cfg-password').value = '';
+            const platTitle = currentRouterPlatform === 'openwrt' ? 'OpenWrt' : 'Keenetic';
+            alert(`Связь с ${platTitle} успешна!\nМодель: ${data.model}\nВерсия: ${data.version}\n\nПароль сохранен в системе и роутер подключен.`);
+            const passEl = document.getElementById('cfg-password');
+            if (passEl) passEl.value = '';
+            const owPassEl = document.getElementById('cfg-openwrt-password');
+            if (owPassEl) owPassEl.value = '';
             await loadSettings();
             await refreshAllData();
         } else {
-            alert(`Ошибка связи с роутером:\n${data.message || 'Проверьте логин, пароль или IP'}`);
+            alert(`Ошибка связи с роутером:\n${data.message || 'Проверьте логин, пароль, IP или доступ к ubus/RCI'}`);
         }
     } catch (e) {
         alert(`Ошибка связи с сервером: ${e}`);
     }
 }
+window.testRouterConnection = testRouterConnection;
+window.testKeeneticConnection = testRouterConnection;
 
 // ==========================================
 // DNS Security Provider Management

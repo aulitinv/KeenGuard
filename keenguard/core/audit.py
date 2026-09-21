@@ -10,7 +10,7 @@ from scapy.all import Packet, IP, IPv6, TCP, UDP, ARP, Ether, Raw, wrpcap, rdpca
 from keenguard.config import settings
 from keenguard.db.database import db
 from keenguard.db.models import SecurityEvent, AuditReportRecord, DeviceRecord
-from keenguard.core.keenetic import keenetic_client
+from keenguard.core.routers import router_manager
 
 logger = logging.getLogger("keenguard.audit")
 
@@ -962,7 +962,7 @@ class TrafficAuditManager:
                     devices_by_ip = {d.ip: d for d in devices if d.ip}
                     presets_list = await db.get_presets()
                     presets_dict = {p.id: p for p in presets_list}
-                    nat_entries = await keenetic_client.get_nat_table()
+                    nat_entries = await router_manager.get_nat_table()
                     session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
                 except Exception as e:
                     logger.error("Error updating network audit NAT table: %s", e)
@@ -994,7 +994,7 @@ class TrafficAuditManager:
                 devices_by_ip = {d.ip: d for d in devices if d.ip}
                 presets_list = await db.get_presets()
                 presets_dict = {p.id: p for p in presets_list}
-                nat_entries = await keenetic_client.get_nat_table()
+                nat_entries = await router_manager.get_nat_table()
                 session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
             except Exception as e:
                 logger.warning("Failed to update final NAT table for network audit: %s", e)
@@ -1080,11 +1080,12 @@ class TrafficAuditManager:
                 preset=dev_preset
             )
 
-            # Start Keenetic hardware packet capture if IP is known and capture is supported
+            # Start hardware packet capture if IP is known and capture is supported
+            backend = router_manager.get_backend()
             if session.ip and session.ip != "0.0.0.0":
                 try:
-                    if await keenetic_client.is_packet_capture_supported():
-                        start_res = await keenetic_client.start_packet_capture(
+                    if await backend.is_packet_capture_supported():
+                        start_res = await backend.start_packet_capture(
                             interface="Bridge0",
                             target_ip=session.ip,
                             duration_seconds=session.duration_seconds
@@ -1092,7 +1093,7 @@ class TrafficAuditManager:
                         if start_res and start_res.get("status") == "ok":
                             session.capture_source = "router_hardware"
                             session._hw_capture_active = True
-                            logger.info("Keenetic hardware capture started for audit %s (%s, IP: %s)", session.session_id, mac, session.ip)
+                            logger.info("%s hardware capture started for audit %s (%s, IP: %s)", backend.platform_name, session.session_id, mac, session.ip)
                 except Exception as e:
                     logger.debug("Failed to start router hardware capture for audit %s: %s", session.session_id, e)
 
@@ -1115,7 +1116,7 @@ class TrafficAuditManager:
         try:
             while session.is_active:
                 if session.ip:
-                    entries = await keenetic_client.get_device_nat_connections(session.ip)
+                    entries = await router_manager.get_device_nat_connections(session.ip)
                     session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
 
                 await asyncio.sleep(2.0)
@@ -1143,28 +1144,29 @@ class TrafficAuditManager:
 
             if session.ip:
                 try:
-                    entries = await keenetic_client.get_device_nat_connections(session.ip)
+                    entries = await router_manager.get_device_nat_connections(session.ip)
                     session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
                 except Exception as e:
                     logger.warning("Failed updating NAT entries for %s on audit stop: %s", session.ip, e)
 
             # If hardware capture was active on router, finalize it, download pcap and parse packets
+            backend = router_manager.get_backend()
             if session._hw_capture_active:
                 try:
-                    cap_file = await keenetic_client.stop_packet_capture(interface="Bridge0")
+                    cap_file = await backend.stop_packet_capture(interface="Bridge0")
                     if cap_file:
                         pcap_dest = settings.pcap_dir / session.pcap_filename
-                        downloaded = await keenetic_client.download_capture_file(cap_file, pcap_dest)
+                        downloaded = await backend.download_capture_file(cap_file, pcap_dest)
                         if downloaded and pcap_dest.exists():
                             try:
                                 rci_pkts = list(rdpcap(str(pcap_dest)))
                                 if rci_pkts:
                                     for p in rci_pkts:
                                         session.add_packet(p)
-                                    logger.info("Loaded %d hardware packets from Keenetic for audit %s", len(rci_pkts), session.session_id)
+                                    logger.info("Loaded %d hardware packets from %s for audit %s", len(rci_pkts), backend.platform_name, session.session_id)
                             except Exception as pe:
                                 logger.debug("Error parsing downloaded audit PCAP: %s", pe)
-                    await keenetic_client.reset_packet_capture(interface="Bridge0")
+                    await backend.reset_packet_capture(interface="Bridge0")
                 except Exception as e:
                     logger.error("Error finalizing router capture for audit session %s: %s", session.session_id, e)
 

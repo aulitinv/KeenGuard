@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from keenguard.config import (
     settings,
     save_env_router_credentials,
+    save_env_openwrt_credentials,
     save_env_telegram_settings,
 )
 from keenguard.core.forensics import forensics
@@ -29,9 +30,15 @@ router = APIRouter(tags=["settings"])
 
 
 class SettingsUpdate(BaseModel):
+    router_type: Optional[str] = None
     router_host: Optional[str] = None
     router_user: Optional[str] = None
     router_password: Optional[str] = None
+    openwrt_host: Optional[str] = None
+    openwrt_port: Optional[int] = None
+    openwrt_use_https: Optional[bool] = None
+    openwrt_username: Optional[str] = None
+    openwrt_password: Optional[str] = None
     night_mode_start_hour: Optional[int] = None
     night_mode_end_hour: Optional[int] = None
     night_mode_auto_block_wan: Optional[bool] = None
@@ -74,9 +81,15 @@ class SettingsUpdate(BaseModel):
 
 
 class TestConnRequest(BaseModel):
-    router_host: str
-    router_user: str
+    router_type: Optional[str] = "keenetic"
+    router_host: Optional[str] = None
+    router_user: Optional[str] = None
     router_password: Optional[str] = None
+    openwrt_host: Optional[str] = None
+    openwrt_port: Optional[int] = 80
+    openwrt_username: Optional[str] = "root"
+    openwrt_password: Optional[str] = None
+    openwrt_use_https: Optional[bool] = False
 
 
 class NewDevicePolicyUpdateRequest(BaseModel):
@@ -105,21 +118,36 @@ async def get_system_status():
     sniffer = get_sniffer()
     router_health = get_router_health()
 
+    from keenguard.core.routers import router_manager
+    backend = router_manager.get_backend()
+
     devices = await db.get_all_devices()
     recent_events = await db.get_recent_events(limit=5)
     online_count = sum(1 for d in devices if d.is_online)
     critical_events_count = sum(1 for e in recent_events if e.severity == "critical")
 
+    router_host = getattr(backend, "host", settings.router_host)
+    if backend.platform_id == "openwrt":
+        router_ips = [router_host]
+        router_macs = []
+        has_pwd = bool(settings.openwrt_password)
+    else:
+        router_ips = list(keenetic_client.router_ips) if keenetic_client.router_ips else [keenetic_client.host, "192.168.1.1", "192.168.2.1"]
+        router_macs = list(keenetic_client.router_macs) if keenetic_client.router_macs else []
+        has_pwd = bool(keenetic_client.password or settings.router_password)
+
     return {
         "router": {
+            "platform": backend.platform_id,
+            "platform_name": backend.platform_name,
             "status": "ok" if router_health.is_connected else "error",
             "connected": bool(router_health.is_connected),
-            "model": router_health.model,
+            "model": router_health.model or backend.platform_name,
             "version": router_health.version,
-            "host": keenetic_client.host,
-            "router_ips": list(keenetic_client.router_ips) if keenetic_client.router_ips else [keenetic_client.host, "192.168.1.1", "192.168.2.1"],
-            "router_macs": list(keenetic_client.router_macs) if keenetic_client.router_macs else [],
-            "has_password": bool(keenetic_client.password or settings.router_password),
+            "host": router_host,
+            "router_ips": router_ips,
+            "router_macs": router_macs,
+            "has_password": has_pwd,
             "last_heartbeat": router_health.last_heartbeat.isoformat() if router_health.last_heartbeat else None,
             "error": router_health.last_error
         },
@@ -145,10 +173,16 @@ async def get_sniffer_status():
 async def get_app_settings():
     keenetic_client = get_keenetic_client()
     return {
+        "router_type": getattr(settings, "router_type", "keenetic"),
         "router_host": settings.router_host,
         "router_port": settings.router_port,
         "router_user": settings.router_user,
         "has_password": bool(settings.router_password or keenetic_client.password),
+        "openwrt_host": getattr(settings, "openwrt_host", "192.168.1.1"),
+        "openwrt_port": getattr(settings, "openwrt_port", 80),
+        "openwrt_username": getattr(settings, "openwrt_username", "root"),
+        "openwrt_use_https": getattr(settings, "openwrt_use_https", False),
+        "has_openwrt_password": bool(settings.openwrt_password),
         "night_mode_start_hour": settings.night_mode_start_hour,
         "night_mode_end_hour": settings.night_mode_end_hour,
         "night_mode_auto_block_wan": getattr(settings, "night_mode_auto_block_wan", False),
@@ -199,27 +233,67 @@ async def test_keenetic_auth(req: TestConnRequest):
     keenetic_client = get_keenetic_client()
     router_health = get_router_health()
 
-    pwd = req.router_password if (req.router_password and req.router_password.strip()) else (keenetic_client.password or settings.router_password)
-    res = await keenetic_client.authenticate(
-        host=req.router_host,
-        user=req.router_user,
-        password=pwd
-    )
-    if res.get("status") == "ok":
-        settings.router_host = req.router_host
-        settings.router_user = req.router_user
-        await db.save_setting("router_host", req.router_host)
-        await db.save_setting("router_user", req.router_user)
-        if pwd:
-            settings.router_password = pwd
-            keenetic_client.password = pwd
-            await db.save_setting("router_password", pwd)
-            save_env_router_credentials(req.router_host, req.router_user, pwd, settings.router_port)
-        await router_health.update_status(connected=True, model=res.get("model"), version=res.get("version"))
-        create_tracked_task(do_keenetic_poll())
+    r_type = (req.router_type or settings.router_type or "keenetic").lower()
+    if r_type == "openwrt":
+        from keenguard.core.routers.openwrt import OpenWrtBackend
+        ow_host = req.openwrt_host or req.router_host or settings.openwrt_host
+        ow_port = req.openwrt_port or 80
+        ow_user = req.openwrt_username or req.router_user or settings.openwrt_username or "root"
+        ow_pwd = req.openwrt_password if (req.openwrt_password and req.openwrt_password.strip()) else settings.openwrt_password
+        ow_https = bool(req.openwrt_use_https)
+        test_backend = OpenWrtBackend(host=ow_host, port=ow_port, username=ow_user, password=ow_pwd, use_https=ow_https)
+        try:
+            conn_ok = await test_backend.connect()
+            if conn_ok:
+                sys_info = await test_backend.get_system_info()
+                settings.router_type = "openwrt"
+                settings.openwrt_host = ow_host
+                settings.openwrt_port = ow_port
+                settings.openwrt_username = ow_user
+                settings.openwrt_password = ow_pwd
+                settings.openwrt_use_https = ow_https
+                await db.save_setting("router_type", "openwrt")
+                await db.save_setting("openwrt_host", ow_host)
+                await db.save_setting("openwrt_port", str(ow_port))
+                await db.save_setting("openwrt_username", ow_user)
+                if ow_pwd:
+                    await db.save_setting("openwrt_password", ow_pwd)
+                save_env_openwrt_credentials(ow_host, ow_user, ow_pwd, ow_port, ow_https)
+                await router_health.update_status(connected=True, model=sys_info.model, version=sys_info.firmware_version)
+                create_tracked_task(do_keenetic_poll())
+                return {"status": "ok", "message": "Подключение к OpenWrt успешно", "model": sys_info.model, "version": sys_info.firmware_version}
+            else:
+                await router_health.update_status(connected=False, error="Неверный логин/пароль или OpenWrt ubus недоступен")
+                return {"status": "error", "message": "Ошибка авторизации в OpenWrt /ubus"}
+        except Exception as e:
+            await router_health.update_status(connected=False, error=str(e))
+            return {"status": "error", "message": f"Сетевая ошибка OpenWrt: {e}"}
     else:
-        await router_health.update_status(connected=False, error=res.get("message"))
-    return res
+        r_host = req.router_host or settings.router_host
+        r_user = req.router_user or settings.router_user
+        pwd = req.router_password if (req.router_password and req.router_password.strip()) else (keenetic_client.password or settings.router_password)
+        res = await keenetic_client.authenticate(
+            host=r_host,
+            user=r_user,
+            password=pwd
+        )
+        if res.get("status") == "ok":
+            settings.router_type = "keenetic"
+            settings.router_host = r_host
+            settings.router_user = r_user
+            await db.save_setting("router_type", "keenetic")
+            await db.save_setting("router_host", r_host)
+            await db.save_setting("router_user", r_user)
+            if pwd:
+                settings.router_password = pwd
+                keenetic_client.password = pwd
+                await db.save_setting("router_password", pwd)
+                save_env_router_credentials(r_host, r_user, pwd, settings.router_port)
+            await router_health.update_status(connected=True, model=res.get("model"), version=res.get("version"))
+            create_tracked_task(do_keenetic_poll())
+        else:
+            await router_health.update_status(connected=False, error=res.get("message"))
+        return res
 
 
 @router.post("/api/settings")
@@ -256,6 +330,47 @@ async def save_app_settings(s: SettingsUpdate):
 
     if router_creds_changed:
         save_env_router_credentials(settings.router_host, settings.router_user, keenetic_client.password or "", settings.router_port)
+
+    if s.router_type is not None and s.router_type.strip():
+        new_rt = s.router_type.strip().lower()
+        if new_rt in ("keenetic", "openwrt") and new_rt != settings.router_type:
+            settings.router_type = new_rt
+            await db.save_setting("router_type", new_rt)
+
+    openwrt_creds_changed = False
+    if s.openwrt_host is not None and s.openwrt_host.strip():
+        new_oh = s.openwrt_host.strip()
+        if new_oh != settings.openwrt_host:
+            settings.openwrt_host = new_oh
+            await db.save_setting("openwrt_host", new_oh)
+            openwrt_creds_changed = True
+
+    if s.openwrt_port is not None and s.openwrt_port != settings.openwrt_port:
+        settings.openwrt_port = s.openwrt_port
+        await db.save_setting("openwrt_port", str(s.openwrt_port))
+        openwrt_creds_changed = True
+
+    if s.openwrt_username is not None and s.openwrt_username.strip():
+        new_ou = s.openwrt_username.strip()
+        if new_ou != settings.openwrt_username:
+            settings.openwrt_username = new_ou
+            await db.save_setting("openwrt_username", new_ou)
+            openwrt_creds_changed = True
+
+    if s.openwrt_password is not None and s.openwrt_password.strip():
+        new_op = s.openwrt_password.strip()
+        if new_op != settings.openwrt_password:
+            settings.openwrt_password = new_op
+            await db.save_setting("openwrt_password", new_op)
+            openwrt_creds_changed = True
+
+    if s.openwrt_use_https is not None and s.openwrt_use_https != settings.openwrt_use_https:
+        settings.openwrt_use_https = s.openwrt_use_https
+        await db.save_setting("openwrt_use_https", "true" if s.openwrt_use_https else "false")
+        openwrt_creds_changed = True
+
+    if openwrt_creds_changed:
+        save_env_openwrt_credentials(settings.openwrt_host, settings.openwrt_username, settings.openwrt_password, settings.openwrt_port, settings.openwrt_use_https)
 
     if s.night_mode_start_hour is not None:
         settings.night_mode_start_hour = max(0, min(23, s.night_mode_start_hour))

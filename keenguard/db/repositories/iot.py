@@ -88,7 +88,7 @@ class IotRepository(BaseRepository):
         query += " ORDER BY l.id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        from keenguard.core.keenetic import keenetic_client
+        from keenguard.core.routers import router_manager
 
         async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
@@ -100,8 +100,11 @@ class IotRepository(BaseRepository):
                 resolved = item.get("resolved_name")
                 if not resolved:
                     resolved = item.get("device_name") or item.get("device_hostname")
-                if not resolved and item.get("mac") and keenetic_client.is_router_entity(mac=item.get("mac")):
-                    resolved = "Роутер Keenetic"
+                if not resolved and item.get("mac") and router_manager.is_router_entity(mac=item.get("mac")):
+                    if router_manager.platform_id == "keenetic":
+                        resolved = "Роутер Keenetic"
+                    else:
+                        resolved = f"Роутер {router_manager.platform_name}"
 
                 if resolved:
                     item["device_name"] = resolved

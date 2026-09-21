@@ -8,7 +8,8 @@ from typing import Dict, List, Set, Optional, Any
 from keenguard.config import settings
 from keenguard.db.models import SecurityEvent, DeviceRecord
 from keenguard.db.database import db as global_db, Database
-from keenguard.core.keenetic import keenetic_client, UPnPMapping
+from keenguard.core.keenetic import UPnPMapping
+from keenguard.core.routers import router_manager
 
 from keenguard.core.audit import is_lan_ip
 
@@ -60,7 +61,7 @@ class AnomalyDetector:
             return
 
         clean_mac = mac.upper()
-        if keenetic_client.is_router_entity(ip=ip, mac=clean_mac):
+        if router_manager.is_router_entity(ip=ip, mac=clean_mac):
             return
 
         now = time.time()
@@ -148,8 +149,8 @@ class AnomalyDetector:
                 )
                 await self.db.record_event(event)
 
-                # Auto-delete dangerous UPnP rule on Keenetic (REQ-3: UPnP auto-audit and ban)
-                await keenetic_client.delete_upnp_mapping(rule.protocol, rule.ext_port)
+                # Auto-delete dangerous UPnP rule on router (REQ-3: UPnP auto-audit and ban)
+                await router_manager.delete_upnp_mapping(rule.protocol, rule.ext_port)
 
     async def check_camera_upload_leak(
         self,
@@ -254,9 +255,9 @@ class AnomalyDetector:
         if not src_ip or not dst_ip or src_ip == dst_ip or src_ip == "0.0.0.0":
             return
 
-        # Ignore ARP requests originated by the Keenetic router or network gateways (RFC 5227 / neighbor discovery)
+        # Ignore ARP requests originated by the router or network gateways (RFC 5227 / neighbor discovery)
         clean_mac = src_mac.upper() if src_mac else None
-        if keenetic_client.is_router_entity(ip=src_ip, mac=clean_mac):
+        if router_manager.is_router_entity(ip=src_ip, mac=clean_mac):
             return
 
         now = time.time()

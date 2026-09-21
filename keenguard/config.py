@@ -17,17 +17,39 @@ PCAP_DIR = DATA_DIR / "pcaps"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PCAP_DIR.mkdir(parents=True, exist_ok=True)
 
-def save_env_router_credentials(host: str, user: str, password: str, port: int = 80):
+def save_env_router_credentials(host: str, user: str, password: str, port: int = 80, router_type: str = "keenetic"):
     """Persists router credentials to .env so user never has to re-type them."""
     try:
         ENV_FILE.touch(exist_ok=True)
-        set_key(str(ENV_FILE), "KEENETIC_HOST", host)
-        set_key(str(ENV_FILE), "KEENETIC_USER", user)
-        if password:
-            set_key(str(ENV_FILE), "KEENETIC_PASSWORD", password)
-        set_key(str(ENV_FILE), "KEENETIC_PORT", str(port))
+        set_key(str(ENV_FILE), "ROUTER_TYPE", router_type)
+        if router_type == "openwrt":
+            set_key(str(ENV_FILE), "OPENWRT_HOST", host)
+            set_key(str(ENV_FILE), "OPENWRT_USER", user)
+            if password:
+                set_key(str(ENV_FILE), "OPENWRT_PASSWORD", password)
+            set_key(str(ENV_FILE), "OPENWRT_PORT", str(port))
+        else:
+            set_key(str(ENV_FILE), "KEENETIC_HOST", host)
+            set_key(str(ENV_FILE), "KEENETIC_USER", user)
+            if password:
+                set_key(str(ENV_FILE), "KEENETIC_PASSWORD", password)
+            set_key(str(ENV_FILE), "KEENETIC_PORT", str(port))
     except Exception as e:
         logger.warning("Failed to persist router credentials to .env: %s", e)
+
+def save_env_openwrt_credentials(host: str, user: str, password: str, port: int = 80, use_https: bool = False):
+    """Persists OpenWrt router credentials to .env."""
+    try:
+        ENV_FILE.touch(exist_ok=True)
+        set_key(str(ENV_FILE), "ROUTER_TYPE", "openwrt")
+        set_key(str(ENV_FILE), "OPENWRT_HOST", host)
+        set_key(str(ENV_FILE), "OPENWRT_USER", user)
+        if password:
+            set_key(str(ENV_FILE), "OPENWRT_PASSWORD", password)
+        set_key(str(ENV_FILE), "OPENWRT_PORT", str(port))
+        set_key(str(ENV_FILE), "OPENWRT_USE_HTTPS", "true" if use_https else "false")
+    except Exception as e:
+        logger.warning("Failed to persist OpenWrt credentials to .env: %s", e)
 
 def save_env_telegram_settings(token: str, chat_id: str, enabled: bool, api_url: str = "https://api.telegram.org", proxy: Optional[str] = None):
     """Persists Telegram notification settings to .env."""
@@ -93,13 +115,24 @@ class Settings(BaseModel):
     web_host: str = Field(default="0.0.0.0", description="Web interface bind host")
     web_port: int = Field(default=9989, description="Web interface bind port")
 
+    # Router Platform Configuration ("keenetic" | "openwrt")
+    router_type: str = Field(default=os.getenv("ROUTER_TYPE", "keenetic").lower(), description="Router backend: 'keenetic' or 'openwrt'")
+
     # Keenetic Router configuration
     router_host: str = Field(default=os.getenv("KEENETIC_HOST", "192.168.1.1"))
     router_port: int = Field(default=int(os.getenv("KEENETIC_PORT", "80")))
     router_user: str = Field(default=os.getenv("KEENETIC_USER", "admin"))
     router_password: str = Field(default=os.getenv("KEENETIC_PASSWORD", ""))
     router_use_https: bool = Field(default=False)
-    router_poll_interval: int = Field(default=5, description="Seconds between RCI polling")
+    router_poll_interval: int = Field(default=5, description="Seconds between router polling")
+
+    # OpenWrt Router configuration
+    openwrt_host: str = Field(default=os.getenv("OPENWRT_HOST", "192.168.1.1"), description="OpenWrt router IP / host")
+    openwrt_port: int = Field(default=int(os.getenv("OPENWRT_PORT", "80")), description="OpenWrt uhttpd/rpcd HTTP port")
+    openwrt_use_https: bool = Field(default=os.getenv("OPENWRT_USE_HTTPS", "false").lower() in ("true", "1", "yes"), description="Use HTTPS for OpenWrt ubus")
+    openwrt_username: str = Field(default=os.getenv("OPENWRT_USER", "root"), description="OpenWrt admin username")
+    openwrt_password: str = Field(default=os.getenv("OPENWRT_PASSWORD", ""), description="OpenWrt admin password")
+    openwrt_ubus_path: str = Field(default=os.getenv("OPENWRT_UBUS_PATH", "/ubus"), description="Path to OpenWrt ubus endpoint")
 
     # Database & PCAP storage
     db_path: Path = Field(default=DATA_DIR / "keenguard.db")
@@ -140,6 +173,10 @@ class Settings(BaseModel):
     telegram_enabled: bool = Field(default=os.getenv("TELEGRAM_ENABLED", "false").lower() in ("true", "1", "yes"))
     telegram_api_url: str = Field(default=os.getenv("TELEGRAM_API_URL", "https://api.telegram.org"))
     telegram_proxy: Optional[str] = Field(default=os.getenv("TELEGRAM_PROXY", None))
+    telegram_quiet_hours_enabled: bool = Field(default=os.getenv("TELEGRAM_QUIET_HOURS_ENABLED", "false").lower() in ("true", "1", "yes"))
+    telegram_quiet_hours_start: int = Field(default=int(os.getenv("TELEGRAM_QUIET_HOURS_START", "23")))
+    telegram_quiet_hours_end: int = Field(default=int(os.getenv("TELEGRAM_QUIET_HOURS_END", "8")))
+    telegram_min_severity: str = Field(default=os.getenv("TELEGRAM_MIN_SEVERITY", "info"))
 
     # New device policy & reactions (independent modular toggles & category-based matrix)
     new_device_policy_mode: str = Field(default="category", description="'global' or 'category'")

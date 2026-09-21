@@ -337,3 +337,56 @@ class KeeneticFilteringMixin:
         except Exception as e:
             logger.debug("Error fetching active IP blackholes from Keenetic: %s", e)
         return sorted(list(blackholes))
+
+    async def reboot_router(self) -> bool:
+        """Sends reboot command to Keenetic router via RCI."""
+        logger.warning("Initiating router reboot via Keenetic RCI!")
+        if getattr(self, "mock_mode", False):
+            self._mock_rebooted = True
+            return True
+
+        resp = await self._send_request("POST", "/rci/", json_data=[{"system": {"reboot": {}}}])
+        return resp is not None and resp.status_code in (200, 204)
+
+    async def toggle_guest_wifi(self, enable: bool) -> bool:
+        """Enables or disables the Guest Wi-Fi / Bridge1 interface on Keenetic."""
+        logger.info("Setting Guest Wi-Fi state on Keenetic: %s", "ENABLE" if enable else "DISABLE")
+        if getattr(self, "mock_mode", False):
+            self._mock_guest_wifi = enable
+            return True
+
+        # Try GuestWiFi interface identifier
+        payload = [
+            {"interface": {"name": "GuestWiFi", "up": enable}},
+            {"system": {"configuration": {"save": {}}}}
+        ]
+        resp = await self._send_request("POST", "/rci/", json_data=payload)
+        if resp and resp.status_code == 200:
+            return True
+        # Fallback to Bridge1
+        payload_fallback = [
+            {"interface": {"name": "Bridge1", "up": enable}},
+            {"system": {"configuration": {"save": {}}}}
+        ]
+        resp_fb = await self._send_request("POST", "/rci/", json_data=payload_fallback)
+        return resp_fb is not None and resp_fb.status_code == 200
+
+    async def get_guest_wifi_status(self) -> Dict[str, Any]:
+        """Checks whether Guest Wi-Fi (GuestWiFi / Bridge1) is enabled on Keenetic."""
+        if getattr(self, "mock_mode", False):
+            return {"enabled": getattr(self, "_mock_guest_wifi", True), "interface": "GuestWiFi"}
+
+        try:
+            resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"interface": {}}}])
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    ifaces = data[0].get("show", {}).get("interface", {})
+                    for if_name in ("GuestWiFi", "Bridge1", "WifiMaster0/AccessPoint1"):
+                        if if_name in ifaces:
+                            info = ifaces[if_name]
+                            is_up = bool(info.get("up", False) or info.get("state") == "up")
+                            return {"enabled": is_up, "interface": if_name}
+        except Exception as e:
+            logger.debug("Failed getting guest wifi status: %s", e)
+        return {"enabled": False, "interface": "GuestWiFi"}
