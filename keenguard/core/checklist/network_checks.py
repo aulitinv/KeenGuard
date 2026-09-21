@@ -1,4 +1,4 @@
-﻿"""Network and perimeter security checks (Wi-Fi, Firmware, DNS, Quarantine, ARP, L2 Segmentation)."""
+"""Network and perimeter security checks (Wi-Fi, Firmware, DNS, Quarantine, ARP, L2 Segmentation)."""
 from typing import Dict, Any, List
 from keenguard.config import settings
 from keenguard.core.checklist.context import ChecklistContext
@@ -9,19 +9,36 @@ def evaluate_wifi_security(ctx: ChecklistContext) -> Dict[str, Any]:
     wifi_networks = ctx.wifi_security.get("access_points") or ctx.wifi_security.get("networks", [])
     all_pmf_required = bool(wifi_networks)
     has_wpa3 = False
+    has_open_net = False
+    open_ssids = []
 
     for net in wifi_networks:
-        sec_text = (str(net.get("security", "")) + " " + str(net.get("security_type", "")) + " " + str(net.get("auth", ""))).lower()
+        sec_text = (
+            str(net.get("security", "")) + " " +
+            str(net.get("encryption", "")) + " " +
+            str(net.get("security_type", "")) + " " +
+            str(net.get("auth", ""))
+        ).lower()
         pmf = str(net.get("pmf", "")).lower()
+
         if "wpa3" in sec_text:
             has_wpa3 = True
+        if "открытая" in sec_text or "open" in sec_text or net.get("security_type") == "open":
+            has_open_net = True
+            if net.get("ssid"):
+                open_ssids.append(net.get("ssid"))
+
         if pmf not in ("required", "mandatory", "true", "1"):
             all_pmf_required = False
 
     ssids = [n.get("ssid") for n in wifi_networks if n.get("ssid")]
     ssid_summary = f" ({', '.join(ssids)})" if ssids else ""
 
-    if all_pmf_required and has_wpa3:
+    if has_open_net:
+        wifi_status = "critical"
+        wifi_status_label = "Открытая сеть"
+        wifi_live = f"КРИТИЧЕСКАЯ УЯЗВИМОСТЬ: Сеть {', '.join(open_ssids)} не защищена паролем! Любой злоумышленник в радиусе действия Wi-Fi может перехватывать ваш трафик."
+    elif all_pmf_required and has_wpa3:
         wifi_status = "ok"
         wifi_status_label = "Защищено"
         wifi_live = f"Беспроводные сети{ssid_summary} защищены WPA3 с обязательной защитой кадров управления (PMF Mandatory)."

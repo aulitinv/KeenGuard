@@ -382,7 +382,14 @@ class NetworkSniffer:
             # Ignore generic non-IoT bulk traffic (e.g. PC HTTPS/ephemeral port streams)
             if proto in ("TCP", "UDP", "RAW"):
                 sport = getattr(pkt[TCP], "sport", None) if TCP in pkt else (getattr(pkt[UDP], "sport", None) if UDP in pkt else None)
-                known_iot_ports = {80, 8080, 8000, 8200, 554, 1883, 8883, 5683, 1900, 5353, 123}
+                known_iot_ports = {
+                    80, 8080, 8000, 8200, 554, 1883, 8883, 5683, 1900, 5353, 123,
+                    6667, 6668,  # Tuya Smart Home IoT protocol
+                    8443,        # IoT Cloud HTTPS-Alt
+                    9999,        # TP-Link Kasa/Tapo smart plugs
+                    54321,       # Xiaomi Miio protocol
+                    1982,        # Yeelight discovery
+                }
                 if dst_port not in known_iot_ports and sport not in known_iot_ports:
                     return
 
@@ -453,13 +460,19 @@ class NetworkSniffer:
     def _db_worker(self):
         """Worker thread that persists queued IoT payloads to SQLite asynchronously."""
         from keenguard.db.database import db
+        import keenguard.web.ws as ws_module
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         while self.running:
             try:
                 rec = self._db_queue.get(timeout=1.0)
                 try:
-                    loop.run_until_complete(db.add_iot_payload(rec))
+                    main_loop = getattr(ws_module, "_main_loop", None)
+                    if main_loop and main_loop.is_running():
+                        fut = asyncio.run_coroutine_threadsafe(db.add_iot_payload(rec), main_loop)
+                        fut.result(timeout=5.0)
+                    else:
+                        loop.run_until_complete(db.add_iot_payload(rec))
                 except Exception as ex:
                     logger.debug("Error saving IoT payload to DB: %s", ex)
                 finally:
@@ -468,7 +481,10 @@ class NetworkSniffer:
                 continue
             except Exception as e:
                 logger.debug("Error in db_worker: %s", e)
-        loop.close()
+        try:
+            loop.close()
+        except Exception:
+            pass
 
     def start(self, interface: Optional[str] = None):
         if self.running:
@@ -487,10 +503,12 @@ class NetworkSniffer:
                 # and TCP on web/IoT/camera/sensitive ports (HTTPS 443, HTTP 80/8080/8000, RTSP 554, MQTT 1883/8883, DLNA 8200, etc.)
                 bpf = (
                     "icmp or arp or "
-                    "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683)) or "
+                    "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683 or "
+                    "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
                     "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or "
                     "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
-                    "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200))"
+                    "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
+                    "port 6667 or port 6668 or port 8443 or port 9999))"
                 )
                 sniff_kwargs = {
                     "filter": bpf,

@@ -1,4 +1,4 @@
-﻿"""Audit report repository."""
+"""Audit report repository."""
 import logging
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -14,9 +14,12 @@ class AuditRepository(BaseRepository):
     """Audit report storage and lifecycle operations."""
 
     def _row_to_audit_report(self, r: aiosqlite.Row) -> AuditReportRecord:
+        mac = r["mac"]
+        if mac is None and (r["ip"] == "0.0.0.0" or "сети" in (r["hostname"] or "").lower()):
+            mac = "NETWORK"
         return AuditReportRecord(
             id=r["id"],
-            mac=r["mac"],
+            mac=mac,
             ip=r["ip"],
             hostname=r["hostname"],
             created_at=r["created_at"],
@@ -30,14 +33,28 @@ class AuditRepository(BaseRepository):
         )
 
     async def save_audit_report(self, report: AuditReportRecord) -> None:
-        async with aiosqlite.connect(self.db_path) as conn:
+        target_mac = report.mac.upper() if report.mac else None
+        async with self.get_connection() as conn:
+            valid_mac = None
+            if target_mac:
+                if target_mac != "NETWORK":
+                    cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (target_mac,))
+                    if not await cursor.fetchone():
+                        await conn.execute(
+                            "INSERT OR IGNORE INTO devices (mac, ip, hostname, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)",
+                            (target_mac, report.ip, report.hostname, report.created_at, report.created_at)
+                        )
+                    valid_mac = target_mac
+                else:
+                    valid_mac = None
+
             await conn.execute("""
                 INSERT OR REPLACE INTO audit_reports (
                     id, mac, ip, hostname, created_at, duration_seconds,
                     total_bytes, total_packets, risk_level, summary, report_json, pcap_file
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                report.id, report.mac.upper(), report.ip, report.hostname,
+                report.id, valid_mac, report.ip, report.hostname,
                 report.created_at, report.duration_seconds, report.total_bytes,
                 report.total_packets, report.risk_level, report.summary,
                 report.report_json, report.pcap_file
@@ -48,19 +65,22 @@ class AuditRepository(BaseRepository):
         query = "SELECT * FROM audit_reports"
         params = []
         if mac:
-            query += " WHERE mac = ?"
-            params.append(mac.upper())
+            if mac.upper() == "NETWORK":
+                query += " WHERE (mac = 'NETWORK' OR mac IS NULL)"
+            else:
+                query += " WHERE mac = ?"
+                params.append(mac.upper())
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute(query, params)
             rows = await cursor.fetchall()
             return [self._row_to_audit_report(r) for r in rows]
 
     async def get_audit_report_by_id(self, report_id: str) -> Optional[AuditReportRecord]:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("SELECT * FROM audit_reports WHERE id = ?", (report_id,))
             row = await cursor.fetchone()
@@ -70,7 +90,7 @@ class AuditRepository(BaseRepository):
 
     async def delete_audit_report(self, report_id: str) -> Optional[str]:
         """Deletes an audit report by ID, returning its pcap_file filename if it had one."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("SELECT pcap_file FROM audit_reports WHERE id = ?", (report_id,))
             row = await cursor.fetchone()
@@ -96,7 +116,7 @@ class AuditRepository(BaseRepository):
             query_select += " WHERE " + " AND ".join(clauses)
             query_delete += " WHERE " + " AND ".join(clauses)
 
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute(query_select, params)
             rows = await cursor.fetchall()

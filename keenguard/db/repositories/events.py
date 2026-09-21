@@ -1,4 +1,4 @@
-﻿"""Security event repository."""
+"""Security event repository."""
 import json
 import logging
 from typing import Optional, List
@@ -38,7 +38,23 @@ class EventRepository(BaseRepository):
 
     async def record_event(self, event: SecurityEvent) -> int:
         details_str = json.dumps(event.details or {})
-        async with aiosqlite.connect(self.db_path) as conn:
+        target_mac = event.target_mac.upper() if event.target_mac else None
+        source_mac = event.source_mac.upper() if event.source_mac else None
+
+        async with self.get_connection() as conn:
+            valid_target_mac = None
+            if target_mac:
+                if target_mac != "NETWORK":
+                    cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (target_mac,))
+                    if not await cursor.fetchone():
+                        await conn.execute(
+                            "INSERT OR IGNORE INTO devices (mac, ip, first_seen, last_seen) VALUES (?, ?, ?, ?)",
+                            (target_mac, event.target_ip, event.timestamp, event.timestamp)
+                        )
+                    valid_target_mac = target_mac
+                else:
+                    valid_target_mac = None
+
             cursor = await conn.execute("""
                 INSERT INTO events (
                     timestamp, event_type, severity, target_mac, target_ip,
@@ -46,9 +62,9 @@ class EventRepository(BaseRepository):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event.timestamp, event.event_type, event.severity,
-                event.target_mac.upper() if event.target_mac else None,
+                valid_target_mac,
                 event.target_ip,
-                event.source_mac.upper() if event.source_mac else None,
+                source_mac,
                 event.source_ip,
                 event.source_name, event.description, details_str, event.pcap_file
             ))
@@ -76,7 +92,7 @@ class EventRepository(BaseRepository):
         query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
 
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute(query, params)
             rows = await cursor.fetchall()
@@ -84,7 +100,7 @@ class EventRepository(BaseRepository):
 
     async def delete_event(self, event_id: int) -> bool:
         """Deletes a single security event by ID."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
             await conn.commit()
             return cursor.rowcount > 0
@@ -105,14 +121,14 @@ class EventRepository(BaseRepository):
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
 
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute(query, params)
             await conn.commit()
             return cursor.rowcount
 
     async def cleanup_router_false_events(self) -> int:
         """Cleans up false-positive lan_scan events generated for router interfaces/gateways."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute("""
                 DELETE FROM events
                 WHERE event_type = 'lan_scan'

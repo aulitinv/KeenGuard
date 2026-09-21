@@ -94,6 +94,7 @@ async def test_traffic_audit_manager_lifecycle():
         saved_reports = await test_db.get_audit_reports("11:22:33:44:55:66")
         assert len(saved_reports) == 1
         assert saved_reports[0].hostname == "test-vacuum"
+        await test_db.close()
 
 def test_hub_audit_nat_discovery_and_recommendation():
     # Smart Home Hub audit session

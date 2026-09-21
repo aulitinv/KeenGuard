@@ -18,16 +18,24 @@ class DnsRepository(BaseRepository):
             return
         mac_clean = mac.upper() if mac else None
         async with self.get_connection() as conn:
+            valid_fk_mac = None
+            if mac_clean and mac_clean != "NETWORK":
+                cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (mac_clean,))
+                if not await cursor.fetchone():
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO devices (mac, ip, first_seen, last_seen) VALUES (?, ?, ?, ?)",
+                        (mac_clean, ip, now_ts, now_ts)
+                    )
+                valid_fk_mac = mac_clean
+
             # 1. Update global domain query counter
             await conn.execute("""
                 INSERT INTO dns_queries (domain, mac, ip, count, first_seen, last_seen)
                 VALUES (?, ?, ?, 1, ?, ?)
                 ON CONFLICT(domain) DO UPDATE SET
                     count = count + 1,
-                    last_seen = excluded.last_seen,
-                    mac = COALESCE(excluded.mac, dns_queries.mac),
-                    ip = COALESCE(excluded.ip, dns_queries.ip)
-            """, (clean_domain, mac_clean, ip, now_ts, now_ts))
+                    last_seen = excluded.last_seen
+            """, (clean_domain, valid_fk_mac, ip, now_ts, now_ts))
 
             # 2. Update device-specific tracking if mac is present
             if mac_clean:
@@ -61,6 +69,16 @@ class DnsRepository(BaseRepository):
         mac_clean = mac.upper().strip() if mac else None
 
         async with self.get_connection() as conn:
+            valid_fk_mac = None
+            if mac_clean and mac_clean != "NETWORK":
+                cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (mac_clean,))
+                if not await cursor.fetchone():
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO devices (mac, ip, first_seen, last_seen) VALUES (?, ?, ?, ?)",
+                        (mac_clean, client_ip, now_ts, now_ts)
+                    )
+                valid_fk_mac = mac_clean
+
             # 1. Update or insert global domain entry
             await conn.execute("""
                 INSERT INTO dns_queries (
@@ -71,14 +89,12 @@ class DnsRepository(BaseRepository):
                 ON CONFLICT(domain) DO UPDATE SET
                     count = count + 1,
                     last_seen = excluded.last_seen,
-                    mac = COALESCE(excluded.mac, dns_queries.mac),
-                    ip = COALESCE(excluded.ip, dns_queries.ip),
                     is_blocked = 1,
                     blocked_by_provider = COALESCE(excluded.blocked_by_provider, dns_queries.blocked_by_provider),
                     blocked_reason = COALESCE(excluded.blocked_reason, dns_queries.blocked_reason),
                     filter_list = COALESCE(excluded.filter_list, dns_queries.filter_list),
                     tracker_category = COALESCE(excluded.tracker_category, dns_queries.tracker_category)
-            """, (clean_domain, mac_clean, client_ip, now_ts, now_ts, provider, block_reason, filter_list, tracker_category))
+            """, (clean_domain, valid_fk_mac, client_ip, now_ts, now_ts, provider, block_reason, filter_list, tracker_category))
 
             # 2. Update or insert device-specific tracking if mac is known
             if mac_clean:

@@ -48,8 +48,12 @@ class Database(
         """Creates tables and indexes if they do not exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         async with self.get_connection() as conn:
-            await conn.execute("PRAGMA journal_mode=WAL;")
-            await conn.execute("PRAGMA synchronous=NORMAL;")
+            try:
+                await conn.commit()
+                await conn.execute("PRAGMA journal_mode=WAL;")
+                await conn.execute("PRAGMA synchronous=NORMAL;")
+            except Exception:
+                pass
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS devices (
                     mac TEXT PRIMARY KEY,
@@ -129,7 +133,7 @@ class Database(
                     timestamp TEXT,
                     event_type TEXT,
                     severity TEXT,
-                    target_mac TEXT,
+                    target_mac TEXT REFERENCES devices(mac) ON DELETE SET NULL,
                     target_ip TEXT,
                     source_mac TEXT,
                     source_ip TEXT,
@@ -150,7 +154,7 @@ class Database(
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_reports (
                     id TEXT PRIMARY KEY,
-                    mac TEXT,
+                    mac TEXT REFERENCES devices(mac) ON DELETE SET NULL,
                     ip TEXT,
                     hostname TEXT,
                     created_at TEXT,
@@ -168,7 +172,7 @@ class Database(
                 CREATE TABLE IF NOT EXISTS traffic_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT,
-                    mac TEXT,
+                    mac TEXT REFERENCES devices(mac) ON DELETE CASCADE,
                     rx_bytes INTEGER,
                     tx_bytes INTEGER,
                     rx_rate_kbps REAL,
@@ -178,8 +182,9 @@ class Database(
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS dns_queries (
-                    domain TEXT PRIMARY KEY,
-                    mac TEXT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT NOT NULL UNIQUE,
+                    mac TEXT REFERENCES devices(mac) ON DELETE SET NULL,
                     ip TEXT,
                     count INTEGER DEFAULT 1,
                     first_seen TEXT,
@@ -208,6 +213,9 @@ class Database(
                     PRIMARY KEY (domain, mac)
                 )
             """)
+
+            # Migrations for legacy tables without FK / legacy PK
+            await self._migrate_fk_constraints(conn)
 
             # Migrations for DNS security columns
             for col_def in [
@@ -346,6 +354,158 @@ class Database(
 
             await conn.commit()
             logger.info("Database initialized at %s", self.db_path)
+
+    async def _migrate_fk_constraints(self, conn: aiosqlite.Connection) -> None:
+        """Migrates legacy tables without foreign key constraints or legacy primary keys."""
+        # 1. events
+        cursor = await conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='events'")
+        row = await cursor.fetchone()
+        if row and row[0] and "REFERENCES devices(mac)" not in row[0] and "REFERENCES devices (mac)" not in row[0]:
+            logger.info("Migrating table 'events' to add foreign key constraint...")
+            await conn.execute("""
+                UPDATE events SET target_mac = NULL
+                WHERE target_mac IS NOT NULL AND target_mac NOT IN (SELECT mac FROM devices)
+            """)
+            await conn.execute("""
+                CREATE TABLE events_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT,
+                    event_type TEXT,
+                    severity TEXT,
+                    target_mac TEXT REFERENCES devices(mac) ON DELETE SET NULL,
+                    target_ip TEXT,
+                    source_mac TEXT,
+                    source_ip TEXT,
+                    source_name TEXT,
+                    description TEXT,
+                    details_json TEXT,
+                    pcap_file TEXT
+                )
+            """)
+            await conn.execute("""
+                INSERT INTO events_new (id, timestamp, event_type, severity, target_mac, target_ip,
+                                        source_mac, source_ip, source_name, description, details_json, pcap_file)
+                SELECT id, timestamp, event_type, severity, target_mac, target_ip,
+                       source_mac, source_ip, source_name, description, details_json, pcap_file
+                FROM events
+            """)
+            await conn.execute("DROP TABLE events")
+            await conn.execute("ALTER TABLE events_new RENAME TO events")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_mac)")
+            logger.info("Table 'events' migration completed.")
+
+        # 2. traffic_history
+        cursor = await conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='traffic_history'")
+        row = await cursor.fetchone()
+        if row and row[0] and "REFERENCES devices(mac)" not in row[0] and "REFERENCES devices (mac)" not in row[0]:
+            logger.info("Migrating table 'traffic_history' to add foreign key constraint...")
+            await conn.execute("""
+                DELETE FROM traffic_history
+                WHERE mac IS NOT NULL AND mac NOT IN (SELECT mac FROM devices)
+            """)
+            await conn.execute("""
+                CREATE TABLE traffic_history_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT,
+                    mac TEXT REFERENCES devices(mac) ON DELETE CASCADE,
+                    rx_bytes INTEGER,
+                    tx_bytes INTEGER,
+                    rx_rate_kbps REAL,
+                    tx_rate_kbps REAL
+                )
+            """)
+            await conn.execute("""
+                INSERT INTO traffic_history_new (id, timestamp, mac, rx_bytes, tx_bytes, rx_rate_kbps, tx_rate_kbps)
+                SELECT id, timestamp, mac, rx_bytes, tx_bytes, rx_rate_kbps, tx_rate_kbps
+                FROM traffic_history
+            """)
+            await conn.execute("DROP TABLE traffic_history")
+            await conn.execute("ALTER TABLE traffic_history_new RENAME TO traffic_history")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_traffic_mac_ts ON traffic_history(mac, timestamp)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_traffic_ts ON traffic_history(timestamp)")
+            logger.info("Table 'traffic_history' migration completed.")
+
+        # 3. audit_reports
+        cursor = await conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_reports'")
+        row = await cursor.fetchone()
+        if row and row[0] and "REFERENCES devices(mac)" not in row[0] and "REFERENCES devices (mac)" not in row[0]:
+            logger.info("Migrating table 'audit_reports' to add foreign key constraint...")
+            await conn.execute("""
+                UPDATE audit_reports SET mac = NULL
+                WHERE mac IS NOT NULL AND mac NOT IN (SELECT mac FROM devices)
+            """)
+            await conn.execute("""
+                CREATE TABLE audit_reports_new (
+                    id TEXT PRIMARY KEY,
+                    mac TEXT REFERENCES devices(mac) ON DELETE SET NULL,
+                    ip TEXT,
+                    hostname TEXT,
+                    created_at TEXT,
+                    duration_seconds INTEGER DEFAULT 0,
+                    total_bytes INTEGER DEFAULT 0,
+                    total_packets INTEGER DEFAULT 0,
+                    risk_level TEXT DEFAULT 'low',
+                    summary TEXT,
+                    report_json TEXT,
+                    pcap_file TEXT
+                )
+            """)
+            await conn.execute("""
+                INSERT INTO audit_reports_new (id, mac, ip, hostname, created_at, duration_seconds,
+                                              total_bytes, total_packets, risk_level, summary, report_json, pcap_file)
+                SELECT id, mac, ip, hostname, created_at, duration_seconds,
+                       total_bytes, total_packets, risk_level, summary, report_json, pcap_file
+                FROM audit_reports
+            """)
+            await conn.execute("DROP TABLE audit_reports")
+            await conn.execute("ALTER TABLE audit_reports_new RENAME TO audit_reports")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_mac ON audit_reports(mac)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_reports(created_at)")
+            logger.info("Table 'audit_reports' migration completed.")
+
+        # 4. dns_queries
+        cursor = await conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='dns_queries'")
+        row = await cursor.fetchone()
+        if row and row[0] and ("REFERENCES devices(mac)" not in row[0] and "REFERENCES devices (mac)" not in row[0] or "AUTOINCREMENT" not in row[0]):
+            logger.info("Migrating table 'dns_queries' to add id PK and foreign key constraint...")
+            await conn.execute("""
+                UPDATE dns_queries SET mac = NULL
+                WHERE mac IS NOT NULL AND mac NOT IN (SELECT mac FROM devices)
+            """)
+            await conn.execute("""
+                CREATE TABLE dns_queries_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT NOT NULL UNIQUE,
+                    mac TEXT REFERENCES devices(mac) ON DELETE SET NULL,
+                    ip TEXT,
+                    count INTEGER DEFAULT 1,
+                    first_seen TEXT,
+                    last_seen TEXT,
+                    is_blocked INTEGER DEFAULT 0,
+                    blocked_by_provider TEXT,
+                    blocked_reason TEXT,
+                    filter_list TEXT,
+                    tracker_category TEXT
+                )
+            """)
+            col_cursor = await conn.execute("PRAGMA table_info(dns_queries)")
+            existing_cols = {col_info[1] for col_info in await col_cursor.fetchall()}
+            target_cols = [
+                "domain", "mac", "ip", "count", "first_seen", "last_seen",
+                "is_blocked", "blocked_by_provider", "blocked_reason", "filter_list", "tracker_category"
+            ]
+            available_cols = [c for c in target_cols if c in existing_cols]
+            cols_str = ", ".join(available_cols)
+            await conn.execute(f"""
+                INSERT OR IGNORE INTO dns_queries_new ({cols_str})
+                SELECT {cols_str} FROM dns_queries
+            """)
+            await conn.execute("DROP TABLE dns_queries")
+            await conn.execute("ALTER TABLE dns_queries_new RENAME TO dns_queries")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_dns_count ON dns_queries(count DESC)")
+            logger.info("Table 'dns_queries' migration completed.")
 
 
 db = Database()

@@ -661,16 +661,29 @@ class OpenWrtBackend(BaseRouterBackend):
                     isolate = str(sec_data.get("isolate", "0")) == "1"
                     pmf = str(sec_data.get("ieee80211w", "0"))
                     
+                    has_key = bool(sec_data.get("key"))
                     has_wpa3 = "sae" in enc or "wpa3" in enc
-                    has_wpa2 = "psk2" in enc or "wpa2" in enc
-                    is_open = enc in ("none", "", "open")
-                    
-                    sec_type = "WPA3-SAE" if has_wpa3 else ("WPA2-PSK" if has_wpa2 else ("Открытая сеть" if is_open else enc))
-                    
+                    has_wpa2 = "psk2" in enc or "wpa2" in enc or "mixed" in enc
+                    is_open = enc in ("none", "", "open") and not has_key and not has_wpa3 and not has_wpa2
+
+                    if has_wpa3 and has_wpa2:
+                        sec_type = "WPA3 / WPA2 mixed"
+                    elif has_wpa3:
+                        sec_type = "WPA3-SAE"
+                    elif has_wpa2:
+                        sec_type = "WPA2-PSK"
+                    elif is_open:
+                        sec_type = "Открытая (Без пароля)"
+                    else:
+                        sec_type = enc
+
                     risk_val = "critical" if is_open else ("medium" if not has_wpa3 else "low")
                     net_item = {
+                        "interface": sec_name,
                         "ssid": ssid,
+                        "security": sec_type,
                         "encryption": sec_type,
+                        "security_type": "wpa3" if has_wpa3 else ("open" if is_open else "wpa2"),
                         "client_isolation": isolate,
                         "pmf": pmf in ("1", "2"),
                         "wpa3_supported": has_wpa3,
@@ -678,7 +691,7 @@ class OpenWrtBackend(BaseRouterBackend):
                         "risk_level": risk_val
                     }
                     networks.append(net_item)
-                    
+
                     if is_open:
                         score -= 40
                         recommendations.append(f"Сеть '{ssid}' не защищена паролем (Open). Включите WPA2/WPA3.")
@@ -695,6 +708,7 @@ class OpenWrtBackend(BaseRouterBackend):
         return {
             "score": score,
             "grade": grade,
+            "access_points": networks,
             "networks": networks,
             "has_critical": has_critical,
             "has_warnings": has_warnings,

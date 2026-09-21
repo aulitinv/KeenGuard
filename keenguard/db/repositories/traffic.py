@@ -18,11 +18,18 @@ class TrafficRepository(BaseRepository):
         tx_rate_kbps: float
     ) -> None:
         now_ts = datetime.now(timezone.utc).isoformat()
+        clean_mac = mac.upper()
         async with self.get_connection() as conn:
+            cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (clean_mac,))
+            if not await cursor.fetchone():
+                await conn.execute(
+                    "INSERT OR IGNORE INTO devices (mac, first_seen, last_seen) VALUES (?, ?, ?)",
+                    (clean_mac, now_ts, now_ts)
+                )
             await conn.execute("""
                 INSERT INTO traffic_history (timestamp, mac, rx_bytes, tx_bytes, rx_rate_kbps, tx_rate_kbps)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (now_ts, mac.upper(), rx_bytes, tx_bytes, round(rx_rate_kbps, 2), round(tx_rate_kbps, 2)))
+            """, (now_ts, clean_mac, rx_bytes, tx_bytes, round(rx_rate_kbps, 2), round(tx_rate_kbps, 2)))
             await conn.commit()
 
     async def get_device_traffic_history(self, mac: str, limit: int = 60) -> List[Dict[str, Any]]:

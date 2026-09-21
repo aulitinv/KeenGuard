@@ -62,10 +62,47 @@ def isolate_test_database(tmp_path):
             hostname="test-host",
             profile="iot"
         ))
+        await db.close()
 
     asyncio.run(init_and_seed())
 
     yield
+
+    # Clean up any active audit sessions and background tasks between tests
+    try:
+        from keenguard.core.audit import audit_manager
+        for mac in list(audit_manager.active_sessions.keys()):
+            sess = audit_manager.active_sessions.pop(mac, None)
+            if sess:
+                sess.is_active = False
+                if getattr(sess, "_poller_task", None) and not sess._poller_task.done():
+                    sess._poller_task.cancel()
+        if getattr(audit_manager, "active_network_session", None):
+            net_sess = audit_manager.active_network_session
+            net_sess.is_active = False
+            if getattr(net_sess, "_poller_task", None) and not net_sess._poller_task.done():
+                net_sess._poller_task.cancel()
+            audit_manager.active_network_session = None
+
+        from keenguard.web.ws import _background_tasks
+        for t in list(_background_tasks):
+            if hasattr(t, "cancel") and not t.done():
+                t.cancel()
+        _background_tasks.clear()
+
+        from keenguard.core.scheduler import scheduler
+        if getattr(scheduler, "_task", None) and not scheduler._task.done():
+            scheduler._task.cancel()
+    except Exception:
+        pass
+
+    async def cleanup():
+        await db.close()
+
+    try:
+        asyncio.run(cleanup())
+    except Exception:
+        pass
 
     db.db_path = orig_db_path
     settings.db_path = orig_settings_db_path

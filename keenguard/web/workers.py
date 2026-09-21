@@ -561,6 +561,26 @@ async def lifespan(app: FastAPI):
             settings.router_user = saved_user
             keenetic_client.user = saved_user
 
+    # 3.1 Restore IoT storage settings from database
+    try:
+        saved_max_gb = await db.get_setting("iot_payload_max_storage_gb")
+        if saved_max_gb:
+            settings.iot_payload_max_storage_gb = float(saved_max_gb)
+        saved_ret_days = await db.get_setting("iot_payload_retention_days")
+        if saved_ret_days:
+            settings.iot_payload_retention_days = int(saved_ret_days)
+        saved_cap_en = await db.get_setting("iot_payload_capture_enabled")
+        if saved_cap_en is not None:
+            settings.iot_payload_capture_enabled = saved_cap_en.lower() in ("true", "1", "yes")
+        logger.info(
+            "Restored IoT storage config: max_gb=%.1f, retention=%d days, capture=%s",
+            settings.iot_payload_max_storage_gb,
+            settings.iot_payload_retention_days,
+            settings.iot_payload_capture_enabled,
+        )
+    except Exception as ex:
+        logger.debug("Could not restore IoT storage settings from DB: %s", ex)
+
     # 4. Initial connection test on boot
     connected = await active_backend.connect()
     if connected:
@@ -636,4 +656,5 @@ async def lifespan(app: FastAPI):
     await telegram_bot_worker.stop()
     sniffer.stop()
     scheduler.stop()
+    await db.close()
     set_main_loop(None)

@@ -80,12 +80,12 @@ class SettingsRepository(BaseRepository):
     """Settings and LAN policy presets storage operations."""
 
     async def save_setting(self, key: str, value: str):
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             await conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, value))
             await conn.commit()
 
     async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
             row = await cursor.fetchone()
             if row:
@@ -94,7 +94,7 @@ class SettingsRepository(BaseRepository):
 
     async def get_all_settings(self) -> Dict[str, str]:
         """Returns all key-value pairs from app_settings in a single query."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute("SELECT key, value FROM app_settings")
             rows = await cursor.fetchall()
             return {r[0]: r[1] for r in rows}
@@ -114,7 +114,7 @@ class SettingsRepository(BaseRepository):
             else:
                 str_v = str(v)
             items.append((k, str_v))
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             await conn.executemany("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", items)
             await conn.commit()
 
@@ -135,7 +135,7 @@ class SettingsRepository(BaseRepository):
         return {"mode": mode, "policies": policies, "categories": policies}
 
     async def get_presets(self) -> List[LanPolicyPreset]:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("SELECT * FROM lan_policy_presets ORDER BY is_builtin DESC, name ASC")
             rows = await cursor.fetchall()
@@ -158,7 +158,7 @@ class SettingsRepository(BaseRepository):
             return presets
 
     async def get_preset(self, preset_id: str) -> Optional[LanPolicyPreset]:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("SELECT * FROM lan_policy_presets WHERE id = ?", (preset_id,))
             row = await cursor.fetchone()
@@ -182,7 +182,7 @@ class SettingsRepository(BaseRepository):
     async def save_preset(self, preset: LanPolicyPreset) -> LanPolicyPreset:
         now_str = datetime.now(timezone.utc).isoformat()
         rules_str = json.dumps(preset.rules, ensure_ascii=False)
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             await conn.execute("""
                 INSERT INTO lan_policy_presets (id, name, description, is_builtin, rules_json, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -196,7 +196,7 @@ class SettingsRepository(BaseRepository):
             return preset
 
     async def delete_preset(self, preset_id: str) -> bool:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute("DELETE FROM lan_policy_presets WHERE id = ? AND is_builtin = 0", (preset_id,))
             await conn.commit()
             return cursor.rowcount > 0

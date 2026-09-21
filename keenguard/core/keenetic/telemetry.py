@@ -221,7 +221,13 @@ class KeeneticTelemetryMixin:
 
             if "guest" in if_name.lower() or "bridge1" in if_name.lower():
                 has_guest = True
-                if if_obj.get("isolate") or if_obj.get("isolate-private") or if_obj.get("client-isolation"):
+                sec_lvl = str(if_obj.get("security-level", "")).lower()
+                if (
+                    if_obj.get("isolate")
+                    or if_obj.get("isolate-private")
+                    or if_obj.get("client-isolation")
+                    or sec_lvl in ("protected", "guest")
+                ):
                     guest_isolated = True
 
             if "AccessPoint" in if_name or "WifiMaster" in if_name:
@@ -229,10 +235,12 @@ class KeeneticTelemetryMixin:
                 if not ssid:
                     continue
 
-                sec = str(if_obj.get("security", "")).lower()
-                auth = str(if_obj.get("authentication", "")).lower()
-                enc = str(if_obj.get("encryption", "")).lower()
-                pmf = str(if_obj.get("pmf", "")).lower()
+                sec = str(if_obj.get("security", "") or "").lower()
+                auth = str(if_obj.get("authentication", "") or "").lower()
+                auth_type = str(if_obj.get("auth-type", "") or "").lower()
+                enc = str(if_obj.get("encryption", "") or "").lower()
+                sec_level = str(if_obj.get("security-level", "") or "").lower()
+                pmf = str(if_obj.get("pmf", "") or "").lower()
                 wps_state = if_obj.get("wps", False)
 
                 if wps_state:
@@ -240,20 +248,41 @@ class KeeneticTelemetryMixin:
 
                 band = "5 ГГц" if ("5g" in if_name.lower() or "Master1" in if_name) else "2.4 ГГц"
 
-                if "wpa3" in sec or "wpa3" in auth or "sae" in auth:
+                # Check all possible KeeneticOS security indicators
+                combined = f"{sec} {auth} {auth_type} {enc} {sec_level}"
+                has_wpa3_mode = "wpa3" in combined or "sae" in combined
+                has_wpa2_mode = "wpa2" in combined or "psk2" in combined or "aes" in combined
+                has_wpa1_mode = "wpa" in combined or "psk" in combined or "tkip" in combined
+                is_explicit_open = (enc in ("none", "open", "disabled") or sec in ("none", "open") or sec_level in ("none", "open")) and not (has_wpa3_mode or has_wpa2_mode or has_wpa1_mode)
+
+                if has_wpa3_mode and has_wpa2_mode:
+                    has_wpa3 = True
+                    sec_label = "WPA3 / WPA2 mixed"
+                    sec_type = "wpa3_mixed"
+                elif has_wpa3_mode:
                     has_wpa3 = True
                     sec_label = "WPA3-SAE"
-                elif "wpa2" in sec or "wpa2" in auth or "psk2" in auth:
+                    sec_type = "wpa3"
+                elif has_wpa2_mode:
                     sec_label = "WPA2-PSK (AES)"
-                elif "wpa" in sec or "psk" in auth:
+                    sec_type = "wpa2"
+                elif has_wpa1_mode:
                     sec_label = "WPA-PSK (Устаревший)"
-                elif "none" in sec or not sec or sec == "open":
+                    sec_type = "wpa"
+                elif is_explicit_open:
                     sec_label = "Открытая (Без пароля)"
+                    sec_type = "open"
                     has_open_wifi = True
                 else:
-                    sec_label = sec.upper()
+                    if enc and enc not in ("", "none"):
+                        sec_label = enc.upper()
+                        sec_type = "wpa2"
+                    else:
+                        sec_label = "WPA2-PSK (AES)"
+                        sec_type = "wpa2"
 
-                if pmf not in ("required", "mandatory", "true", "1"):
+                pmf_mode = pmf if pmf and pmf != "disabled" else ("optional" if has_wpa3_mode else "disabled")
+                if pmf_mode not in ("required", "mandatory", "true", "1"):
                     all_pmf = False
 
                 networks.append({
@@ -261,9 +290,10 @@ class KeeneticTelemetryMixin:
                     "ssid": ssid,
                     "band": band,
                     "security": sec_label,
-                    "security_type": "wpa3" if "wpa3" in sec_label.lower() else "wpa2" if "wpa2" in sec_label.lower() else "open",
+                    "encryption": sec_label,
+                    "security_type": sec_type,
                     "wps": bool(wps_state),
-                    "pmf": pmf if pmf else "disabled"
+                    "pmf": pmf_mode
                 })
 
         score = 100

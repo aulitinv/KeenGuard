@@ -1,4 +1,4 @@
-﻿"""Device repository handling CRUD and access policies for devices."""
+"""Device repository handling CRUD and access policies for devices."""
 import json
 import logging
 from typing import Optional, List, Any, Union
@@ -46,7 +46,7 @@ class DeviceRepository(BaseRepository):
         )
 
     async def upsert_device(self, device: DeviceRecord) -> None:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             await conn.execute("""
                 INSERT INTO devices (
                     mac, ip, hostname, vendor, profile, is_blocked_wan,
@@ -163,13 +163,13 @@ class DeviceRepository(BaseRepository):
 
         params.append(mac.upper())
         query = f"UPDATE devices SET {', '.join(updates)} WHERE mac = ?"
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             cursor = await conn.execute(query, params)
             await conn.commit()
             return cursor.rowcount > 0
 
     async def get_device(self, mac: str) -> Optional[DeviceRecord]:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("SELECT * FROM devices WHERE mac = ?", (mac.upper(),))
             row = await cursor.fetchone()
@@ -178,7 +178,7 @@ class DeviceRepository(BaseRepository):
         return None
 
     async def get_all_devices(self) -> List[DeviceRecord]:
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
             cursor = await conn.execute("SELECT * FROM devices ORDER BY is_online DESC, last_seen DESC")
             rows = await cursor.fetchall()
@@ -186,14 +186,29 @@ class DeviceRepository(BaseRepository):
 
     async def delete_device(self, mac: str) -> bool:
         """Deletes a device from the database by MAC address."""
-        async with aiosqlite.connect(self.db_path) as conn:
-            cursor = await conn.execute("DELETE FROM devices WHERE mac = ?", (mac,))
+        clean_mac = mac.upper()
+        async with self.get_connection() as conn:
+            # Explicit cleanup of dependent records for fallback / legacy DBs
+            await conn.execute("DELETE FROM dns_device_queries WHERE mac = ?", (clean_mac,))
+            await conn.execute("DELETE FROM traffic_history WHERE mac = ?", (clean_mac,))
+            await conn.execute("DELETE FROM iot_payload_logs WHERE mac = ?", (clean_mac,))
+            await conn.execute("DELETE FROM lan_communications WHERE src_mac = ? OR dst_mac = ?", (clean_mac, clean_mac))
+            cursor = await conn.execute("DELETE FROM devices WHERE mac = ?", (clean_mac,))
             await conn.commit()
             return cursor.rowcount > 0
 
     async def delete_offline_devices(self) -> int:
         """Deletes all devices that are currently offline (is_online = 0)."""
-        async with aiosqlite.connect(self.db_path) as conn:
-            cursor = await conn.execute("DELETE FROM devices WHERE is_online = 0")
+        async with self.get_connection() as conn:
+            cursor = await conn.execute("SELECT mac FROM devices WHERE is_online = 0")
+            offline_macs = [row[0] for row in await cursor.fetchall()]
+            if not offline_macs:
+                return 0
+            for omac in offline_macs:
+                await conn.execute("DELETE FROM dns_device_queries WHERE mac = ?", (omac,))
+                await conn.execute("DELETE FROM traffic_history WHERE mac = ?", (omac,))
+                await conn.execute("DELETE FROM iot_payload_logs WHERE mac = ?", (omac,))
+                await conn.execute("DELETE FROM lan_communications WHERE src_mac = ? OR dst_mac = ?", (omac, omac))
+            del_cursor = await conn.execute("DELETE FROM devices WHERE is_online = 0")
             await conn.commit()
-            return cursor.rowcount
+            return del_cursor.rowcount

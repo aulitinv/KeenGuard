@@ -3785,9 +3785,21 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-slate-400 font-medium text-[11px] mb-1">Индивидуальные разрешенные порты:</label>
-                                <input type="text" id="modal-custom-allowed-ports" placeholder="Например: 8080, 9000, 554" onchange="saveModalCustomPorts(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono">
-                                <span class="text-[10px] text-slate-500">Разрешенные порты устройства сверх стандартного пресета</span>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-slate-400 font-medium text-[11px]">Индивидуальные разрешенные порты:</label>
+                                    <span id="modal-custom-ports-status" class="text-[10px] text-emerald-400 font-medium hidden flex items-center space-x-1">
+                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                        <span>Сохранено</span>
+                                    </span>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="text" id="modal-custom-allowed-ports" placeholder="Например: 8080, 9000, 554" onchange="saveModalCustomPorts(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); this.blur();}" class="flex-1 bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono focus:border-indigo-500 focus:outline-none">
+                                    <button type="button" onclick="saveModalCustomPorts(document.getElementById('modal-custom-allowed-ports').value)" class="px-2.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1 shrink-0" title="Сохранить кастомные порты">
+                                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                        <span>Сохранить</span>
+                                    </button>
+                                </div>
+                                <span class="text-[10px] text-slate-500 mt-1 block">Разрешенные порты устройства сверх стандартного пресета</span>
                             </div>
                         </div>
                     </details>

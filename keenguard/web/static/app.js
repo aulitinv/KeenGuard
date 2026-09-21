@@ -1695,6 +1695,8 @@ async function openDeviceModal(mac) {
                 ? d.custom_allowed_ports.join(', ') 
                 : '';
         }
+        const customPortsStatus = document.getElementById('modal-custom-ports-status');
+        if (customPortsStatus) customPortsStatus.classList.add('hidden');
 
         const nvrGroup = document.getElementById('modal-nvr-group');
         const nvrInput = document.getElementById('modal-nvr-ip');
@@ -3099,6 +3101,8 @@ function switchSettingsSubTab(subtabId) {
     if (subtabId === 'dns-security') {
         loadDnsProviderConfig();
         loadDnsProviderStatus();
+    } else if (subtabId === 'storage') {
+        loadIotStorageSettings();
     }
 
     try {
@@ -4187,11 +4191,13 @@ async function loadWifiAudit() {
 
         // 2. Active Networks List
         const netList = document.getElementById('wifi-networks-list');
+        const aps = (data.access_points && data.access_points.length > 0) ? data.access_points : (data.networks || []);
         if (netList) {
-            if (data.access_points && data.access_points.length > 0) {
-                netList.innerHTML = data.access_points.map(ap => {
-                    const isWpa3 = ap.security && ap.security.includes('WPA3');
-                    const isOpen = ap.security && (ap.security.includes('Открытая') || ap.security_type === 'open');
+            if (aps.length > 0) {
+                netList.innerHTML = aps.map(ap => {
+                    const sec = ap.security || ap.encryption || 'WPA2-PSK';
+                    const isWpa3 = sec.includes('WPA3');
+                    const isOpen = sec.includes('Открытая') || ap.security_type === 'open' || ap.risk_level === 'critical';
 
                     let badgeClass = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
                     let iconName = 'shield-check';
@@ -4220,7 +4226,7 @@ async function loadWifiAudit() {
                             <div class="shrink-0 ml-2">
                                 <span class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-lg border ${badgeClass}">
                                     <i data-lucide="${iconName}" class="w-3 h-3"></i>
-                                    <span>${escapeHtml(ap.security)}</span>
+                                    <span>${escapeHtml(sec)}</span>
                                 </span>
                             </div>
                         </div>
@@ -10074,6 +10080,12 @@ async function saveModalCustomPorts(portsStr) {
         });
         if (res.ok) {
             showToast('Кастомные порты сохранены', 'success');
+            const statusEl = document.getElementById('modal-custom-ports-status');
+            if (statusEl) {
+                statusEl.classList.remove('hidden');
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                setTimeout(() => { statusEl.classList.add('hidden'); }, 3500);
+            }
             await refreshAllData();
         } else {
             const err = await res.json().catch(() => ({}));

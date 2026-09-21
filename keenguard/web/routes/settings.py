@@ -686,7 +686,7 @@ async def save_iot_storage_settings(body: Dict[str, Any] = Body(...)):
     except Exception as ex:
         logger.debug("Failed to sync config_service cache for iot storage: %s", ex)
 
-    create_tracked_task(db.prune_iot_payloads())
+    await db.prune_iot_payloads()
     stats = await db.get_iot_storage_stats()
     cfg = {
         "capture_enabled": settings.iot_payload_capture_enabled,
