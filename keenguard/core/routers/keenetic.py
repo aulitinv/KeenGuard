@@ -248,8 +248,43 @@ class KeeneticBackend(BaseRouterBackend):
             pass
         return None
 
-    async def get_interface_stats(self, dev_name: str = "wan") -> Dict[str, int]:
-        return {"rx_bytes": 0, "tx_bytes": 0}
+    async def get_interface_stats(self, dev_name: str = "wan") -> Dict[str, Any]:
+        """Fetches interface byte counters and speed from Keenetic."""
+        try:
+            target_iface = getattr(self, "_wan_interface_name", None)
+            if not target_iface or dev_name != "wan":
+                resp = await self.client._send_request("POST", "/rci/", json_data=[{"show": {"interface": {}}}])
+                if resp and resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        ifaces = data[0].get("show", {}).get("interface", {})
+                        wan_if = next((k for k, v in ifaces.items() if (v.get("defaultgw") or v.get("global")) and v.get("link") == "up"), None)
+                        if not wan_if:
+                            wan_if = next((k for k, v in ifaces.items() if v.get("defaultgw") or v.get("global")), "GigabitEthernet1")
+                        self._wan_interface_name = wan_if
+                        target_iface = wan_if
+
+            if not target_iface:
+                target_iface = "GigabitEthernet1"
+
+            stat_resp = await self.client._send_request("POST", "/rci/", json_data=[{"show": {"interface": {"stat": {"name": target_iface}}}}])
+            if stat_resp and stat_resp.status_code == 200:
+                sdata = stat_resp.json()
+                if isinstance(sdata, list) and len(sdata) > 0:
+                    stat = sdata[0].get("show", {}).get("interface", {}).get("stat", {})
+                    rx_b = int(stat.get("rxbytes") or 0)
+                    tx_b = int(stat.get("txbytes") or 0)
+                    rx_speed = int(stat.get("rxspeed") or 0)
+                    tx_speed = int(stat.get("txspeed") or 0)
+                    return {
+                        "rx_bytes": rx_b,
+                        "tx_bytes": tx_b,
+                        "rx_speed_bps": rx_speed,
+                        "tx_speed_bps": tx_speed
+                    }
+        except Exception as e:
+            logger.debug("Keenetic interface stats query error: %s", e)
+        return {"rx_bytes": 0, "tx_bytes": 0, "rx_speed_bps": 0, "tx_speed_bps": 0}
 
     async def get_dns_proxy_status(self) -> Dict[str, Any]:
         return await self.client.get_dns_proxy_status()

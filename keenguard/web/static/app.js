@@ -488,7 +488,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (activeTab === 'packets') loadPacketInspectorLive();
         if (activeTab === 'tv_forensics') loadTvForensics();
+        if (activeTab === 'dashboard') {
+            loadWifiAudit();
+            checkRouterUpdates();
+            loadSecurityScoreForDashboard();
+        }
     }, 10000);
+
+    // Fast periodic refresh for live traffic chart on dashboard
+    setInterval(() => {
+        if (activeTab === 'dashboard') {
+            updateLiveTrafficChart();
+        }
+    }, 3500);
 
     // Fast periodic refresh for active audit sessions
     setInterval(() => {
@@ -4750,7 +4762,9 @@ async function updateLiveTrafficChart() {
     if (!ctx) return;
     try {
         const res = await fetch('/api/traffic/live');
+        if (!res.ok) return;
         const data = await res.json();
+        if (!Array.isArray(data)) return;
 
         const labels = data.map(d => new Date(d.timestamp).toLocaleTimeString());
         const rxData = data.map(d => Math.max(0, Math.round(d.total_rx_kbps || 0)));

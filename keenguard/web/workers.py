@@ -181,6 +181,7 @@ async def _do_keenetic_poll_internal():
         except Exception:
             pass
 
+    batch_ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     try:
         hosts = await active_backend.get_hosts()
         sys_info = await active_backend.get_system_info()
@@ -367,12 +368,12 @@ async def _do_keenetic_poll_internal():
         device_traffic_rates[mac] = (now_t, h.rxbytes, h.txbytes)
         if prev_data:
             dt = now_t - prev_data[0]
-            if dt >= 4.0:
+            if dt >= 3.0:
                 drx = max(0, h.rxbytes - prev_data[1])
                 dtx = max(0, h.txbytes - prev_data[2])
                 rx_kbps = (drx * 8) / (dt * 1024)
                 tx_kbps = (dtx * 8) / (dt * 1024)
-                await db.record_traffic_snapshot(mac, h.rxbytes, h.txbytes, rx_kbps, tx_kbps)
+                await db.record_traffic_snapshot(mac, h.rxbytes, h.txbytes, rx_kbps, tx_kbps, timestamp=batch_ts)
 
         if existing.profile == "smart_tv":
             await forensics.check_tv_state_transition(
@@ -385,27 +386,32 @@ async def _do_keenetic_poll_internal():
         if existing.profile == "camera":
             await anomaly_detector.check_camera_upload_leak(existing, h.txbytes)
 
-    # For OpenWrt: Poll WAN interface byte counters to calculate real-time network traffic
-    if getattr(active_backend, "platform_id", None) == "openwrt":
-        try:
-            wan_stats = await active_backend.get_interface_stats("wan")
-            rx_b = wan_stats.get("rx_bytes") or 0
-            tx_b = wan_stats.get("tx_bytes") or 0
-            if rx_b > 0 or tx_b > 0:
-                now_t = time.time()
-                prev_wan = device_traffic_rates.get("__WAN__")
-                device_traffic_rates["__WAN__"] = (now_t, rx_b, tx_b)
-                if prev_wan:
-                    dt = now_t - prev_wan[0]
-                    if dt >= 3.0:
-                        drx = max(0, rx_b - prev_wan[1])
-                        dtx = max(0, tx_b - prev_wan[2])
-                        rx_kbps = (drx * 8) / (dt * 1024)
-                        tx_kbps = (dtx * 8) / (dt * 1024)
-                        # Store in traffic_history under router placeholder MAC
-                        await db.record_traffic_snapshot("02:00:00:00:00:01", rx_b, tx_b, rx_kbps, tx_kbps)
-        except Exception as e:
-            logger.debug("OpenWrt WAN interface traffic polling error: %s", e)
+    # Poll WAN interface byte counters to calculate real-time network traffic
+    try:
+        wan_stats = await active_backend.get_interface_stats("wan")
+        rx_b = wan_stats.get("rx_bytes") or 0
+        tx_b = wan_stats.get("tx_bytes") or 0
+        if rx_b > 0 or tx_b > 0:
+            now_t = time.time()
+            prev_wan = device_traffic_rates.get("__WAN__")
+            device_traffic_rates["__WAN__"] = (now_t, rx_b, tx_b)
+            if prev_wan:
+                dt = now_t - prev_wan[0]
+                if dt >= 2.5:
+                    drx = max(0, rx_b - prev_wan[1])
+                    dtx = max(0, tx_b - prev_wan[2])
+                    rx_kbps = (drx * 8) / (dt * 1024)
+                    tx_kbps = (dtx * 8) / (dt * 1024)
+                    hw_rx = (wan_stats.get("rx_speed_bps") or 0) / 1024.0
+                    hw_tx = (wan_stats.get("tx_speed_bps") or 0) / 1024.0
+                    if hw_rx > rx_kbps:
+                        rx_kbps = hw_rx
+                    if hw_tx > tx_kbps:
+                        tx_kbps = hw_tx
+                    # Store in traffic_history under router placeholder MAC
+                    await db.record_traffic_snapshot("02:00:00:00:00:01", rx_b, tx_b, rx_kbps, tx_kbps, timestamp=batch_ts)
+    except Exception as e:
+        logger.debug("WAN interface traffic polling error: %s", e)
 
     # Mark devices that disappeared from Keenetic active hotspot as offline
     all_db_devices = await db.get_all_devices()

@@ -1,6 +1,6 @@
 """Traffic repository for bandwidth snapshots and history."""
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import aiosqlite
 
 from keenguard.db.repositories.base import BaseRepository
@@ -15,9 +15,10 @@ class TrafficRepository(BaseRepository):
         rx_bytes: int,
         tx_bytes: int,
         rx_rate_kbps: float,
-        tx_rate_kbps: float
+        tx_rate_kbps: float,
+        timestamp: Optional[str] = None
     ) -> None:
-        now_ts = datetime.now(timezone.utc).isoformat()
+        now_ts = timestamp or datetime.now(timezone.utc).isoformat()
         clean_mac = mac.upper()
         async with self.get_connection() as conn:
             cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (clean_mac,))
@@ -47,12 +48,25 @@ class TrafficRepository(BaseRepository):
     async def get_network_traffic_summary(self, limit: int = 60) -> List[Dict[str, Any]]:
         async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
+            # 1. First priority: Router WAN interface hardware snapshots (stored under '02:00:00:00:00:01')
+            cursor = await conn.execute("""
+                SELECT timestamp, rx_rate_kbps as total_rx_kbps, tx_rate_kbps as total_tx_kbps
+                FROM traffic_history
+                WHERE mac = '02:00:00:00:00:01'
+                ORDER BY id DESC LIMIT ?
+            """, (limit,))
+            wan_rows = await cursor.fetchall()
+            if len(wan_rows) >= 2:
+                return [dict(r) for r in reversed(wan_rows)]
+
+            # 2. Fallback: Aggregate per-device rates grouped by timestamp
             cursor = await conn.execute("""
                 SELECT timestamp,
                        SUM(rx_rate_kbps) as total_rx_kbps,
                        SUM(tx_rate_kbps) as total_tx_kbps,
                        MAX(id) as max_id
                 FROM traffic_history
+                WHERE mac != '02:00:00:00:00:01'
                 GROUP BY timestamp
                 ORDER BY max_id DESC LIMIT ?
             """, (limit,))
