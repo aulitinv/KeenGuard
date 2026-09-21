@@ -8,21 +8,40 @@ echo   KeenGuard: Network Security ^& Forensics for Keenetic
 echo ========================================================
 echo.
 
-if exist "%~dp0venv\Scripts\python.exe" (
-    echo [INFO] Запуск KeenGuard из виртуального окружения venv...
-    "%~dp0venv\Scripts\python.exe" run.py
+:: 1. Проверяем наличие Python в системе
+where python >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Python не найден в системе!
+    echo.
+    echo Пожалуйста, установите Python 3.10 или новее:
+    echo   https://www.python.org/downloads/
+    echo ВАЖНО: При установке обязательно включите галочку "Add Python to PATH".
     goto end
 )
 
-if exist "venv\Scripts\python.exe" (
-    echo [INFO] Запуск KeenGuard из виртуального окружения venv...
-    "venv\Scripts\python.exe" run.py
-    goto end
+:: 2. Если виртуальное окружение venv отсутствует — создаем и устанавливаем зависимости
+if not exist "%~dp0venv\Scripts\python.exe" (
+    echo [INFO] Виртуальное окружение venv не найдено.
+    echo [INFO] Создание виртуального окружения (python -m venv venv)...
+    python -m venv "%~dp0venv"
+    if errorlevel 1 (
+        echo [ERROR] Не удалось создать виртуальное окружение!
+        goto end
+    )
+    echo [INFO] Установка зависимостей из requirements.txt...
+    "%~dp0venv\Scripts\python.exe" -m pip install --upgrade pip
+    "%~dp0venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt"
+    if errorlevel 1 (
+        echo [ERROR] Ошибка при установке зависимостей!
+        goto end
+    )
+    echo [INFO] Окружение успешно настроено!
+    echo.
 )
 
-echo [WARNING] Виртуальное окружение venv не найдено!
-echo [INFO] Попытка запуска через системный python...
-python run.py
+:: 3. Запуск приложения
+echo [INFO] Запуск KeenGuard...
+"%~dp0venv\Scripts\python.exe" run.py
 
 :end
 echo.
