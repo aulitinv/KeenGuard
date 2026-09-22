@@ -426,7 +426,6 @@ class IncidentInvestigator:
                         break
 
             flow_risk = "safe"
-            flow_verdict = "Зашифрованный легитимный трафик"
 
             if system_match:
                 flow_risk = "safe" if system_match["risk"] == "safe" else "advisory"
@@ -443,6 +442,14 @@ class IncidentInvestigator:
                 has_lan_probe = True
                 flow_risk = "advisory"
                 flow_verdict = "Локальное межузловое взаимодействие"
+            elif is_encrypted:
+                flow_verdict = "Зашифрованный легитимный трафик"
+            elif is_lan and dst_port == 53:
+                flow_verdict = "DNS-запрос к роутеру (открытый)"
+            elif is_lan:
+                flow_verdict = "Обращение к роутеру (открытый протокол)"
+            else:
+                flow_verdict = "Незашифрованный трафик"
 
             intel_links = cls.generate_intel_links(dst_ip, is_ip=True)
             domain_intel_links = cls.generate_intel_links(correlated_domain, is_ip=False) if correlated_domain else None
@@ -507,7 +514,21 @@ class IncidentInvestigator:
         else:
             overall_verdict = "Подозрительной активности не обнаружено"
             severity_badge = "safe"
-            findings.append("Все соединения защищены современными криптографическими протоколами (TLS/SSL).")
+            all_encrypted = all(f.get("is_encrypted", False) for f in investigated_flows)
+            has_local_dns = any(
+                f.get("dst_port") == 53 and f.get("is_lan", False)
+                for f in investigated_flows
+            )
+            if all_encrypted:
+                findings.append("Все соединения защищены современными криптографическими протоколами (TLS/SSL).")
+            elif has_local_dns and all(
+                f.get("is_encrypted", False) or (f.get("is_lan", False) and f.get("dst_port") in (53, 67, 123, 5353))
+                for f in investigated_flows
+            ):
+                findings.append("Все внешние соединения защищены TLS/SSL. DNS-запросы идут к роутеру по локальной сети (без шифрования, что штатно для домашней LAN).")
+            else:
+                unenc_count = sum(1 for f in investigated_flows if not f.get("is_encrypted", False))
+                findings.append(f"Обнаружено {unenc_count} незашифрованных соединений. Проверьте вручную, не передаются ли конфиденциальные данные открытым текстом.")
 
         # 6. OS Diagnostics Playbook for the most prominent suspicious flow
         top_suspicious = next((f for f in investigated_flows if f["flow_risk"] in ("warning", "critical")), None)
