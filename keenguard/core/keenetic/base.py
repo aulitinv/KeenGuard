@@ -46,7 +46,7 @@ class KeeneticBaseClient:
         4. POST /auth with {"login": user, "password": sha_hash} -> 200 OK + auth cookie
         """
         if self.mock_mode:
-            return {"status": "ok", "version": "KeeneticOS 4.1 (Mock)", "model": "Keenetic Hero 4G"}
+            return self._mock_authenticate()
 
         target_host = host or self.host
         target_user = user or self.user
@@ -139,7 +139,7 @@ class KeeneticBaseClient:
     async def test_connection(self) -> Dict[str, Any]:
         """Tests connectivity and authentication."""
         if self.mock_mode:
-            return {"status": "ok", "version": "KeeneticOS 4.1 (Mock)", "model": "Keenetic Hero 4G"}
+            return self._mock_test_connection()
 
         if not self._cookies:
             return await self.authenticate()
@@ -215,3 +215,9 @@ class KeeneticBaseClient:
                 logger.error("Keenetic request error (%s %s): %s", method, path, e)
                 return None
         return None
+
+    def _mock_authenticate(self) -> Dict[str, Any]:
+        return {"status": "ok", "version": "KeeneticOS 4.1 (Mock)", "model": "Keenetic Hero 4G"}
+
+    def _mock_test_connection(self) -> Dict[str, Any]:
+        return {"status": "ok", "version": "KeeneticOS 4.1 (Mock)", "model": "Keenetic Hero 4G"}

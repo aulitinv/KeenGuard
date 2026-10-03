@@ -13,11 +13,7 @@ class KeeneticPoliciesMixin:
         """Sets device access policy: 'permit' or 'deny'."""
         logger.warning("HARDWARE MUTATION REQUEST: set_device_policy(mac=%s, access=%s)", mac, access)
         if getattr(self, "mock_mode", False):
-            clean_mac = mac.upper()
-            for h in getattr(self, "_mock_hosts", []):
-                if str(h.get("mac", "")).upper() == clean_mac:
-                    h["access"] = access
-            return True
+            return self._mock_set_device_policy(mac, access)
 
         payload = [{"ip": {"hotspot": {"host": {"mac": mac.lower(), "access": access}}}}]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
@@ -33,14 +29,8 @@ class KeeneticPoliciesMixin:
         In KeeneticOS, Wi-Fi devices are bound to their physical SSID (Bridge0 for Home,
         Bridge1 for Guest). An API call cannot move a Wi-Fi client between SSIDs without reassociation.
         """
-        clean_mac = mac.upper()
         if getattr(self, "mock_mode", False):
-            for h in getattr(self, "_mock_hosts", []):
-                if str(h.get("mac", "")).upper() == clean_mac:
-                    if h.get("interface") == "Bridge0" or (h.get("ip") and h.get("ip").startswith("192.168.1.")):
-                        return False
-                    return True
-            return False
+            return self._mock_isolate_device_to_segment(mac, segment_id)
 
         logger.info(
             "LAN isolation requested for %s. Note: In KeeneticOS, Wi-Fi devices must connect to Guest SSID.",
@@ -54,7 +44,7 @@ class KeeneticPoliciesMixin:
         Uses Keenetic's built-in UDP proxy component (KeeneticOS 3.1+).
         """
         if getattr(self, "mock_mode", False):
-            return {"status": "ok", "method": "mock"}
+            return self._mock_enable_mdns_relay()
 
         # Method 1: Configure UDP proxy for mDNS (port 5353)
         try:
@@ -94,7 +84,7 @@ class KeeneticPoliciesMixin:
         Control DLNA (port 8200) access for a specific device via Keenetic ip policy.
         """
         if getattr(self, "mock_mode", False):
-            return True
+            return self._mock_set_dlna_access(mac, ip, allow)
 
         comment = f"keenguard-dlna-{mac.replace(':', '').lower()}"
 

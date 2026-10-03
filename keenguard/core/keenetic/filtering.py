@@ -15,7 +15,7 @@ class KeeneticFilteringMixin:
     async def get_upnp_mappings(self) -> List[UPnPMapping]:
         """Pulls current UPnP / NAT-PMP port forwarding rules."""
         if getattr(self, "mock_mode", False):
-            return [UPnPMapping(**m) for m in getattr(self, "_mock_upnp", [])]
+            return self._mock_get_upnp_mappings()
 
         resp = await self._send_request("GET", "/rci/show/upnp")
         if resp and resp.status_code == 200:
@@ -45,8 +45,7 @@ class KeeneticFilteringMixin:
         """Deletes a dangerous UPnP port forwarding rule."""
         logger.warning("Deleting dangerous UPnP rule: %s port %d", protocol, ext_port)
         if getattr(self, "mock_mode", False):
-            self._mock_upnp = [m for m in getattr(self, "_mock_upnp", []) if not (m.get("protocol") == protocol and m.get("ext_port") == ext_port)]
-            return True
+            return self._mock_delete_upnp_mapping(protocol, ext_port)
 
         payload = [{"no": "upnp", "rule": {"protocol": protocol, "port": ext_port}}]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
@@ -79,11 +78,7 @@ class KeeneticFilteringMixin:
 
         logger.info("Adding %d Keenetic DNS sinkhole(s) -> 0.0.0.0: %s", len(valid_domains), valid_domains[:5])
         if getattr(self, "mock_mode", False):
-            if not hasattr(self, "_mock_sinkholes"):
-                self._mock_sinkholes = set()
-            for d in valid_domains:
-                self._mock_sinkholes.add(d)
-            return valid_domains, []
+            return self._mock_add_dns_sinkholes(valid_domains)
 
         payload = [{"ip": {"host": {"domain": d, "address": "0.0.0.0"}}} for d in valid_domains]
         payload.append({"system": {"configuration": {"save": {}}}})
@@ -140,10 +135,7 @@ class KeeneticFilteringMixin:
 
         logger.info("Removing %d Keenetic DNS sinkhole(s): %s", len(clean_domains), clean_domains[:5])
         if getattr(self, "mock_mode", False):
-            if hasattr(self, "_mock_sinkholes"):
-                for d in clean_domains:
-                    self._mock_sinkholes.discard(d)
-            return clean_domains, []
+            return self._mock_remove_dns_sinkholes(clean_domains)
 
         payload = [{"ip": {"host": {"domain": d, "address": "0.0.0.0", "no": True}}} for d in clean_domains]
         payload.append({"system": {"configuration": {"save": {}}}})
@@ -196,7 +188,7 @@ class KeeneticFilteringMixin:
     async def get_active_sinkholes(self) -> List[str]:
         """Fetches all statically configured 0.0.0.0 host sinkholes from Keenetic."""
         if getattr(self, "mock_mode", False):
-            return sorted(list(getattr(self, "_mock_sinkholes", set())))
+            return self._mock_get_active_sinkholes()
 
         sinkholes = set()
         try:
@@ -241,11 +233,7 @@ class KeeneticFilteringMixin:
 
         logger.info("Adding %d Keenetic IP blackhole(s) via reject route: %s", len(valid_ips), valid_ips[:5])
         if getattr(self, "mock_mode", False):
-            if not hasattr(self, "_mock_ip_blackholes"):
-                self._mock_ip_blackholes = set()
-            for ip in valid_ips:
-                self._mock_ip_blackholes.add(ip)
-            return valid_ips, rejected_ips
+            return self._mock_add_ip_blackholes(valid_ips, rejected_ips)
 
         payload = [{"ip": {"route": {"destination": f"{ip}/32", "reject": True, "comment": "keenguard-blackhole"}}} for ip in valid_ips]
         payload.append({"system": {"configuration": {"save": {}}}})
@@ -294,10 +282,7 @@ class KeeneticFilteringMixin:
 
         logger.info("Removing %d Keenetic IP blackhole(s): %s", len(clean_ips), clean_ips[:5])
         if getattr(self, "mock_mode", False):
-            if hasattr(self, "_mock_ip_blackholes"):
-                for ip in clean_ips:
-                    self._mock_ip_blackholes.discard(ip)
-            return clean_ips, []
+            return self._mock_remove_ip_blackholes(clean_ips)
 
         payload = [{"no": {"ip": {"route": {"destination": f"{ip}/32", "reject": True}}}} for ip in clean_ips]
         payload.append({"system": {"configuration": {"save": {}}}})
@@ -316,7 +301,7 @@ class KeeneticFilteringMixin:
     async def get_active_ip_blackholes(self) -> List[str]:
         """Fetches currently configured static reject IP routes from Keenetic running-config."""
         if getattr(self, "mock_mode", False):
-            return sorted(list(getattr(self, "_mock_ip_blackholes", set())))
+            return self._mock_get_active_ip_blackholes()
 
         blackholes = set()
         try:
@@ -344,8 +329,7 @@ class KeeneticFilteringMixin:
         """Sends reboot command to Keenetic router via RCI."""
         logger.warning("Initiating router reboot via Keenetic RCI!")
         if getattr(self, "mock_mode", False):
-            self._mock_rebooted = True
-            return True
+            return self._mock_reboot_router()
 
         resp = await self._send_request("POST", "/rci/", json_data=[{"system": {"reboot": {}}}])
         return resp is not None and resp.status_code in (200, 204)
@@ -354,8 +338,7 @@ class KeeneticFilteringMixin:
         """Enables or disables the Guest Wi-Fi / Bridge1 interface on Keenetic."""
         logger.info("Setting Guest Wi-Fi state on Keenetic: %s", "ENABLE" if enable else "DISABLE")
         if getattr(self, "mock_mode", False):
-            self._mock_guest_wifi = enable
-            return True
+            return self._mock_toggle_guest_wifi(enable)
 
         # Try GuestWiFi interface identifier
         payload = [
@@ -376,7 +359,7 @@ class KeeneticFilteringMixin:
     async def get_guest_wifi_status(self) -> Dict[str, Any]:
         """Checks whether Guest Wi-Fi (GuestWiFi / Bridge1) is enabled on Keenetic."""
         if getattr(self, "mock_mode", False):
-            return {"enabled": getattr(self, "_mock_guest_wifi", True), "interface": "GuestWiFi"}
+            return self._mock_get_guest_wifi_status()
 
         try:
             resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"interface": {}}}])

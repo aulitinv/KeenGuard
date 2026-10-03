@@ -1,4 +1,4 @@
-﻿"""Keenetic integration package."""
+"""Keenetic integration package."""
 from keenguard.core.keenetic.models import (
     HotspotHost,
     UPnPMapping,
@@ -6,6 +6,7 @@ from keenguard.core.keenetic.models import (
     is_unsafe_ip_for_blackhole,
 )
 from keenguard.core.keenetic.base import KeeneticBaseClient
+from keenguard.core.keenetic.mock_mixin import KeeneticMockMixin
 from keenguard.core.keenetic.client import KeeneticClient, keenetic_client, _on_router_config_change
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "is_host_lan_isolated",
     "is_unsafe_ip_for_blackhole",
     "KeeneticBaseClient",
+    "KeeneticMockMixin",
     "KeeneticClient",
     "keenetic_client",
     "_on_router_config_change",

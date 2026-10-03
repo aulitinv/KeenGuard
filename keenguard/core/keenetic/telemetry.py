@@ -14,18 +14,7 @@ class KeeneticTelemetryMixin:
     async def get_hotspot_hosts(self) -> List[HotspotHost]:
         """Pulls the current ARP & device table from Keenetic RAM."""
         if getattr(self, "mock_mode", False):
-            hosts = []
-            for h in getattr(self, "_mock_hosts", []):
-                d = dict(h)
-                if "segment" not in d:
-                    iface = str(d.get("interface", "")).lower()
-                    ip_str = str(d.get("ip", ""))
-                    if "guest" in iface or "bridge1" in iface or (ip_str and not ip_str.startswith("192.168.1.") and ip_str != "0.0.0.0"):
-                        d["segment"] = "Guest"
-                    else:
-                        d["segment"] = "Home"
-                hosts.append(HotspotHost(**d))
-            return hosts
+            return self._mock_get_hotspot_hosts()
 
         resp = await self._send_request("GET", "/rci/show/ip/hotspot")
         if resp and resp.status_code == 200:
@@ -79,7 +68,7 @@ class KeeneticTelemetryMixin:
     async def get_nat_table(self) -> List[Dict[str, Any]]:
         """Pulls the live active NAT connection table from Keenetic."""
         if getattr(self, "mock_mode", False):
-            return []
+            return self._mock_get_nat_table()
         resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"ip": {"nat": {}}}}])
         if resp and resp.status_code == 200:
             try:
@@ -100,11 +89,7 @@ class KeeneticTelemetryMixin:
     async def get_dns_cache(self) -> List[Dict[str, Any]]:
         """Extracts the DNS proxy cache from Keenetic router."""
         if getattr(self, "mock_mode", False):
-            return [
-                {"domain": "gateway.fe.apple-dns.net", "ip": "17.248.190.245", "ttl": 300},
-                {"domain": "api.dreame.tech", "ip": "47.91.78.162", "ttl": 60},
-                {"domain": "pool.ntp.org", "ip": "194.226.177.202", "ttl": 120}
-            ]
+            return self._mock_get_dns_cache()
         payload = [{"show": {"ip": {"dns": {"proxy": {"cache": {}}}}}}]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
         entries = []
@@ -160,38 +145,7 @@ class KeeneticTelemetryMixin:
     async def get_wifi_security(self) -> Dict[str, Any]:
         """Audits Wi-Fi configuration (WPA mode, WPS, Guest isolation) via Keenetic RCI."""
         if getattr(self, "mock_mode", False):
-            return {
-                "grade": "A+",
-                "score": 100,
-                "access_points": [
-                    {
-                        "interface": "WifiMaster0/AccessPoint0",
-                        "ssid": "Keenetic-Home",
-                        "band": "2.4 ГГц",
-                        "security": "WPA3 / WPA2 mixed",
-                        "security_type": "wpa3_mixed",
-                        "wps": False,
-                        "pmf": "optional"
-                    }
-                ],
-                "networks": [
-                    {
-                        "interface": "WifiMaster0/AccessPoint0",
-                        "ssid": "Keenetic-Home",
-                        "band": "2.4 ГГц",
-                        "security": "WPA3 / WPA2 mixed",
-                        "security_type": "wpa3_mixed",
-                        "wps": False,
-                        "pmf": "optional"
-                    }
-                ],
-                "wps_enabled": False,
-                "pmf_enabled": True,
-                "guest_network": {"configured": True, "isolated": True},
-                "guest_network_enabled": True,
-                "guest_isolation_enabled": True,
-                "recommendations": ["Рекомендуется установить PMF в режим 'Обязательно' для защиты от Deauth-атак."]
-            }
+            return self._mock_get_wifi_security()
 
         ap_query = [{"show": {"interface": {}}}]
         resp = await self._send_request("POST", "/rci/", json_data=ap_query)
@@ -346,16 +300,7 @@ class KeeneticTelemetryMixin:
         """Queries KeeneticOS cloud update status."""
         current_v = getattr(self, "last_version", "5.1.4") or "5.1.4"
         if getattr(self, "mock_mode", False):
-            return {
-                "status": "ok",
-                "current_version": current_v,
-                "latest_version": current_v,
-                "available_version": current_v,
-                "has_update": False,
-                "update_available": False,
-                "channel": "release",
-                "message": "Установлена актуальная версия KeeneticOS."
-            }
+            return self._mock_check_firmware_updates(current_v)
 
         try:
             resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"version": {}}}])
@@ -415,14 +360,7 @@ class KeeneticTelemetryMixin:
     async def get_dns_proxy_status(self) -> Dict[str, Any]:
         """Queries the active DNS proxy status and filtering engine from KeeneticOS."""
         if getattr(self, "mock_mode", False):
-            return {
-                "active": True,
-                "filter_engine": "adguard",
-                "rebind_protect": True,
-                "has_doh": True,
-                "has_dot": False,
-                "servers": ["94.140.14.14", "94.140.15.15"]
-            }
+            return self._mock_get_dns_proxy_status()
 
         try:
             resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"dns-proxy": {}}}])
@@ -461,10 +399,7 @@ class KeeneticTelemetryMixin:
     async def get_network_segments(self) -> List[Dict[str, Any]]:
         """Queries configured network segments and bridges from Keenetic."""
         if getattr(self, "mock_mode", False):
-            return [
-                {"id": "Home", "name": "Домашняя сеть", "interface": "Bridge0", "subnet": "192.168.1.0/24", "dhcp": True, "security_level": "trusted"},
-                {"id": "Guest", "name": "Гостевая сеть", "interface": "Bridge1", "subnet": "192.168.2.0/24", "dhcp": True, "security_level": "isolated"}
-            ]
+            return self._mock_get_network_segments()
 
         try:
             resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"interface": {}}}])

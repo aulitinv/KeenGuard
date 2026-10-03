@@ -17,7 +17,7 @@ class KeeneticCaptureMixin:
         Caches the result to avoid redundant network round-trips.
         """
         if getattr(self, "mock_mode", False):
-            return True
+            return self._mock_is_packet_capture_supported()
         if self._capture_supported is not None:
             return self._capture_supported
 
@@ -64,13 +64,7 @@ class KeeneticCaptureMixin:
         )
 
         if getattr(self, "mock_mode", False):
-            self._mock_captures[interface] = {
-                "payload": payload,
-                "file_path": f"capture_{interface}.pcap",
-                "target_ip": target_ip,
-                "is_running": True
-            }
-            return {"status": "ok", "interface": interface, "filter": payload.get("filter")}
+            return self._mock_start_packet_capture(interface, target_ip, payload)
 
         resp = await self._send_request("POST", "/rci/monitor/capture/interface", json_data=payload)
         if resp and resp.status_code in (200, 201, 204):
@@ -86,9 +80,7 @@ class KeeneticCaptureMixin:
         """
         logger.info("Stopping Keenetic hardware capture on %s", interface)
         if getattr(self, "mock_mode", False):
-            info = self._mock_captures.get(interface, {})
-            info["is_running"] = False
-            return info.get("file_path", f"capture_{interface}.pcap")
+            return self._mock_stop_packet_capture(interface)
 
         payload = {"name": interface, "enable": False}
         await self._send_request("POST", "/rci/monitor/capture/interface", json_data=payload)
@@ -119,29 +111,7 @@ class KeeneticCaptureMixin:
         local_dest_path.parent.mkdir(parents=True, exist_ok=True)
 
         if getattr(self, "mock_mode", False):
-            try:
-                from scapy.all import wrpcap, Ether, IP, TCP, UDP, Raw
-                pkts = [
-                    Ether(src="00:11:22:33:44:55", dst="AA:BB:CC:DD:EE:FF") /
-                    IP(src="192.168.1.105", dst="198.51.100.10") /
-                    TCP(sport=54321, dport=80, flags="PA") /
-                    Raw(load=b"GET /api/v1/telemetry HTTP/1.1\r\nHost: smart-tv-cloud.example.com\r\nUser-Agent: SmartTV/5.0\r\n\r\n"),
-                    Ether(src="00:11:22:33:44:55", dst="AA:BB:CC:DD:EE:FF") /
-                    IP(src="192.168.1.105", dst="192.168.1.1") /
-                    UDP(sport=53535, dport=53) /
-                    Raw(load=b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01")
-                ]
-                wrpcap(str(local_dest_path), pkts)
-                return True
-            except (OSError, ValueError, AttributeError) as e:
-                logger.error("Mock pcap generation failed: %s", e)
-                header = bytes([
-                    0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00
-                ])
-                local_dest_path.write_bytes(header)
-                return True
+            return self._mock_download_capture_file(local_dest_path)
 
         if not self._cookies:
             auth = await self.authenticate()
@@ -171,8 +141,7 @@ class KeeneticCaptureMixin:
         """
         logger.debug("Resetting Keenetic hardware capture on %s", interface)
         if getattr(self, "mock_mode", False):
-            self._mock_captures.pop(interface, None)
-            return True
+            return self._mock_reset_packet_capture(interface)
 
         payload = {"name": interface, "enable": False, "reset": True}
         resp = await self._send_request("POST", "/rci/monitor/capture/interface", json_data=payload)
