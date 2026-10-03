@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Callable, List
+import aiosqlite
 
 from keenguard.config import (
     settings as pydantic_settings,
@@ -76,7 +77,7 @@ class ConfigService:
         if target_type in (dict, list) or (isinstance(target_type, type) and issubclass(target_type, (dict, list))):
             try:
                 return json.loads(str_val)
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return getattr(self._settings, key, str_val)
 
         # Check for Path
@@ -88,7 +89,7 @@ class ConfigService:
         if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
             try:
                 return json.loads(stripped)
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
         return str_val
@@ -115,7 +116,7 @@ class ConfigService:
                 if hasattr(self._settings, k):
                     try:
                         setattr(self._settings, k, coerced)
-                    except Exception as ex:
+                    except (ValueError, TypeError, AttributeError) as ex:
                         logger.warning("Could not set attribute '%s' on Settings: %s", k, ex)
 
             # Seed database if credentials exist in .env but not yet in SQLite
@@ -123,7 +124,7 @@ class ConfigService:
                 await database.save_setting("telegram_bot_token", self._settings.telegram_bot_token)
             if getattr(self._settings, "telegram_chat_id", None) and "telegram_chat_id" not in db_settings:
                 await database.save_setting("telegram_chat_id", self._settings.telegram_chat_id)
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, OSError) as e:
             logger.error("Failed to load settings from database during initialize: %s", e)
 
         object.__setattr__(self, "_initialized", True)
@@ -156,7 +157,7 @@ class ConfigService:
         if hasattr(self._settings, key):
             try:
                 setattr(self._settings, key, value)
-            except Exception as ex:
+            except (ValueError, TypeError, AttributeError) as ex:
                 logger.warning("Could not update '%s' on Settings instance: %s", key, ex)
 
         if persist_db:
@@ -194,7 +195,7 @@ class ConfigService:
             if hasattr(self._settings, k):
                 try:
                     setattr(self._settings, k, v)
-                except Exception as ex:
+                except (ValueError, TypeError, AttributeError) as ex:
                     logger.warning("Could not update '%s' on Settings instance: %s", k, ex)
 
         if persist_db:
@@ -244,7 +245,7 @@ class ConfigService:
                     pihole_api_token=self.get("pihole_api_token"),
                     pihole_password=self.get("pihole_password"),
                 )
-        except Exception as e:
+        except (OSError, PermissionError, ValueError) as e:
             logger.warning("Failed to persist setting '%s' to .env: %s", key, e)
 
     def subscribe(self, key: str, callback: Callable[[str, Any], None]) -> None:
@@ -266,7 +267,7 @@ class ConfigService:
             try:
                 cb(key, value)
             except Exception as e:
-                logger.error("Error in config subscriber for key '%s': %s", key, e)
+                logger.exception("Error in config subscriber for key '%s': %s", key, e)
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
@@ -281,7 +282,7 @@ class ConfigService:
             if hasattr(self._settings, name):
                 try:
                     setattr(self._settings, name, value)
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     pass
             self._notify(name, value)
 

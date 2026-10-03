@@ -19,7 +19,7 @@ def load_known_services() -> Dict[int, Dict[str, Any]]:
             with open(json_path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
             return {int(port): info for port, info in raw.items()}
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
             logger.warning("Failed to load known services catalog from %s: %s", json_path, e)
     return {}
 
@@ -38,7 +38,7 @@ def load_cidr_providers() -> List[Any]:
                 (ipaddress.ip_network(item["cidr"]), item["name"], item["country"], item["flag"])
                 for item in raw
             ]
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
             logger.warning("Failed to load CIDR providers catalog from %s: %s", json_path, e)
     return []
 
@@ -113,7 +113,7 @@ async def lookup_geoip_online(ip: str) -> Dict[str, str]:
                     res = {"provider": org, "country": cc, "flag": flag}
                     _GEOIP_CACHE[ip] = res
                     return res
-    except Exception as e:
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         logger.debug("Online GeoIP lookup error for %s: %s", ip, e)
 
     return identify_geoip(ip)

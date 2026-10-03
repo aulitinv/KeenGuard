@@ -1,6 +1,7 @@
-﻿"""Keenetic device policies, segment isolation, mDNS relay and DLNA access mixin."""
+"""Keenetic device policies, segment isolation, mDNS relay and DLNA access mixin."""
 import logging
 from typing import Dict, Any
+import httpx
 
 logger = logging.getLogger("keenguard.keenetic.policies")
 
@@ -62,7 +63,7 @@ class KeeneticPoliciesMixin:
             if resp and resp.status_code == 200:
                 logger.info("mDNS relay (UDP proxy port 5353) enabled on Keenetic")
                 return {"status": "ok", "method": "udp-proxy"}
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError) as e:
             logger.debug("UDP proxy method failed: %s", e)
 
         # Method 2: Enable IGMP proxy
@@ -72,7 +73,7 @@ class KeeneticPoliciesMixin:
             if resp2 and resp2.status_code == 200:
                 logger.info("IGMP proxy enabled on Keenetic as mDNS relay fallback")
                 return {"status": "ok", "method": "igmp-proxy"}
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError) as e:
             logger.debug("IGMP proxy method failed: %s", e)
 
         logger.warning(

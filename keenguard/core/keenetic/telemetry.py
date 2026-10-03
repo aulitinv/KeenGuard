@@ -1,6 +1,8 @@
 """Keenetic telemetry and status discovery mixin."""
+import json
 import logging
 from typing import Dict, Any, List, Optional
+import httpx
 from keenguard.core.keenetic.models import HotspotHost
 
 logger = logging.getLogger("keenguard.keenetic.telemetry")
@@ -84,7 +86,7 @@ class KeeneticTelemetryMixin:
                 data = resp.json()
                 if isinstance(data, list) and len(data) > 0:
                     return data[0].get("show", {}).get("ip", {}).get("nat", [])
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.error("Error parsing Keenetic NAT table: %s", e)
         return []
 
@@ -120,7 +122,7 @@ class KeeneticTelemetryMixin:
                                     "ip": item.get("address") or item.get("ip"),
                                     "ttl": item.get("ttl", 0)
                                 })
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.debug("Error parsing DNS cache: %s", e)
 
         if not entries:
@@ -150,7 +152,7 @@ class KeeneticTelemetryMixin:
                                         srv_host = comment_part.split("@", 1)[1].split()[0].strip()
                                         if "." in srv_host:
                                             entries.append({"domain": srv_host, "ip": None, "ttl": 3600})
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.debug("Error in dns-proxy fallback: %s", e)
 
         return entries
@@ -203,7 +205,7 @@ class KeeneticTelemetryMixin:
 
         try:
             raw_interfaces = resp.json()[0].get("show", {}).get("interface", {})
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error parsing interfaces JSON: %s", e)
             raw_interfaces = {}
 
@@ -397,7 +399,7 @@ class KeeneticTelemetryMixin:
                 "channel": channel,
                 "message": msg
             }
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error checking firmware updates: %s", e)
             return {
                 "status": "ok",
@@ -451,7 +453,7 @@ class KeeneticTelemetryMixin:
                         "has_dot": has_dot,
                         "servers": servers
                     }
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching dns-proxy status: %s", e)
 
         return {"active": False, "filter_engine": None, "rebind_protect": False, "has_doh": False, "has_dot": False, "servers": []}
@@ -490,7 +492,7 @@ class KeeneticTelemetryMixin:
                                 "security_level": "isolated" if is_guest else "trusted"
                             })
                     return segments
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching network segments: %s", e)
 
         return [

@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 import logging
 import time
 from typing import Optional, Dict, Any
+import aiosqlite
+import httpx
 
 from keenguard.config import settings
 from keenguard.db.database import db
@@ -54,7 +56,7 @@ class BackgroundScheduler:
                         logger.info("Triggering scheduled Security Digest...")
                         try:
                             await digest_generator.send_digest_to_telegram(hours=24, force=False)
-                        except Exception as e:
+                        except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                             logger.error("Error sending scheduled digest: %s", e)
 
                 # 2. Daily Scheduled Device Audit
@@ -64,7 +66,7 @@ class BackgroundScheduler:
                         logger.info("Triggering scheduled IoT/Device audit...")
                         try:
                             await self._run_scheduled_audit()
-                        except Exception as e:
+                        except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                             logger.error("Error running scheduled audit: %s", e)
 
                 # 3. Daily DB Cleanup
@@ -77,13 +79,13 @@ class BackgroundScheduler:
                 # 4. Smart Night Mode Check & Transitions
                 try:
                     await self._check_night_mode_transitions(now)
-                except Exception as e:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                     logger.error("Error checking night mode transitions: %s", e)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Unexpected error in scheduler loop: %s", e)
+                logger.exception("Unexpected error in scheduler loop: %s", e)
 
             # Sleep for 60 seconds
             await asyncio.sleep(60)
@@ -123,7 +125,7 @@ class BackgroundScheduler:
                     profile=target.profile
                 )
                 await asyncio.sleep(dur + 2)
-            except Exception as e:
+            except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                 logger.warning("Error auditing device %s during scheduled run: %s", target.hostname, e)
 
     async def _is_device_active(self, d: Any, threshold_minutes: int) -> bool:
@@ -156,9 +158,9 @@ class BackgroundScheduler:
                     dt = datetime.fromisoformat(d.last_seen)
                     if (datetime.now(timezone.utc) - dt).total_seconds() < 60:
                         return True
-                except Exception:
+                except (ValueError, TypeError):
                     pass
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
             logger.debug("Error checking device activity for %s: %s", getattr(d, "mac", ""), e)
         return False
 
@@ -212,7 +214,7 @@ class BackgroundScheduler:
                                 await profile_manager.toggle_wan(d.mac, block=True)
                                 state["wan_blocked_by_night_mode"] = True
                                 logger.info("Smart Night Mode: WAN blocked for %s", d.hostname or mac)
-                            except Exception as ex:
+                            except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
                                 logger.error("Failed to block WAN in night mode for %s: %s", mac, ex)
 
             else:
@@ -224,7 +226,7 @@ class BackgroundScheduler:
                         state["wan_blocked_by_night_mode"] = False
                         state["in_night_mode"] = False
                         logger.info("Smart Night Mode: WAN unblocked in morning for %s", d.hostname or mac)
-                    except Exception as ex:
+                    except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
                         logger.error("Failed to unblock WAN in morning for %s: %s", mac, ex)
 
                 # Morning alert: send when target morning hour arrives (configured digest_schedule_hour)
@@ -265,7 +267,7 @@ class BackgroundScheduler:
                         try:
                             from keenguard.core.notifier import notifier
                             await notifier.send_alert(ev)
-                        except Exception as ne:
+                        except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as ne:
                             logger.debug("Failed to send morning TV alert to Telegram: %s", ne)
 
                 # Reset night state for following night

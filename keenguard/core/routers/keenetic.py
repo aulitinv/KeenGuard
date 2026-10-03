@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from typing import List, Dict, Any, Set, Optional
+import httpx
 
 from keenguard.core.routers.base import BaseRouterBackend
 from keenguard.core.routers.models import RouterHost, RouterSystemInfo
@@ -22,7 +23,7 @@ class KeeneticBackend(BaseRouterBackend):
         try:
             from keenguard.web.state import get_keenetic_client
             return get_keenetic_client()
-        except Exception:
+        except (ImportError, AttributeError):
             return keenetic_client
 
     @property
@@ -53,11 +54,11 @@ class KeeneticBackend(BaseRouterBackend):
             if hosts is not None:
                 try:
                     await self.client.refresh_router_interfaces()
-                except Exception as ex:
+                except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError) as ex:
                     logger.debug("Interface refresh error: %s", ex)
                 return True
             return False
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.warning("Keenetic connection check failed: %s", e)
             return False
 
@@ -97,7 +98,7 @@ class KeeneticBackend(BaseRouterBackend):
                 platform="keenetic",
                 extra=status_data if isinstance(status_data, dict) else {}
             )
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching Keenetic system info: %s", e)
             last_m = getattr(self.client, "last_model", None)
             model = last_m if isinstance(last_m, str) else "Keenetic"
@@ -244,7 +245,7 @@ class KeeneticBackend(BaseRouterBackend):
                             addr = if_data.get("address")
                             if addr and addr != "0.0.0.0":
                                 return str(addr)
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError, IndexError):
             pass
         return None
 
@@ -282,7 +283,7 @@ class KeeneticBackend(BaseRouterBackend):
                         "rx_speed_bps": rx_speed,
                         "tx_speed_bps": tx_speed
                     }
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Keenetic interface stats query error: %s", e)
         return {"rx_bytes": 0, "tx_bytes": 0, "rx_speed_bps": 0, "tx_speed_bps": 0}
 

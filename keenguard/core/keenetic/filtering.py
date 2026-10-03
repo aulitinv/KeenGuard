@@ -1,7 +1,9 @@
 """Keenetic network filtering, UPnP management, DNS sinkholes, and IP blackholing mixin."""
 import ipaddress
+import json
 import logging
 from typing import Dict, Any, List, Optional, Tuple
+import httpx
 from keenguard.core.keenetic.models import UPnPMapping, is_unsafe_ip_for_blackhole
 
 logger = logging.getLogger("keenguard.keenetic.filtering")
@@ -114,7 +116,7 @@ class KeeneticFilteringMixin:
                             succeeded.append(d)
                 else:
                     succeeded = valid_domains
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.debug("Error parsing Keenetic RCI batch add response: %s", e)
                 succeeded = valid_domains
         else:
@@ -175,7 +177,7 @@ class KeeneticFilteringMixin:
                             succeeded.append(d)
                 else:
                     succeeded = clean_domains
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.debug("Error parsing Keenetic RCI batch remove response: %s", e)
                 succeeded = clean_domains
         else:
@@ -209,7 +211,7 @@ class KeeneticFilteringMixin:
                             parts = clean_line.split()
                             if len(parts) >= 4:
                                 sinkholes.add(parts[2].lower())
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching active sinkholes from Keenetic: %s", e)
 
         return sorted(list(sinkholes))
@@ -276,7 +278,7 @@ class KeeneticFilteringMixin:
                             succeeded.append(ip)
                 else:
                     succeeded = valid_ips
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.debug("Error parsing Keenetic RCI IP blackhole add response: %s", e)
                 succeeded = valid_ips
         else:
@@ -334,7 +336,7 @@ class KeeneticFilteringMixin:
                                     blackholes.add(target_ip)
                                 except ValueError:
                                     pass
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching active IP blackholes from Keenetic: %s", e)
         return sorted(list(blackholes))
 
@@ -387,6 +389,6 @@ class KeeneticFilteringMixin:
                             info = ifaces[if_name]
                             is_up = bool(info.get("up", False) or info.get("state") == "up")
                             return {"enabled": is_up, "interface": if_name}
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Failed getting guest wifi status: %s", e)
         return {"enabled": False, "interface": "GuestWiFi"}

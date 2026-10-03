@@ -1,5 +1,6 @@
 """OpenWrt router backend implementation via /ubus JSON-RPC."""
 import asyncio
+import binascii
 import logging
 import re
 import time
@@ -132,7 +133,11 @@ class OpenWrtBackend(BaseRouterBackend):
                     self.session_expires = now + expires_in
                     logger.info("OpenWrt ubus session established (valid %ds)", expires_in)
                     return token
-            except Exception as e:
+            except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+                logger.error("OpenWrt unreachable during authentication: %s", e)
+                self.session_token = None
+                return None
+            except (KeyError, TypeError, ValueError, RuntimeError, httpx.HTTPError) as e:
                 logger.error("OpenWrt authentication failed: %s", e)
                 self.session_token = None
                 return None
@@ -143,7 +148,10 @@ class OpenWrtBackend(BaseRouterBackend):
         try:
             token = await self._ensure_authenticated()
             return token is not None
-        except Exception as e:
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.warning("OpenWrt unreachable: %s", e)
+            return False
+        except (KeyError, TypeError, ValueError, RuntimeError, httpx.HTTPError) as e:
             logger.warning("OpenWrt connection failed: %s", e)
             return False
 
@@ -171,7 +179,7 @@ class OpenWrtBackend(BaseRouterBackend):
                 version = str(rel.get("description"))
 
             extra["system"] = sys_info
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt system info error: %s", e)
 
         try:
@@ -184,7 +192,7 @@ class OpenWrtBackend(BaseRouterBackend):
             if rel_b.get("description"):
                 version = str(rel_b.get("description"))
             extra["board"] = board_info
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt board info error: %s", e)
 
         self.last_model = model
@@ -229,7 +237,7 @@ class OpenWrtBackend(BaseRouterBackend):
                         access="deny" if is_blocked else "permit",
                         segment="Home"
                     )
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt luci-rpc getHostHints fallback: %s", e)
 
         # 2. Try dhcp get_leases (or luci getDHCPLeases)
@@ -261,7 +269,7 @@ class OpenWrtBackend(BaseRouterBackend):
                         access="deny" if is_blocked else "permit",
                         segment="Home"
                     )
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt dhcp get_leases fallback: %s", e)
 
         # Refresh WAN block state from firewall if cache empty
@@ -276,7 +284,7 @@ class OpenWrtBackend(BaseRouterBackend):
                             self._blocked_macs_cache.add(b_mac)
                             if b_mac in hosts_map:
                                 hosts_map[b_mac].access = "deny"
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.debug("Error checking OpenWrt firewall rules: %s", e)
 
         return list(hosts_map.values())
@@ -315,19 +323,22 @@ class OpenWrtBackend(BaseRouterBackend):
                         "section": rule_name
                     })
                     await self._call_ubus("uci", "commit", {"config": "firewall"})
-                except Exception as del_err:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as del_err:
                     logger.debug("Delete rule %s failed (might not exist): %s", rule_name, del_err)
                 self._blocked_macs_cache.discard(clean_mac)
 
             # Reload firewall
             try:
                 await self._call_ubus("luci-rpc", "setInitStatus", {"name": "firewall", "action": "reload"})
-            except Exception:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                 pass
 
             logger.info("OpenWrt WAN access for %s set to %s", clean_mac, "allow" if allow else "block")
             return True
-        except Exception as e:
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.error("OpenWrt unreachable: %s", e)
+            return False
+        except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to set WAN access on OpenWrt for %s: %s", clean_mac, e)
             return False
 
@@ -337,7 +348,7 @@ class OpenWrtBackend(BaseRouterBackend):
             await self._call_ubus("system", "reboot", {})
             logger.warning("OpenWrt reboot command issued successfully")
             return True
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to trigger OpenWrt reboot: %s", e)
             return False
 
@@ -358,11 +369,14 @@ class OpenWrtBackend(BaseRouterBackend):
             await self._call_ubus("uci", "commit", {"config": "dhcp"})
             try:
                 await self._call_ubus("luci-rpc", "setInitStatus", {"name": "dnsmasq", "action": "reload"})
-            except Exception:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                 pass
             logger.info("OpenWrt DNS sinkhole added: %s -> %s", clean_domain, ip)
             return True
-        except Exception as e:
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.error("OpenWrt unreachable: %s", e)
+            return False
+        except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to add DNS sinkhole on OpenWrt: %s", e)
             return False
 
@@ -380,11 +394,14 @@ class OpenWrtBackend(BaseRouterBackend):
             await self._call_ubus("uci", "commit", {"config": "dhcp"})
             try:
                 await self._call_ubus("luci-rpc", "setInitStatus", {"name": "dnsmasq", "action": "reload"})
-            except Exception:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                 pass
             logger.info("OpenWrt DNS sinkhole removed: %s", clean_domain)
             return True
-        except Exception as e:
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.error("OpenWrt unreachable: %s", e)
+            return False
+        except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to remove DNS sinkhole on OpenWrt: %s", e)
             return False
 
@@ -398,7 +415,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     is_up = bool(iface.get("up", False))
                     return {"enabled": is_up, "interface": iface.get("interface"), "supported": True}
             return {"enabled": False, "interface": None, "supported": False}
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt guest wifi status error: %s", e)
             return {"enabled": False, "supported": False}
 
@@ -415,7 +432,10 @@ class OpenWrtBackend(BaseRouterBackend):
             await self._call_ubus("network.interface", action, {"interface": iface})
             logger.info("OpenWrt interface %s set to %s", iface, action)
             return True
-        except Exception as e:
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.error("OpenWrt unreachable: %s", e)
+            return False
+        except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to toggle OpenWrt interface %s: %s", iface, e)
             return False
 
@@ -441,7 +461,7 @@ class OpenWrtBackend(BaseRouterBackend):
                         parts = [p for p in addr.strip().split("/") if p]
                         if len(parts) >= 2 and parts[-1] in ("0.0.0.0", "127.0.0.1", "::"):
                             sinkholes.append(parts[0].lower())
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Failed to read OpenWrt active sinkholes: %s", e)
         return sorted(list(set(sinkholes)))
 
@@ -462,7 +482,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     "value": entry_val
                 })
                 succeeded.append(d)
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.debug("Error adding OpenWrt sinkhole for %s: %s", d, e)
                 failed.append(d)
 
@@ -470,9 +490,9 @@ class OpenWrtBackend(BaseRouterBackend):
             await self._call_ubus("uci", "commit", {"config": "dhcp"})
             try:
                 await self._call_ubus("luci-rpc", "setInitStatus", {"name": "dnsmasq", "action": "reload"})
-            except Exception:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                 pass
-        except Exception as commit_err:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as commit_err:
             logger.error("Failed committing OpenWrt DNS sinkhole rules: %s", commit_err)
 
         return succeeded, failed
@@ -494,7 +514,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     "value": entry_val
                 })
                 succeeded.append(d)
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.debug("Error removing OpenWrt sinkhole for %s: %s", d, e)
                 failed.append(d)
 
@@ -502,9 +522,9 @@ class OpenWrtBackend(BaseRouterBackend):
             await self._call_ubus("uci", "commit", {"config": "dhcp"})
             try:
                 await self._call_ubus("luci-rpc", "setInitStatus", {"name": "dnsmasq", "action": "reload"})
-            except Exception:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                 pass
-        except Exception as commit_err:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as commit_err:
             logger.error("Failed committing OpenWrt DNS sinkhole removal: %s", commit_err)
 
         return succeeded, failed
@@ -521,7 +541,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     dest_ip = sec_data.get("dest_ip")
                     if dest_ip:
                         ips.append(dest_ip)
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Error checking OpenWrt firewall blackhole rules: %s", e)
         return sorted(list(set(ips)))
 
@@ -545,7 +565,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     }
                 })
                 succeeded.append(clean_ip)
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.debug("Error adding OpenWrt IP blackhole for %s: %s", clean_ip, e)
                 failed.append(clean_ip)
 
@@ -554,9 +574,9 @@ class OpenWrtBackend(BaseRouterBackend):
                 await self._call_ubus("uci", "commit", {"config": "firewall"})
                 try:
                     await self._call_ubus("luci-rpc", "setInitStatus", {"name": "firewall", "action": "reload"})
-                except Exception:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                     pass
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.error("Failed committing OpenWrt IP blackhole rules: %s", e)
         return succeeded, failed
 
@@ -572,7 +592,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     "section": rule_name
                 })
                 succeeded.append(clean_ip)
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.debug("Error removing OpenWrt IP blackhole for %s: %s", clean_ip, e)
                 failed.append(clean_ip)
 
@@ -581,9 +601,9 @@ class OpenWrtBackend(BaseRouterBackend):
                 await self._call_ubus("uci", "commit", {"config": "firewall"})
                 try:
                     await self._call_ubus("luci-rpc", "setInitStatus", {"name": "firewall", "action": "reload"})
-                except Exception:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
                     pass
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                 logger.error("Failed committing OpenWrt IP blackhole removal: %s", e)
         return succeeded, failed
 
@@ -604,7 +624,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     "packets": int(item.get("packets") or 0)
                 })
             return entries
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt getConntrackList fallback: %s", e)
             return []
 
@@ -636,7 +656,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     "subnet": f"{subnet}/{mask}" if subnet else "",
                     "security_level": "guest" if is_guest else ("external" if is_wan else "private")
                 })
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt network segments query error: %s", e)
 
         if not segments:
@@ -738,7 +758,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     elif not isolate and "guest" in ssid.lower():
                         score -= 15
                         recommendations.append(f"В гостевой сети '{ssid}' отключена изоляция клиентов (option isolate '1').")
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt Wi-Fi security query error: %s", e)
 
         score = max(0, min(100, score))
@@ -769,7 +789,7 @@ class OpenWrtBackend(BaseRouterBackend):
                     addr = addrs[0].get("address")
                     if addr:
                         return str(addr)
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             pass
 
         try:
@@ -785,7 +805,7 @@ class OpenWrtBackend(BaseRouterBackend):
                         addr = addrs[0].get("address")
                         if addr:
                             return str(addr)
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("OpenWrt WAN IP discovery error: %s", e)
         return None
 
@@ -800,7 +820,7 @@ class OpenWrtBackend(BaseRouterBackend):
                         "rx_bytes": int(stats.get("rx_bytes") or 0),
                         "tx_bytes": int(stats.get("tx_bytes") or 0)
                     }
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             pass
 
         try:
@@ -814,7 +834,7 @@ class OpenWrtBackend(BaseRouterBackend):
                             "rx_bytes": int(stats.get("rx_bytes") or 0),
                             "tx_bytes": int(stats.get("tx_bytes") or 0)
                         }
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             pass
         return {"rx_bytes": 0, "tx_bytes": 0}
 
@@ -842,19 +862,19 @@ class OpenWrtBackend(BaseRouterBackend):
             res = await self._call_ubus("file", "exec", {"command": "which", "params": ["tcpdump"]})
             if res and (res.get("code") == 0 or "/tcpdump" in str(res.get("stdout", ""))):
                 return True
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             pass
         try:
             stat_res = await self._call_ubus("file", "stat", {"path": "/usr/sbin/tcpdump"})
             if stat_res and stat_res.get("type") in ("file", "regular"):
                 return True
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             pass
         try:
             stat_res2 = await self._call_ubus("file", "stat", {"path": "/usr/bin/tcpdump"})
             if stat_res2 and stat_res2.get("type") in ("file", "regular"):
                 return True
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             pass
         return False
 
@@ -897,7 +917,10 @@ class OpenWrtBackend(BaseRouterBackend):
             self._current_capture_file = out_path
             logger.info("OpenWrt tcpdump capture started for target %s -> %s", target, out_path)
             return {"status": "running", "pcap_file": out_path}
-        except Exception as e:
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.warning("OpenWrt unreachable during packet capture start: %s", e)
+            return {"status": "error", "message": str(e)}
+        except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.warning("Failed to start OpenWrt packet capture: %s", e)
             return {"status": "error", "message": str(e)}
 
@@ -908,7 +931,7 @@ class OpenWrtBackend(BaseRouterBackend):
                 "command": "killall",
                 "params": ["-SIGINT", "tcpdump"]
             })
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Stop tcpdump error: %s", e)
         return self._current_capture_file or "/tmp/keenguard_capture.pcap"
 
@@ -929,7 +952,7 @@ class OpenWrtBackend(BaseRouterBackend):
                 dest.write_bytes(raw_bytes)
                 logger.info("Successfully downloaded %d bytes PCAP from OpenWrt to %s", len(raw_bytes), dest)
                 return True
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, OSError, KeyError, TypeError, ValueError, binascii.Error) as e:
             logger.debug("Failed reading PCAP file from OpenWrt: %s", e)
         return False
 
@@ -938,5 +961,5 @@ class OpenWrtBackend(BaseRouterBackend):
         try:
             await self._call_ubus("file", "remove", {"path": "/tmp/keenguard_capture.pcap"})
             return True
-        except Exception:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             return False

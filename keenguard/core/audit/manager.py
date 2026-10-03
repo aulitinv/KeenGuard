@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import struct
 from typing import Dict, Any, List, Optional
+import aiosqlite
+import httpx
 from scapy.all import Packet, Ether, IP, IPv6, rdpcap
 
 from keenguard.config import settings as default_settings
@@ -105,7 +108,7 @@ class TrafficAuditManager:
                     presets_dict = {p.id: p for p in presets_list}
                     nat_entries = await router_manager.get_nat_table()
                     session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
-                except Exception as e:
+                except (aiosqlite.Error, httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError, AttributeError) as e:
                     logger.error("Error updating network audit NAT table: %s", e)
 
                 await asyncio.sleep(2.0)
@@ -117,7 +120,7 @@ class TrafficAuditManager:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error("Error in network audit loop: %s", e)
+            logger.exception("Error in network audit loop: %s", e)
 
     async def stop_network_audit(self) -> Optional[Dict[str, Any]]:
         async with self._lock:
@@ -138,7 +141,7 @@ class TrafficAuditManager:
                 presets_dict = {p.id: p for p in presets_list}
                 nat_entries = await router_manager.get_nat_table()
                 session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
-            except Exception as e:
+            except (aiosqlite.Error, httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError, AttributeError) as e:
                 logger.warning("Failed to update final NAT table for network audit: %s", e)
 
             report = session.generate_network_report()
@@ -172,7 +175,7 @@ class TrafficAuditManager:
             for dq in session.dns_queries.values():
                 try:
                     await db.record_dns_query(dq["domain"], mac="NETWORK", ip="0.0.0.0")
-                except Exception as e:
+                except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                     logger.debug("Failed recording DNS query %s during network audit: %s", dq.get("domain"), e)
 
             logger.info("Network traffic audit completed. Report %s saved.", report["id"])
@@ -203,13 +206,13 @@ class TrafficAuditManager:
                         vendor = dev.vendor
                     if dev.preset_id:
                         dev_preset = await db.get_preset(dev.preset_id)
-            except Exception as e:
+            except (aiosqlite.Error, KeyError, TypeError, ValueError, AttributeError) as e:
                 logger.debug("Failed retrieving device metadata for %s: %s", mac, e)
 
             if not dev_preset and dev_profile:
                 try:
                     dev_preset = await db.get_preset(f"preset_{dev_profile}")
-                except Exception as e:
+                except (aiosqlite.Error, KeyError, TypeError, ValueError, AttributeError) as e:
                     logger.debug("Failed retrieving default preset for %s: %s", dev_profile, e)
 
             session = AuditSession(
@@ -237,7 +240,7 @@ class TrafficAuditManager:
                             session.capture_source = "router_hardware"
                             session._hw_capture_active = True
                             logger.info("%s hardware capture started for audit %s (%s, IP: %s)", backend.platform_name, session.session_id, mac, session.ip)
-                except Exception as e:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                     logger.debug("Failed to start router hardware capture for audit %s: %s", session.session_id, e)
 
             self.active_sessions[mac] = session
@@ -271,7 +274,7 @@ class TrafficAuditManager:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error("Error in audit session loop for %s: %s", session.mac, e)
+            logger.exception("Error in audit session loop for %s: %s", session.mac, e)
 
     async def stop_audit(self, mac: str) -> Optional[Dict[str, Any]]:
         mac = mac.upper()
@@ -291,7 +294,7 @@ class TrafficAuditManager:
                 try:
                     entries = await router_manager.get_device_nat_connections(session.ip)
                     session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
-                except Exception as e:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
                     logger.warning("Failed updating NAT entries for %s on audit stop: %s", session.ip, e)
 
             # If hardware capture was active on router, finalize it, download pcap and parse packets
@@ -309,10 +312,10 @@ class TrafficAuditManager:
                                     for p in rci_pkts:
                                         session.add_packet(p)
                                     logger.info("Loaded %d hardware packets from %s for audit %s", len(rci_pkts), backend.platform_name, session.session_id)
-                            except Exception as pe:
+                            except (struct.error, OSError, EOFError, KeyError, TypeError, ValueError) as pe:
                                 logger.debug("Error parsing downloaded audit PCAP: %s", pe)
                     await backend.reset_packet_capture(interface="Bridge0")
-                except Exception as e:
+                except (httpx.HTTPError, ConnectionError, RuntimeError, OSError, KeyError, TypeError, ValueError) as e:
                     logger.error("Error finalizing router capture for audit session %s: %s", session.session_id, e)
 
             report = session.generate_report()
@@ -346,7 +349,7 @@ class TrafficAuditManager:
             for dq in session.dns_queries.values():
                 try:
                     await db.record_dns_query(dq["domain"], mac=report["mac"], ip=report["ip"])
-                except Exception as e:
+                except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                     logger.debug("Failed recording DNS query %s for %s: %s", dq.get("domain"), report.get("mac"), e)
 
             logger.info("Traffic audit completed for %s. Report %s saved.", mac, report["id"])

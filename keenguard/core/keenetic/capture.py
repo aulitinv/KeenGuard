@@ -1,4 +1,5 @@
-﻿"""Keenetic hardware packet capture management mixin."""
+"""Keenetic hardware packet capture management mixin."""
+import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -28,7 +29,7 @@ class KeeneticCaptureMixin:
                 self._capture_supported = False
             else:
                 return False
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, TimeoutError, KeyError, TypeError, ValueError) as e:
             logger.debug("Error checking packet capture support: %s", e)
             return False
         return bool(self._capture_supported)
@@ -102,7 +103,7 @@ class KeeneticCaptureMixin:
                     if isinstance(item, dict) and item.get("name") == interface:
                         capture_file = item.get("captureFilePath") or item.get("file") or item.get("path") or item.get("capture-file")
                         break
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                 logger.debug("Error parsing capture status JSON: %s", e)
 
         if not capture_file:
@@ -132,7 +133,7 @@ class KeeneticCaptureMixin:
                 ]
                 wrpcap(str(local_dest_path), pkts)
                 return True
-            except Exception as e:
+            except (OSError, ValueError, AttributeError) as e:
                 logger.error("Mock pcap generation failed: %s", e)
                 header = bytes([
                     0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
@@ -160,7 +161,7 @@ class KeeneticCaptureMixin:
                 else:
                     logger.warning("Router capture download failed (HTTP %d, %d bytes)", resp.status_code, len(resp.content))
                     return False
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, OSError, TimeoutError) as e:
             logger.error("Failed to download capture file from %s: %s", url, e)
             return False
 
@@ -184,5 +185,5 @@ class KeeneticCaptureMixin:
         for iface in ("Bridge0", "Bridge1", "ISP"):
             try:
                 await self.reset_packet_capture(iface)
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, TimeoutError, KeyError, TypeError, ValueError) as e:
                 logger.debug("Failed resetting packet capture on %s: %s", iface, e)

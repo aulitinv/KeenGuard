@@ -1,6 +1,7 @@
-﻿"""Base Keenetic RCI HTTP client with NDM Challenge-Response authentication."""
+"""Base Keenetic RCI HTTP client with NDM Challenge-Response authentication."""
 import asyncio
 import hashlib
+import json
 import logging
 from typing import Dict, Any, List, Optional, Set
 import httpx
@@ -102,7 +103,7 @@ class KeeneticBaseClient:
                                 v_data = v_res.json()
                                 version_title = v_data.get("title", "KeeneticOS")
                                 model_name = v_data.get("model", realm)
-                        except Exception as e:
+                        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                             logger.debug("Failed fetching Keenetic version info: %s", e)
 
                         self.last_model = model_name
@@ -117,7 +118,7 @@ class KeeneticBaseClient:
                                             self.router_ips.add(if_obj["address"])
                                         if if_obj.get("mac"):
                                             self.router_macs.add(if_obj["mac"].upper())
-                        except Exception as e:
+                        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
                             logger.debug("Failed fetching Keenetic interface info: %s", e)
 
                         logger.info("Keenetic auth successful for %s (%s)", model_name, self.base_url)
@@ -128,9 +129,12 @@ class KeeneticBaseClient:
                     else:
                         return {"status": "error", "message": f"Ошибка авторизации HTTP {r2.status_code}"}
 
-            except Exception as e:
+            except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
                 logger.error("Keenetic connection error: %s", e)
                 return {"status": "unreachable", "message": f"Не удалось подключиться к {target_host}: {e}"}
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as e:
+                logger.error("Keenetic auth response error: %s", e)
+                return {"status": "error", "message": f"Ошибка ответа Keenetic: {e}"}
 
     async def test_connection(self) -> Dict[str, Any]:
         """Tests connectivity and authentication."""
@@ -150,9 +154,12 @@ class KeeneticBaseClient:
                     return await self.authenticate()
                 else:
                     return {"status": "error", "message": f"HTTP {resp.status_code}: {resp.text}"}
-        except Exception as e:
-            logger.warning("Keenetic connection test failed: %s", e)
+        except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
+            logger.warning("Keenetic connection test failed (unreachable): %s", e)
             return {"status": "unreachable", "message": str(e)}
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as e:
+            logger.warning("Keenetic connection test error: %s", e)
+            return {"status": "error", "message": str(e)}
 
     async def refresh_router_interfaces(self):
         """Fetches all local IP and MAC addresses belonging to router interfaces to prevent false positive alerts."""
@@ -170,7 +177,7 @@ class KeeneticBaseClient:
                                 self.router_ips.add(ip)
                             if mac:
                                 self.router_macs.add(mac.upper())
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Could not refresh router interfaces: %s", e)
 
     def is_router_entity(self, ip: Optional[str] = None, mac: Optional[str] = None) -> bool:
@@ -204,7 +211,7 @@ class KeeneticBaseClient:
                         await self.authenticate()
                         continue
                     return resp
-            except Exception as e:
+            except (httpx.HTTPError, ConnectionError, TimeoutError) as e:
                 logger.error("Keenetic request error (%s %s): %s", method, path, e)
                 return None
         return None

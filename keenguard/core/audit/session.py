@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import struct
 from typing import Dict, Any, List, Optional
 from scapy.all import Packet, IP, IPv6, TCP, UDP, Raw
 
@@ -145,7 +146,7 @@ def extract_dns_query(pkt: Packet) -> Optional[str]:
                     clean_d = qname.rstrip(".").lower()
                     if clean_d and len(clean_d) > 2 and not clean_d.startswith("in-addr.arpa"):
                         return clean_d
-    except Exception as e:
+    except (struct.error, IndexError, AttributeError, ValueError, UnicodeDecodeError) as e:
         logger.debug("DNS packet parse exception: %s", e)
     return None
 
@@ -218,7 +219,7 @@ def extract_http_inspection(pkt: Packet) -> Optional[Dict[str, Any]]:
                         "dst_ip": dst_ip,
                         "dst_port": dport
                     }
-    except Exception as e:
+    except (struct.error, IndexError, AttributeError, ValueError, UnicodeDecodeError) as e:
         logger.debug("HTTP inspection parse exception: %s", e)
     return None
 

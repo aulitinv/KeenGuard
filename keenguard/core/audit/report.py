@@ -39,7 +39,7 @@ def save_pcap_packets(packets: List[Packet], pcap_filename: str, pcap_dir: Optio
             with open(pcap_path, "wb") as f:
                 f.write(header)
             return True
-    except Exception as e:
+    except OSError as e:
         logger.error("Failed to dump audit PCAP %s: %s", pcap_filename, e)
         return False
 

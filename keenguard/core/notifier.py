@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import json
 import logging
 from pathlib import Path
 import re
@@ -92,7 +93,7 @@ class TelegramNotifier:
                     err = data.get("description", f"HTTP {res.status_code}")
                     logger.warning("Telegram API error: %s", err)
                     return {"status": "error", "message": f"Ошибка Telegram: {err}"}
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to deliver Telegram notification: %s", e)
             return {"status": "error", "message": f"Сетевая ошибка отправки: {str(e)}"}
 
@@ -144,7 +145,7 @@ class TelegramNotifier:
                     err = res_data.get("description", f"HTTP {res.status_code}")
                     logger.warning("Telegram API sendDocument error: %s", err)
                     return {"status": "error", "message": f"Ошибка Telegram: {err}"}
-        except Exception as e:
+        except (httpx.HTTPError, OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to deliver Telegram document: %s", e)
             return {"status": "error", "message": f"Сетевая ошибка отправки: {str(e)}"}
 
@@ -162,7 +163,7 @@ class TelegramNotifier:
             async with httpx.AsyncClient(timeout=self.http_timeout) as client:
                 res = await client.post(url, json={"callback_query_id": callback_query_id, "text": text})
                 return res.status_code == 200
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Failed to answer callback query: %s", e)
             return False
 
@@ -190,7 +191,7 @@ class TelegramNotifier:
             async with httpx.AsyncClient(timeout=self.http_timeout) as client:
                 res = await client.post(url, json=payload)
                 return res.status_code == 200
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Failed to edit message text: %s", e)
             return False
 
@@ -309,7 +310,7 @@ class TelegramNotifier:
                 await client.post(f"{raw_url}/bot{t_token}/setChatMenuButton", json={"menu_button": {"type": "commands"}})
                 logger.info("Telegram [Menu] button and commands successfully registered.")
                 return True
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Failed to set Telegram bot commands: %s", e)
             return False
 

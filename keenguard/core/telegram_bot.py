@@ -1,10 +1,12 @@
 """Stateful Telegram bot polling worker, interactive menus, callbacks, and inline builders."""
 import asyncio
 from datetime import datetime
+import json
 import logging
 from pathlib import Path
 import re
 from typing import Optional, Dict, Any, List, Tuple
+import aiosqlite
 import httpx
 
 from keenguard.config import settings
@@ -26,7 +28,7 @@ class TelegramBotWorker:
         self.running = True
         try:
             await self.notifier.setup_bot_commands()
-        except Exception as ex:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as ex:
             logger.debug("setup_bot_commands error on start: %s", ex)
         self._task = asyncio.create_task(self._poll_loop())
         logger.info("Telegram interactive bot worker started.")
@@ -51,7 +53,7 @@ class TelegramBotWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug("Telegram polling loop error: %s", e)
+                logger.exception("Telegram polling loop error: %s", e)
                 await asyncio.sleep(5)
 
     async def _fetch_updates(self) -> List[Dict[str, Any]]:
@@ -71,7 +73,7 @@ class TelegramBotWorker:
                     data = res.json()
                     if data.get("ok"):
                         return data.get("result", [])
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Telegram getUpdates error: %s", e)
         await asyncio.sleep(3)
         return []
@@ -609,7 +611,7 @@ class TelegramBotWorker:
                 domain = data.split(":", 1)[1]
                 await backend.remove_dns_sinkhole(domain)
                 action_result = f"✅ Домен {domain} разблокирован"
-        except Exception as ex:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
             logger.error("Error executing Telegram action %s: %s", data, ex)
             action_result = f"❌ Ошибка выполнения: {ex}"
 
@@ -667,7 +669,7 @@ class TelegramBotWorker:
                 if pcap_path.exists() and pcap_path.is_file():
                     caption = f"📦 <b>Дамп трафика аудита:</b> <code>{report.pcap_file}</code> ({dev_name})"
                     await self.notifier.send_document(pcap_path, caption=caption, chat_id=chat_id)
-        except Exception as e:
+        except (httpx.HTTPError, OSError, json.JSONDecodeError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to deliver audit completion notification for %s: %s", mac, e)
 
     async def _handle_message(self, message: Dict[str, Any]):
@@ -764,6 +766,6 @@ class TelegramBotWorker:
                 else:
                     text_msg, keyboard = await self._build_status_payload()
                     await self.notifier.send_message(text_msg, reply_markup=keyboard)
-        except Exception as ex:
+        except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
             logger.error("Error processing Telegram message '%s': %s", text, ex, exc_info=True)
             await self.notifier.send_message(f"❌ Ошибка обработки команды: {ex}")
