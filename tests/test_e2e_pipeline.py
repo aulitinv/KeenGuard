@@ -8,12 +8,13 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from scapy.all import Ether, IP, TCP, UDP, ARP, Raw
 
+from keenguard.config import settings
 from keenguard.db.database import db
 from keenguard.db.models import DeviceRecord, SecurityEvent
 from keenguard.core.sniffer import sniffer
 from keenguard.core.lan_tracker import lan_tracker
 from keenguard.core.enums import EventType, Severity
-from keenguard.web.ws import ws_manager
+from keenguard.web.ws import ws_manager, set_main_loop
 from keenguard.core.notifier import notifier
 from keenguard.web.workers import _handle_sniffer_event, _handle_lan_violation
 
@@ -116,3 +117,71 @@ async def test_e2e_wol_magic_packet_pipeline():
         broadcast_mock.assert_awaited()
         ws_calls = [call.args[0] for call in broadcast_mock.await_args_list if isinstance(call.args[0], dict)]
         assert any(c.get("type") == "sniffer_event" and c.get("event", {}).get("event_type") == EventType.WOL_WAKE.value for c in ws_calls)
+
+
+@pytest.mark.asyncio
+async def test_e2e_arp_scan_detection_pipeline():
+    """Verify rapid ARP sweeps trigger AnomalyDetector and create a lan_scan security event in DB."""
+    set_main_loop(asyncio.get_running_loop())
+    source_mac = "22:33:44:55:66:77"
+    source_ip = "192.168.1.88"
+    orig_threshold = settings.lan_scan_threshold
+    settings.lan_scan_threshold = 4
+
+    try:
+        with patch.object(notifier, "send_alert", new_callable=AsyncMock), \
+             patch.object(ws_manager, "broadcast", new_callable=AsyncMock):
+
+            # Generate ARP who-has probes across 5 distinct target IPs
+            for i in range(1, 6):
+                dst_ip = f"192.168.1.{100 + i}"
+                pkt = (
+                    Ether(src=source_mac, dst="FF:FF:FF:FF:FF:FF")
+                    / ARP(op=1, hwsrc=source_mac, psrc=source_ip, pdst=dst_ip)
+                )
+                sniffer._process_packet(pkt)
+
+            # Allow detector and async tasks to record event
+            await asyncio.sleep(0.2)
+
+            events = await db.get_recent_events(limit=10)
+            scan_events = [e for e in events if e.event_type == "lan_scan"]
+            assert len(scan_events) >= 1, "LAN scan anomaly event was not generated!"
+            assert scan_events[0].source_ip == source_ip
+            assert scan_events[0].details.get("probed_ips_count") >= 4
+    finally:
+        settings.lan_scan_threshold = orig_threshold
+
+
+@pytest.mark.asyncio
+async def test_e2e_sensitive_port_probe_pipeline():
+    """Verify unauthorized TCP SYN probe on port 23 (Telnet) is recorded and broadcast."""
+    set_main_loop(asyncio.get_running_loop())
+    source_mac = "33:44:55:66:77:88"
+    source_ip = "192.168.1.99"
+    router_ip = "192.168.1.1"
+
+    # TCP SYN packet to port 23 (Telnet)
+    pkt = (
+        Ether(src=source_mac, dst="50:FF:20:11:22:33")
+        / IP(src=source_ip, dst=router_ip)
+        / TCP(sport=54321, dport=23, flags="S")
+    )
+
+    with patch.object(notifier, "send_alert", new_callable=AsyncMock) as mock_send_alert, \
+         patch.object(ws_manager, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+
+        sniffer._process_packet(pkt)
+        await asyncio.sleep(0.15)
+
+        # Verify DB entry
+        events = await db.get_recent_events(limit=10)
+        probes = [e for e in events if e.event_type == "port_probe"]
+        assert len(probes) >= 1, "Port probe event was not recorded!"
+        assert probes[0].source_mac == source_mac
+        assert probes[0].target_ip == router_ip
+        assert probes[0].details.get("port") == 23
+
+        # Verify alert sent
+        mock_send_alert.assert_called()
+        mock_broadcast.assert_called()

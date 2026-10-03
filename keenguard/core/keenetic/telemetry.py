@@ -159,7 +159,7 @@ class KeeneticTelemetryMixin:
 
         try:
             raw_interfaces = resp.json()[0].get("show", {}).get("interface", {})
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError, AttributeError) as e:
             logger.debug("Error parsing interfaces JSON: %s", e)
             raw_interfaces = {}
 
