@@ -371,7 +371,19 @@ class TelegramBotWorker:
             await self.notifier.answer_callback_query(qid, text="Доступ запрещен!")
             return
 
-        # 1. Navigation & Command Buttons
+        if data.startswith(("cmd:", "dev_cat:", "dev_page:")):
+            await self._handle_nav_callback(data, qid, chat_id, mid)
+        elif data.startswith("router:"):
+            await self._handle_router_callback(data, qid, chat_id, mid)
+        elif data.startswith(("dev:", "wan_toggle:", "prof_menu:", "set_prof:")):
+            await self._handle_device_callback(data, qid, chat_id, mid)
+        elif data.startswith(("send_pcap:", "send_pcap_file:")):
+            await self._handle_pcap_callback(data, qid, chat_id, mid, trusted_chat)
+        else:
+            await self._handle_action_callback(data, qid, chat_id, mid, orig_text, trusted_chat)
+
+    async def _handle_nav_callback(self, data: str, qid: str, chat_id: Optional[int], mid: Optional[int]):
+        """Handles navigation and status view callback queries."""
         if data == "cmd:status":
             await self.notifier.answer_callback_query(qid, text="Статус обновлен")
             text, keyboard = await self._build_status_payload()
@@ -379,7 +391,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data == "cmd:devices":
             await self.notifier.answer_callback_query(qid, text="Список устройств загружен")
             text, keyboard = await self._build_devices_payload()
@@ -387,7 +398,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data.startswith("dev_cat:"):
             parts = data.split(":")
             cat = parts[1]
@@ -398,7 +408,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data.startswith("dev_page:"):
             parts = data.split(":")
             cat = parts[1]
@@ -409,7 +418,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data == "cmd:router":
             await self.notifier.answer_callback_query(qid, text="Меню роутера")
             text, keyboard = await self._build_router_payload()
@@ -417,14 +425,13 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data == "cmd:digest":
             await self.notifier.answer_callback_query(qid, text="Формирую сводку безопасности...")
             from keenguard.core.digest import digest_generator
             await digest_generator.send_digest_to_telegram(force=True)
-            return
 
-        # 2. Router Controls
+    async def _handle_router_callback(self, data: str, qid: str, chat_id: Optional[int], mid: Optional[int]):
+        """Handles router actions: guest Wi-Fi toggle, reboot prompt, reboot confirm."""
         if data.startswith("router:guest_toggle:"):
             val = data.split(":")[-1] == "1"
             from keenguard.core.routers.manager import router_manager
@@ -437,7 +444,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data == "router:reboot_prompt":
             await self.notifier.answer_callback_query(qid, text="Подтвердите перезагрузку")
             text = (
@@ -458,7 +464,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data == "router:reboot_confirm":
             await self.notifier.answer_callback_query(qid, text="Перезагрузка начата")
             from keenguard.core.routers.manager import router_manager
@@ -477,9 +482,9 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=res_text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(res_text, reply_markup=keyboard)
-            return
 
-        # 3. Interactive Device Cards & Profiles
+    async def _handle_device_callback(self, data: str, qid: str, chat_id: Optional[int], mid: Optional[int]):
+        """Handles device inspector, WAN toggle, and policy selection callbacks."""
         if data.startswith("dev:"):
             mac = data.split(":", 1)[1]
             await self.notifier.answer_callback_query(qid, text="Карточка устройства")
@@ -488,7 +493,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data.startswith("wan_toggle:"):
             rest = data.split(":", 1)[1]
             mac, action = rest.rsplit(":", 1)
@@ -502,7 +506,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data.startswith("prof_menu:"):
             mac = data.split(":", 1)[1]
             await self.notifier.answer_callback_query(qid, text="Выбор профиля")
@@ -511,7 +514,6 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
         elif data.startswith("set_prof:"):
             rest = data.split(":", 1)[1]
             mac, target_prof = rest.rsplit(":", 1)
@@ -523,13 +525,12 @@ class TelegramBotWorker:
                 await self.notifier.edit_message_text(chat_id=chat_id, message_id=mid, text=text, reply_markup=keyboard)
             else:
                 await self.notifier.send_message(text, reply_markup=keyboard)
-            return
 
-        # 4. PCAP Downloads & Uploads in Chat
+    async def _handle_pcap_callback(self, data: str, qid: str, chat_id: Optional[int], mid: Optional[int], trusted_chat: str):
+        """Handles sending PCAP dumps directly into Telegram chat."""
         if data.startswith("send_pcap:"):
             mac = data.split(":", 1)[1].upper()
             from keenguard.db.database import db
-            # Look up recent audit reports for this mac
             reports = await db.get_audit_reports(mac=mac, limit=5)
             pcap_found = None
             for r in reports:
@@ -551,7 +552,6 @@ class TelegramBotWorker:
                 await self.notifier.send_document(pcap_found, caption=caption, chat_id=chat_id or trusted_chat)
             else:
                 await self.notifier.answer_callback_query(qid, text="Дампы .pcap для устройства не найдены. Запустите аудит трафика.")
-            return
         elif data.startswith("send_pcap_file:"):
             fname = data.split(":", 1)[1]
             safe_name = Path(fname).name
@@ -562,9 +562,9 @@ class TelegramBotWorker:
                 await self.notifier.send_document(target, caption=caption, chat_id=chat_id or trusted_chat)
             else:
                 await self.notifier.answer_callback_query(qid, text=f"Файл {safe_name} не найден на сервере.")
-            return
 
-        # 5. Contextual Alert Action Buttons
+    async def _handle_action_callback(self, data: str, qid: str, chat_id: Optional[int], mid: Optional[int], orig_text: str, trusted_chat: str):
+        """Handles contextual alert action buttons (UPnP delete, audit, quarantine, sinkhole)."""
         action_result = "✅ Действие выполнено"
         from keenguard.core.routers.manager import router_manager
         from keenguard.core.profiles import profile_manager

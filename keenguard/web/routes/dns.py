@@ -1,6 +1,6 @@
-"""DNS query tracking, domain reputation analysis, 0.0.0.0 sinkholes, and DNS security providers."""
 import logging
 from typing import List, Optional, Dict, Any
+import httpx
 
 from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
@@ -97,13 +97,13 @@ async def get_dns_queries(limit: int = 100):
     active_static_sinkholes = set()
     try:
         active_static_sinkholes = set(await router_manager.get_active_sinkholes())
-    except Exception as e:
+    except (httpx.HTTPError, ConnectionError, TimeoutError, OSError, KeyError, TypeError, ValueError) as e:
         logger.debug("Active sinkholes query error: %s", e)
 
     if domains:
         try:
             sinkhole_map = await domain_analyzer.check_sinkholes_batch(domains)
-        except Exception as e:
+        except (OSError, TimeoutError, ValueError, TypeError, KeyError) as e:
             logger.debug("Sinkhole batch check error: %s", e)
 
     enriched = []
@@ -190,7 +190,7 @@ async def analyze_dns_domain(domain: str):
     active_static_sinkholes = set()
     try:
         active_static_sinkholes = set(await router_manager.get_active_sinkholes())
-    except Exception as e:
+    except (httpx.HTTPError, ConnectionError, TimeoutError, OSError, KeyError, TypeError, ValueError) as e:
         logger.debug("Active sinkholes query error: %s", e)
 
     is_static_sinkhole = clean_dom in active_static_sinkholes
@@ -199,7 +199,7 @@ async def analyze_dns_domain(domain: str):
     sinkhole_ip = None
     try:
         sinkhole_ip = await domain_analyzer.check_domain_sinkhole_async(domain)
-    except Exception as e:
+    except (OSError, TimeoutError, ValueError, TypeError, KeyError) as e:
         logger.debug("Sinkhole check error for %s: %s", domain, e)
 
     is_blocked = is_static_sinkhole or domain_analyzer.is_sinkhole_ip(sinkhole_ip)

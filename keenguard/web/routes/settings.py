@@ -2,6 +2,7 @@
 import json
 import logging
 from typing import Optional, Dict, Any
+import httpx
 
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
@@ -289,7 +290,7 @@ async def test_keenetic_auth(req: TestConnRequest):
             else:
                 await router_health.update_status(connected=False, error="Неверный логин/пароль или OpenWrt ubus недоступен")
                 return {"status": "error", "message": "Ошибка авторизации в OpenWrt /ubus"}
-        except Exception as e:
+        except (httpx.HTTPError, ConnectionError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
             await router_health.update_status(connected=False, error=str(e))
             return {"status": "error", "message": f"Сетевая ошибка OpenWrt: {e}"}
     else:
@@ -593,7 +594,7 @@ async def save_app_settings(s: SettingsUpdate):
                 val = getattr(settings, field_name)
                 config_service._cache[field_name] = val
                 config_service._notify(field_name, val)
-    except Exception as ex:
+    except (KeyError, TypeError, ValueError, AttributeError) as ex:
         logger.debug("Failed to sync config_service cache: %s", ex)
 
     if router_creds_changed:
@@ -732,7 +733,7 @@ async def save_iot_storage_settings(body: Dict[str, Any] = Body(...)):
             val = getattr(settings, key)
             config_service._cache[key] = val
             config_service._notify(key, val)
-    except Exception as ex:
+    except (KeyError, TypeError, ValueError, AttributeError) as ex:
         logger.debug("Failed to sync config_service cache for iot storage: %s", ex)
 
     await db.prune_iot_payloads()
@@ -805,7 +806,7 @@ async def update_network_access_settings(req: NetworkAccessUpdateRequest):
         config_service._cache["web_host"] = settings.web_host
         config_service._cache["web_auth_enabled"] = settings.web_auth_enabled
         config_service._cache["web_auth_exempt_localhost"] = settings.web_auth_exempt_localhost
-    except Exception as ex:
+    except (KeyError, TypeError, ValueError, AttributeError) as ex:
         logger.debug("Failed to sync config_service for web auth: %s", ex)
 
     msg = "Настройки сетевого доступа сохранены."

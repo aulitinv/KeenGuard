@@ -4,8 +4,11 @@ import ipaddress
 import json
 import logging
 from pathlib import Path
+import struct
 import time
 from typing import List, Optional, Dict, Any
+import aiosqlite
+import httpx
 
 from fastapi import APIRouter, HTTPException, Body, UploadFile, File
 from fastapi.responses import FileResponse
@@ -305,7 +308,7 @@ async def get_smarthome_overview():
                     "risk_level": analysis.get("risk_level", "warning"),
                     "is_blocked_wan": dev.get("is_blocked_wan", False)
                 })
-    except Exception as e:
+    except (aiosqlite.Error, httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError) as e:
         logger.debug("Error mapping smarthome NAT connections: %s", e)
 
     total_count = len(smarthome_devs)
@@ -661,21 +664,31 @@ async def get_iot_payloads(
     return {"status": "ok", "payloads": payloads, "storage": storage}
 
 
+class ClearIotPayloadsRequest(BaseModel):
+    mac: Optional[str] = None
+
+
+class PruneIotPayloadsRequest(BaseModel):
+    max_storage_gb: Optional[float] = None
+    max_gb: Optional[float] = None
+    retention_days: Optional[int] = None
+
+
 @router.post("/api/iot/payloads/clear")
-async def clear_iot_payloads(body: Dict[str, Any] = Body(default={})):
+async def clear_iot_payloads(payload: Optional[ClearIotPayloadsRequest] = None):
     """Clears IoT payload records for a specific device or all."""
     db = get_db()
-    mac = body.get("mac")
+    mac = payload.mac if payload else None
     deleted = await db.clear_iot_payloads(mac=mac)
     return {"status": "ok", "deleted": deleted}
 
 
 @router.post("/api/iot/payloads/prune")
-async def prune_iot_payloads(body: Dict[str, Any] = Body(default={})):
+async def prune_iot_payloads(payload: Optional[PruneIotPayloadsRequest] = None):
     """Manually triggers pruning of IoT payload logs based on retention days and max GB."""
     db = get_db()
-    max_gb = body.get("max_storage_gb", body.get("max_gb"))
-    days = body.get("retention_days")
+    max_gb = (payload.max_storage_gb if payload and payload.max_storage_gb is not None else (payload.max_gb if payload else None))
+    days = payload.retention_days if payload else None
     res = await db.prune_iot_payloads(max_gb=max_gb, retention_days=days)
     return {"status": "ok", "pruned_count": res.get("pruned_count", res.get("total_deleted", 0)), **res}
 
@@ -758,7 +771,7 @@ async def load_saved_pcap(req: LoadPcapRequest):
     try:
         from scapy.all import rdpcap
         pkts = rdpcap(str(file_path))
-    except Exception as e:
+    except (OSError, FileNotFoundError, PermissionError, struct.error, ValueError, IndexError, AttributeError) as e:
         logger.error("Failed to parse PCAP file %s: %s", safe_name, e)
         raise HTTPException(status_code=400, detail=f"Ошибка чтения PCAP файла: {e}")
 
@@ -789,7 +802,7 @@ async def upload_pcap(file: UploadFile = File(...)):
         dest.write_bytes(contents)
         from scapy.all import rdpcap
         pkts = rdpcap(str(dest))
-    except Exception as e:
+    except (OSError, FileNotFoundError, PermissionError, struct.error, ValueError, IndexError, AttributeError) as e:
         logger.error("Failed to parse uploaded PCAP: %s", e)
         raise HTTPException(status_code=400, detail=f"Не удалось разобрать PCAP файл: {e}")
 
@@ -859,7 +872,7 @@ async def get_investigator_incidents():
                     "title": f"Аудит: {r[3] or r[1]} (Риск: {r[7]})",
                     "subtitle": r[8] or f"{r[5]} сек, {r[6]} байт",
                 })
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching investigator audits: %s", e)
 
         try:
@@ -877,7 +890,7 @@ async def get_investigator_incidents():
                     "title": f"Инцидент [{r[2]}]: {r[6]}",
                     "subtitle": f"Хост: {r[5] or r[4]}",
                 })
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching investigator events: %s", e)
 
         try:
@@ -891,7 +904,7 @@ async def get_investigator_incidents():
                     "profile": r[4],
                     "is_online": bool(r[5])
                 })
-        except Exception as e:
+        except (aiosqlite.Error, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Error fetching investigator devices: %s", e)
 
     return {"status": "ok", "incidents": incidents, "devices": devices}
@@ -917,7 +930,7 @@ async def analyze_incident(req: AnalyzeIncidentRequest):
                 try:
                     rep_data = json.loads(row[3])
                     flows = rep_data.get("flows", [])
-                except Exception as e:
+                except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
                     logger.debug("Error parsing audit flows: %s", e)
 
         elif req.event_id:
@@ -929,7 +942,7 @@ async def analyze_incident(req: AnalyzeIncidentRequest):
                 try:
                     edata = json.loads(row[2])
                     flows = edata.get("flows", [])
-                except Exception as e:
+                except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
                     logger.debug("Error parsing event flows: %s", e)
 
         if target_mac:
@@ -949,7 +962,7 @@ async def analyze_incident(req: AnalyzeIncidentRequest):
                     try:
                         arep = json.loads(arow[0])
                         flows = arep.get("flows", [])
-                    except Exception as e:
+                    except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
                         logger.debug("Error parsing recent audit flows for %s: %s", target_mac, e)
 
         if not flows and (req.target_ip or req.target_domain):

@@ -472,7 +472,7 @@ async def submit_device_wizard(mac: str, req: DeviceWizardSubmitRequest):
                 duration_seconds=dur,
                 profile=updated_dev.profile
             )
-        except Exception as ex:
+        except (RuntimeError, OSError, ValueError, KeyError, TypeError, ConnectionError) as ex:
             logger.error("Failed to launch wizard initial audit for %s: %s", clean_mac, ex)
 
     return {

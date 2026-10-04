@@ -1,6 +1,6 @@
-"""Smart TV Brand Presets and 0.0.0.0 DNS Sinkhole routes."""
 import logging
 from typing import Optional
+import httpx
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -40,7 +40,7 @@ async def get_tv_brand_presets_api():
     db = get_db()
     try:
         active_sinkholes = set(await router_manager.get_active_sinkholes())
-    except Exception as e:
+    except (httpx.HTTPError, ConnectionError, TimeoutError, OSError, KeyError, TypeError, ValueError) as e:
         logger.debug("Error reading active sinkholes: %s", e)
         active_sinkholes = set()
 

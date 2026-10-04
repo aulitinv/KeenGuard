@@ -132,7 +132,7 @@ async def get_latest_network_audit_report_endpoint():
     r = net_reports[0]
     try:
         return json.loads(r.report_json)
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError):
         return r.model_dump()
 
 
@@ -178,7 +178,7 @@ async def get_latest_audit_report(mac: str):
         r = net_reports[0]
         try:
             return json.loads(r.report_json)
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             return r.model_dump()
 
     reports = await db.get_audit_reports(mac=target, limit=1)
@@ -188,7 +188,7 @@ async def get_latest_audit_report(mac: str):
     try:
         data = json.loads(r.report_json)
         return data
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError):
         return r.model_dump()
 
 
@@ -263,7 +263,7 @@ async def delete_single_audit_report(report_id: str):
             dump_path = settings.pcap_dir / pcap_file
             if dump_path.exists():
                 dump_path.unlink()
-        except Exception as e:
+        except (OSError, FileNotFoundError, PermissionError) as e:
             logger.warning("Could not delete PCAP file %s: %s", pcap_file, e)
 
     await ws_manager.broadcast({"type": "audit_report_deleted", "id": report_id})
@@ -295,7 +295,7 @@ async def get_audit_report_detail(report_id: str):
     try:
         data = json.loads(r.report_json)
         return data
-    except Exception:
+    except (json.JSONDecodeError, TypeError, ValueError):
         return r.model_dump()
 
 
