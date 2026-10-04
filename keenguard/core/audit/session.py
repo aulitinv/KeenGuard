@@ -11,6 +11,8 @@ from keenguard.config import settings
 from keenguard.db.models import DeviceRecord
 from keenguard.core.audit.geoip import KNOWN_SERVICES, is_lan_ip, identify_geoip, is_streaming_service
 from keenguard.core.audit.report import build_device_audit_report, build_network_audit_report, save_pcap_packets
+from keenguard.core.app_classifier import app_classifier
+from keenguard.core.dissector import PacketDissector
 
 logger = logging.getLogger("keenguard.audit.session")
 
@@ -302,6 +304,14 @@ class AuditSession:
                 "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
                 "last_seen": datetime.now(timezone.utc).isoformat()
             }
+            if IP in pkt:
+                app_classifier.cache_dns_resolution(pkt[IP].dst, domain)
+                app_classifier.cache_dns_resolution(pkt[IP].src, domain)
+
+        # Inspect TLS SNI for L7 app classification
+        sni = PacketDissector.extract_tls_sni(pkt)
+        if sni and IP in pkt:
+            app_classifier.cache_dns_resolution(pkt[IP].dst, sni)
 
         # Inspect unencrypted HTTP in packet via Scapy
         http_info = extract_http_inspection(pkt)
@@ -387,6 +397,12 @@ class AuditSession:
 
             geo = identify_geoip(dst_ip)
             provider = f"{geo['flag']} {geo['provider']}"
+            app_classification = app_classifier.classify_flow(
+                src_ip=self.ip,
+                dst_ip=dst_ip,
+                dst_port=dport,
+                proto=proto
+            )
 
             if key not in self.flows:
                 self.flows[key] = {
@@ -400,6 +416,10 @@ class AuditSession:
                     "flag": geo.get("flag", "🌐"),
                     "is_lan": is_lan,
                     "risk": risk,
+                    "app_id": app_classification["app_id"],
+                    "app_name": app_classification["name"],
+                    "category": app_classification["category"],
+                    "app_icon": app_classification["icon"],
                     "bytes_up": b_up,
                     "bytes_down": b_down,
                     "packets_up": p_up,
@@ -469,6 +489,14 @@ class NetworkAuditSession:
                 "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
                 "last_seen": datetime.now(timezone.utc).isoformat()
             }
+            if IP in pkt:
+                app_classifier.cache_dns_resolution(pkt[IP].dst, domain)
+                app_classifier.cache_dns_resolution(pkt[IP].src, domain)
+
+        # Inspect TLS SNI for L7 app classification
+        sni = PacketDissector.extract_tls_sni(pkt)
+        if sni and IP in pkt:
+            app_classifier.cache_dns_resolution(pkt[IP].dst, sni)
 
     def update_nat_table(self, nat_entries: List[Dict[str, Any]], devices_by_ip: Dict[str, Any], on_suspicious_callback=None, presets_dict: Optional[Dict[str, Any]] = None):
         for e in nat_entries:
@@ -600,6 +628,12 @@ class NetworkAuditSession:
 
             geo = identify_geoip(dst_ip)
             provider = f"{geo['flag']} {geo['provider']}"
+            app_classification = app_classifier.classify_flow(
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                dst_port=dport,
+                proto=proto
+            )
 
             if flow_key not in self.flows:
                 d_stat["flows_count"] += 1
@@ -617,6 +651,10 @@ class NetworkAuditSession:
                     "flag": geo.get("flag", "🌐"),
                     "is_lan": is_lan,
                     "risk": risk,
+                    "app_id": app_classification["app_id"],
+                    "app_name": app_classification["name"],
+                    "category": app_classification["category"],
+                    "app_icon": app_classification["icon"],
                     "bytes_up": b_up,
                     "bytes_down": b_down,
                     "packets_up": p_up,

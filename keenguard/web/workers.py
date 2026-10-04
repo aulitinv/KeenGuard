@@ -254,6 +254,31 @@ async def _do_keenetic_poll_internal():
                 segment=getattr(h, "segment", "Home") or "Home"
             )
 
+            # Check for MAC rotation & policy inheritance (Plan 03)
+            inherited_from = None
+            if is_rand and record.hostname and not DeviceClassifier.is_generic_hostname(record.hostname):
+                hname_norm = record.hostname.strip().lower()
+                cand_list = [d for d in current_devices_map.values() if d.mac != mac and d.hostname and d.hostname.strip().lower() == hname_norm]
+                if not cand_list:
+                    all_devs = await db.get_all_devices()
+                    cand_list = [d for d in all_devs if d.mac != mac and d.hostname and d.hostname.strip().lower() == hname_norm]
+                if cand_list:
+                    hw_cands = [d for d in cand_list if not DeviceClassifier.is_randomized_mac(d.mac)]
+                    online_cands = [d for d in cand_list if d.is_online]
+                    inherited_from = hw_cands[0] if hw_cands else (online_cands[0] if online_cands else cand_list[0])
+
+            if inherited_from:
+                prof = inherited_from.profile
+                record.profile = inherited_from.profile
+                if inherited_from.custom_name:
+                    record.custom_name = inherited_from.custom_name
+                if inherited_from.custom_allowed_ports:
+                    record.custom_allowed_ports = list(inherited_from.custom_allowed_ports)
+                if inherited_from.designated_nvr_ip:
+                    record.designated_nvr_ip = inherited_from.designated_nvr_ip
+                if inherited_from.vendor and inherited_from.vendor not in ("Unknown Vendor", "Locally Administered (Random MAC)"):
+                    record.vendor = inherited_from.vendor
+
             # User-configured reaction on new device discovery (modular & category-based policy)
             quarantine = False
             isolate = False
@@ -262,11 +287,11 @@ async def _do_keenetic_poll_internal():
             send_telegram = True
 
             # If this is cold start or initial database seeding, never quarantine existing home devices!
-            if is_initial_ingestion:
+            if is_initial_ingestion or (inherited_from and inherited_from.profile == "trusted"):
                 quarantine = False
                 isolate = False
                 auto_audit = False
-                send_telegram = False
+                send_telegram = True if inherited_from else False
             else:
                 policy_mode = getattr(settings, "new_device_policy_mode", "category")
                 if policy_mode == "category":
@@ -318,27 +343,39 @@ async def _do_keenetic_poll_internal():
             await db.upsert_device(record)
             existing = record
 
-            # Emit new device security event & send Telegram alert
-            new_dev_ev = SecurityEvent(
-                event_type="new_device",
-                severity="warning" if (quarantine or is_rand) else "info",
-                target_mac=mac,
-                target_ip=h.ip,
-                description=f"Новое устройство в сети: '{record.hostname}' ({vendor}, IP: {h.ip}). Реакция: {act_desc}."
-            )
-            await db.record_event(new_dev_ev)
-            if send_telegram:
-                create_tracked_task(notifier.send_alert(new_dev_ev))
-
-            if is_rand:
-                rand_ev = SecurityEvent(
-                    event_type="random_mac",
+            if inherited_from:
+                rot_ev = SecurityEvent(
+                    event_type="mac_rotation",
                     severity="info",
                     target_mac=mac,
                     target_ip=h.ip,
-                    description=f"Устройство '{record.hostname}' использует случайный Wi-Fi MAC (LAA: {mac})"
+                    description=f"Обнаружена ротация MAC для '{record.hostname}': новый адрес {mac}. Профиль '{record.profile}' и настройки унаследованы от {inherited_from.mac}."
                 )
-                await db.record_event(rand_ev)
+                await db.record_event(rot_ev)
+                if send_telegram:
+                    create_tracked_task(notifier.send_alert(rot_ev))
+            else:
+                # Emit new device security event & send Telegram alert
+                new_dev_ev = SecurityEvent(
+                    event_type="new_device",
+                    severity="warning" if (quarantine or is_rand) else "info",
+                    target_mac=mac,
+                    target_ip=h.ip,
+                    description=f"Новое устройство в сети: '{record.hostname}' ({vendor}, IP: {h.ip}). Реакция: {act_desc}."
+                )
+                await db.record_event(new_dev_ev)
+                if send_telegram:
+                    create_tracked_task(notifier.send_alert(new_dev_ev))
+
+                if is_rand:
+                    rand_ev = SecurityEvent(
+                        event_type="random_mac",
+                        severity="info",
+                        target_mac=mac,
+                        target_ip=h.ip,
+                        description=f"Устройство '{record.hostname}' использует случайный Wi-Fi MAC (LAA: {mac})"
+                    )
+                    await db.record_event(rand_ev)
         else:
             existing.ip = h.ip
             existing.is_online = is_host_online

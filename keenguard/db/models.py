@@ -40,6 +40,7 @@ class DeviceRecord(BaseModel):
     tv_day_mode: Optional[str] = None
     wizard_completed: bool = False
     segment: Optional[str] = "Home"  # Home (Bridge0), Guest (Bridge1), IoT, etc.
+    bandwidth_limit_kbps: int = 0
 
 class LanPolicyPreset(BaseModel):
     id: str

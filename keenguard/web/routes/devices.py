@@ -55,6 +55,10 @@ class RenameRequest(BaseModel):
     custom_name: str
 
 
+class SpeedLimitRequest(BaseModel):
+    speed_kbps: int
+
+
 class PresetCreateUpdateRequest(BaseModel):
     id: Optional[str] = None
     name: str
@@ -280,6 +284,40 @@ async def rename_device(mac: str, req: RenameRequest):
     success = await db.update_device_policy(clean_mac, custom_name=req.custom_name)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "success": success}
+
+
+@router.post("/api/devices/{mac}/speed-limit")
+async def set_speed_limit(mac: str, req: SpeedLimitRequest):
+    """Sets bandwidth shaping rate limit on Keenetic for device."""
+    clean_mac = _validate_mac(mac)
+    db = get_db()
+    dev = await db.get_device(clean_mac)
+    if not dev:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    speed_kbps = max(0, int(req.speed_kbps))
+
+    from keenguard.web.state import get_keenetic_client
+    k_client = get_keenetic_client()
+    if k_client:
+        has_shaper = await k_client.has_traffic_shaper_component()
+        if not has_shaper:
+            raise HTTPException(
+                status_code=400,
+                detail="В KeeneticOS не установлен компонент 'Шейпер трафика' (Traffic shaper). Установите его в меню 'Параметры компонентов'."
+            )
+        ok = await k_client.set_device_speed_limit(clean_mac, speed_kbps)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Ошибка при отправке команды ограничения скорости на роутер")
+
+    await db.update_device_speed_limit(clean_mac, speed_kbps)
+    await ws_manager.broadcast({
+        "type": "device_speed_limit_updated",
+        "mac": clean_mac,
+        "speed_kbps": speed_kbps
+    })
+
+    return {"status": "ok", "mac": clean_mac, "speed_limit_kbps": speed_kbps}
 
 
 # ---------------- LAN Policy Presets & Setup Wizard Endpoints ----------------

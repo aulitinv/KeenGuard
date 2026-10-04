@@ -365,6 +365,36 @@ class NetworkSniffer:
                         "details": {"port": dport, "protocol": "TCP", "service": service_name, "action": "observed"}
                     })
 
+            # 6. Inspect DoT, DoH, and external DNS bypasses (Plan 06)
+            if IP in pkt and (TCP in pkt or UDP in pkt):
+                ip_src = pkt[IP].src
+                ip_dst = pkt[IP].dst
+                l4_dport = pkt[TCP].dport if TCP in pkt else pkt[UDP].dport
+                l4_proto = "tcp" if TCP in pkt else "udp"
+                if l4_dport in (853, 443, 53) and ip_src and ip_src.startswith(("192.168.", "10.", "172.")):
+                    from keenguard.core.dns.bypass_detector import dns_bypass_detector
+                    sni = None
+                    if l4_dport == 443 and TCP in pkt:
+                        try:
+                            from keenguard.core.dissector import PacketDissector
+                            sni = PacketDissector.extract_tls_sni(pkt)
+                        except Exception:
+                            pass
+                    flow_info = dns_bypass_detector.inspect_flow(
+                        src_ip=ip_src, dst_ip=ip_dst, dst_port=l4_dport, proto=l4_proto, sni=sni, mac=src_mac
+                    )
+                    if flow_info and flow_info.get("should_alert"):
+                        self._emit_event({
+                            "event_type": flow_info["event_type"],
+                            "severity": flow_info["severity"],
+                            "source_mac": src_mac,
+                            "source_ip": ip_src,
+                            "target_ip": ip_dst,
+                            "description": flow_info["description"],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "details": flow_info
+                        })
+
         except Exception as e:
             logger.debug("Packet processing error: %s", e)
 

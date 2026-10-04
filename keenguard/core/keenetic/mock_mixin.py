@@ -36,6 +36,8 @@ class KeeneticMockMixin:
             self._mock_guest_wifi = True
         if not hasattr(self, "_mock_rebooted"):
             self._mock_rebooted = False
+        if not hasattr(self, "_mock_speed_limits"):
+            self._mock_speed_limits = {}
 
     # --- Base Auth & Connectivity Mocks ---
 
@@ -269,3 +271,22 @@ class KeeneticMockMixin:
         if hasattr(self, "_mock_captures"):
             self._mock_captures.pop(interface, None)
         return True
+
+    def _mock_block_dot(self, enable: bool = True) -> bool:
+        self._mock_dot_blocked = enable
+        return True
+
+    def _mock_is_dot_blocked(self) -> bool:
+        return getattr(self, "_mock_dot_blocked", False)
+
+    def _mock_set_device_speed_limit(self, mac: str, speed_kbps: int) -> bool:
+        if not hasattr(self, "_mock_speed_limits"):
+            self._mock_speed_limits = {}
+        if speed_kbps <= 0:
+            self._mock_speed_limits.pop(mac.upper(), None)
+        else:
+            self._mock_speed_limits[mac.upper()] = int(speed_kbps)
+        return True
+
+    def _mock_get_device_speed_limits(self) -> Dict[str, int]:
+        return dict(getattr(self, "_mock_speed_limits", {}))

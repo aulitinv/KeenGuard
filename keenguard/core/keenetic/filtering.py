@@ -375,3 +375,116 @@ class KeeneticFilteringMixin:
         except (httpx.HTTPError, ConnectionError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Failed getting guest wifi status: %s", e)
         return {"enabled": False, "interface": "GuestWiFi"}
+
+    async def block_dot_traffic(self, enable: bool = True) -> bool:
+        """
+        Enforces blocking or unblocking of outbound DoT (DNS-over-TLS, port 853 TCP/UDP)
+        to prevent clients from bypassing Keenetic local DNS filtering.
+        """
+        logger.info("Setting DoT (port 853) block state on Keenetic: %s", "BLOCK" if enable else "ALLOW")
+        if getattr(self, "mock_mode", False):
+            return self._mock_block_dot(enable)
+
+        if enable:
+            payload = [
+                {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_tcp", "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
+                {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_udp", "action": "deny", "protocol": "udp", "dst-port": 853}}}},
+                {"system": {"configuration": {"save": {}}}}
+            ]
+        else:
+            payload = [
+                {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_tcp"}}}}},
+                {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_udp"}}}}},
+                {"system": {"configuration": {"save": {}}}}
+            ]
+        resp = await self._send_request("POST", "/rci/", json_data=payload)
+        return resp is not None and resp.status_code == 200
+
+    async def is_dot_blocked(self) -> bool:
+        """Checks if DoT blocking rules are active on Keenetic."""
+        if getattr(self, "mock_mode", False):
+            return self._mock_is_dot_blocked()
+
+        try:
+            resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"running-config": {}}}])
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    lines = data[0].get("show", {}).get("running-config", {}).get("message", [])
+                    return any("_keenguard_block_dot" in l or ("dst-port 853" in l and "deny" in l) for l in lines)
+        except Exception as e:
+            logger.debug("Failed checking DoT block state on router: %s", e)
+        return False
+
+    async def sinkhole_doh_providers(self) -> Tuple[List[str], List[str]]:
+        """Adds static DNS sinkhole records (0.0.0.0) for known DoH providers and canary domains."""
+        from keenguard.core.dns.doh_catalog import DOH_DOMAINS
+        return await self.add_dns_sinkholes(list(DOH_DOMAINS.keys()))
+
+    async def blackhole_public_doh_resolvers(self) -> Tuple[List[str], List[str]]:
+        """Adds static reject IP routes for known Anycast DoH resolvers."""
+        from keenguard.core.dns.doh_catalog import PUBLIC_RESOLVER_IPS
+        ipv4_resolvers = [ip for ip in PUBLIC_RESOLVER_IPS.keys() if ":" not in ip]
+        return await self.add_ip_blackholes(ipv4_resolvers)
+
+    async def has_traffic_shaper_component(self) -> bool:
+        """Checks if the 'traffic-shaper' system component is installed in KeeneticOS."""
+        if getattr(self, "mock_mode", False):
+            return True
+        try:
+            resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"components": {}}}])
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    comps = data[0].get("show", {}).get("components", {})
+                    for c_name, c_info in comps.items():
+                        if "shaper" in c_name.lower():
+                            return bool(c_info.get("installed", False))
+        except Exception as e:
+            logger.debug("Failed checking traffic shaper component: %s", e)
+        return True
+
+    async def set_device_speed_limit(self, mac: str, speed_kbps: int) -> bool:
+        """
+        Sets bandwidth rate limit for a registered host on Keenetic in kbps (0 = unlimited).
+        Requires 'traffic-shaper' component in KeeneticOS.
+        """
+        clean_mac = mac.upper()
+        clean_speed = max(0, int(speed_kbps))
+        logger.info("Setting bandwidth limit on Keenetic for %s: %d kbps", clean_mac, clean_speed)
+        if getattr(self, "mock_mode", False):
+            return self._mock_set_device_speed_limit(clean_mac, clean_speed)
+
+        if clean_speed > 0:
+            payload = [
+                {"ip": {"hotspot": {"host": {"mac": clean_mac, "speed": clean_speed}}}},
+                {"system": {"configuration": {"save": {}}}}
+            ]
+        else:
+            payload = [
+                {"no": {"ip": {"hotspot": {"host": {"mac": clean_mac, "speed": True}}}}},
+                {"system": {"configuration": {"save": {}}}}
+            ]
+        resp = await self._send_request("POST", "/rci/", json_data=payload)
+        return resp is not None and resp.status_code == 200
+
+    async def get_device_speed_limits(self) -> Dict[str, int]:
+        """Returns mapping of MAC -> speed_limit_kbps from Keenetic hotspot hosts."""
+        if getattr(self, "mock_mode", False):
+            return self._mock_get_device_speed_limits()
+
+        limits = {}
+        try:
+            resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"ip": {"hotspot": {}}}}])
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    hosts = data[0].get("show", {}).get("ip", {}).get("hotspot", {}).get("host", [])
+                    for h in hosts:
+                        m = h.get("mac", "").upper()
+                        spd = h.get("speed", 0)
+                        if m and spd:
+                            limits[m] = int(spd)
+        except Exception as e:
+            logger.debug("Failed getting device speed limits from Keenetic: %s", e)
+        return limits

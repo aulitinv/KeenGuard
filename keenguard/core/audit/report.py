@@ -7,6 +7,7 @@ from scapy.all import Packet, wrpcap
 
 from keenguard.config import settings as default_settings
 from keenguard.core.audit.geoip import is_streaming_service
+from keenguard.core.app_classifier import app_classifier
 
 logger = logging.getLogger("keenguard.audit.report")
 
@@ -91,6 +92,12 @@ def build_device_audit_report(session: Any) -> Dict[str, Any]:
         })
         findings.append(f"Обнаружен легитимный локальный медиастриминг: {', '.join(stream_names)}. Сессии проверены и помечены как безопасные.")
 
+    apps_summary = app_classifier.aggregate_apps(list(session.flows.values()))
+    top_apps = [a for a in apps_summary.get("apps_breakdown", []) if a["app_id"] not in ("other", "web", "dns", "ntp")][:3]
+    if top_apps:
+        apps_str = ", ".join(f"{a['name']} ({a['percentage']}%)" for a in top_apps)
+        findings.append(f"Идентифицированы сетевые приложения: {apps_str}.")
+
     if not findings:
         findings.append("Подозрительной активности не выявлено. Все внешние соединения защищены TLS/SSL или стандартным DNS.")
 
@@ -134,6 +141,8 @@ def build_device_audit_report(session: Any) -> Dict[str, Any]:
         "total_packets": session.total_packets_up + session.total_packets_down,
         "flows_count": len(session.flows),
         "flows": sorted(list(session.flows.values()), key=lambda x: x["bytes_up"] + x["bytes_down"], reverse=True),
+        "apps_breakdown": apps_summary.get("apps_breakdown", []),
+        "categories_breakdown": apps_summary.get("categories_breakdown", []),
         "dns_queries": list(session.dns_queries.values()),
         "http_inspections": session.http_inspections,
         "lan_probes": session.lan_probes,
@@ -202,6 +211,12 @@ def build_network_audit_report(session: Any) -> Dict[str, Any]:
     if streaming_count > 0:
         findings.append(f"Зафиксированы сессии легитимного медиастриминга ({streaming_count} потоков: AirPlay/Cast/Virtual Desktop/Steam/Moonlight/DLNA).")
 
+    apps_summary = app_classifier.aggregate_apps(list(session.flows.values()))
+    top_apps = [a for a in apps_summary.get("apps_breakdown", []) if a["app_id"] not in ("other", "web", "dns", "ntp")][:3]
+    if top_apps:
+        apps_str = ", ".join(f"{a['name']} ({a['percentage']}%)" for a in top_apps)
+        findings.append(f"Идентифицированы сетевые приложения в сети: {apps_str}.")
+
     if not findings:
         findings.append("Сетевой трафик в пределах нормы, критических аномалий не зафиксировано.")
 
@@ -236,6 +251,8 @@ def build_network_audit_report(session: Any) -> Dict[str, Any]:
         "top_devices": top_devices,
         "flows_count": len(session.flows),
         "flows": sorted(list(session.flows.values()), key=lambda x: x["bytes_up"] + x["bytes_down"], reverse=True)[:100],
+        "apps_breakdown": apps_summary.get("apps_breakdown", []),
+        "categories_breakdown": apps_summary.get("categories_breakdown", []),
         "top_providers": top_providers,
         "cloud_providers": top_providers,
         "lateral_movements": session.lateral_movements,

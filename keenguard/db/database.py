@@ -81,7 +81,8 @@ class Database(
                     tv_post_record_seconds INTEGER,
                     tv_day_mode TEXT,
                     wizard_completed INTEGER DEFAULT 0,
-                    segment TEXT DEFAULT 'Home'
+                    segment TEXT DEFAULT 'Home',
+                    bandwidth_limit_kbps INTEGER DEFAULT 0
                 )
             """)
 
@@ -97,6 +98,7 @@ class Database(
                 "tv_day_mode TEXT",
                 "wizard_completed INTEGER DEFAULT 0",
                 "segment TEXT DEFAULT 'Home'",
+                "bandwidth_limit_kbps INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(f"ALTER TABLE devices ADD COLUMN {col_def}")

@@ -424,6 +424,22 @@ class PacketDissector:
         }
 
     @classmethod
+    def extract_tls_sni(cls, pkt: Any) -> Optional[str]:
+        """Extracts TLS ClientHello Server Name Indication (SNI) string from a Scapy packet."""
+        try:
+            from scapy.all import Raw, TCP
+            if TCP in pkt and Raw in pkt:
+                payload = bytes(pkt[Raw].load)
+                tls_info = cls.decode_tls_client_hello(payload, 0)
+                if tls_info and "fields" in tls_info:
+                    sni = tls_info["fields"].get("Server Name (SNI)")
+                    if sni and "Не указан" not in sni:
+                        return sni
+        except Exception:
+            pass
+        return None
+
+    @classmethod
     def decode_ssdp(cls, payload: bytes, base_offset: int) -> Optional[Dict[str, Any]]:
         """Decodes SSDP / UPnP discovery (M-SEARCH, NOTIFY)."""
         try:

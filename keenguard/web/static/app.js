@@ -1340,6 +1340,9 @@ async function switchTab(tabId) {
         if (!devicesList || devicesList.length === 0) await loadDevices();
         loadLanTab();
     }
+    else if (tabId === 'topology') {
+        loadTopologyTab();
+    }
     else if (tabId === 'packets') {
         if (!devicesList || devicesList.length === 0) await loadDevices();
         loadPacketInspectorLive(true);
@@ -8467,6 +8470,32 @@ function openAuditModal(report) {
     const bytesEl = document.getElementById('audit-modal-bytes');
     if (bytesEl) bytesEl.textContent = formatBytes(totalBytes);
 
+    // L7 Applications Breakdown
+    const appsSection = document.getElementById('audit-modal-apps-section');
+    const appsList = document.getElementById('audit-modal-apps-list');
+    if (appsSection && appsList) {
+        const apps = report.apps_breakdown || [];
+        if (apps.length > 0) {
+            appsSection.classList.remove('hidden');
+            appsList.innerHTML = apps.map(app => `
+                <div class="p-2.5 rounded-xl bg-surface-950 border border-slate-800/80 flex items-center justify-between shadow-sm">
+                    <div class="flex items-center space-x-2 truncate">
+                        <div class="w-6 h-6 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 shrink-0">
+                            <i data-lucide="${escapeHtml(app.icon || 'activity')}" class="w-3.5 h-3.5"></i>
+                        </div>
+                        <div class="truncate">
+                            <div class="text-xs font-semibold text-slate-200 truncate">${escapeHtml(app.name)}</div>
+                            <div class="text-[10px] text-slate-500 font-mono">${formatBytes(app.bytes)}</div>
+                        </div>
+                    </div>
+                    <span class="text-xs font-bold text-cyan-400 shrink-0 ml-2 font-mono">${app.percentage}%</span>
+                </div>
+            `).join('');
+        } else {
+            appsSection.classList.add('hidden');
+        }
+    }
+
     // Flows table
     currentAuditModalFlows = report.flows ? Object.values(report.flows) : [];
     const flowsCntEl = document.getElementById('audit-modal-flows-count');
@@ -8583,11 +8612,17 @@ function renderAuditModalFlowsTable() {
 
         const providerStr = fl.provider || `${fl.flag || '🌐'} ${fl.country || 'WAN'}`;
         const flowBytes = (fl.bytes_up || 0) + (fl.bytes_down || 0);
+        const appBadge = fl.app_name ? `<span class="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/70 text-cyan-300 border border-cyan-800/40">${escapeHtml(fl.app_name)}</span>` : '';
 
         return `
             <tr class="hover:bg-slate-900/50">
                 <td class="py-2 px-3 font-mono text-slate-200">${fl.dst_ip}:${fl.dst_port}</td>
-                <td class="py-2 px-3 text-slate-300">${escapeHtml(fl.service || fl.protocol || 'TCP')}</td>
+                <td class="py-2 px-3 text-slate-300">
+                    <div class="flex items-center">
+                        <span>${escapeHtml(fl.service || fl.protocol || 'TCP')}</span>
+                        ${appBadge}
+                    </div>
+                </td>
                 <td class="py-2 px-3 text-slate-300">${escapeHtml(providerStr)}</td>
                 <td class="py-2 px-3">${encBadge}</td>
                 <td class="py-2 px-3 text-right font-mono text-slate-300">${formatBytes(flowBytes)}</td>
@@ -8738,6 +8773,32 @@ function openNetworkAuditModal(report) {
                 <span>${escapeHtml(f)}</span>
             </li>
         `).join('');
+    }
+
+    // L7 Applications Breakdown
+    const netAppsSection = document.getElementById('net-audit-modal-apps-section');
+    const netAppsList = document.getElementById('net-audit-modal-apps-list');
+    if (netAppsSection && netAppsList) {
+        const apps = report.apps_breakdown || [];
+        if (apps.length > 0) {
+            netAppsSection.classList.remove('hidden');
+            netAppsList.innerHTML = apps.map(app => `
+                <div class="p-2.5 rounded-xl bg-surface-950 border border-slate-800/80 flex items-center justify-between shadow-sm">
+                    <div class="flex items-center space-x-2 truncate">
+                        <div class="w-6 h-6 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 shrink-0">
+                            <i data-lucide="${escapeHtml(app.icon || 'activity')}" class="w-3.5 h-3.5"></i>
+                        </div>
+                        <div class="truncate">
+                            <div class="text-xs font-semibold text-slate-200 truncate">${escapeHtml(app.name)}</div>
+                            <div class="text-[10px] text-slate-500 font-mono">${formatBytes(app.bytes)}</div>
+                        </div>
+                    </div>
+                    <span class="text-xs font-bold text-cyan-400 shrink-0 ml-2 font-mono">${app.percentage}%</span>
+                </div>
+            `).join('');
+        } else {
+            netAppsSection.classList.add('hidden');
+        }
     }
 
     // Lateral Movement (LAN-to-LAN connections)
@@ -12134,3 +12195,444 @@ function openInvestigatorForDevice(mac) {
     switchTab('investigator');
 }
 window.openInvestigatorForDevice = openInvestigatorForDevice;
+
+// ==========================================
+// TAB: INTERACTIVE NETWORK TOPOLOGY MAP (PLAN 09)
+// ==========================================
+
+let topologyData = null;
+let topologyNodes = [];
+let topologyLinks = [];
+let topologyTransform = { x: 0, y: 0, scale: 1 };
+let isPanningTopology = false;
+let panStart = { x: 0, y: 0 };
+let draggedNode = null;
+let topologyAnimFrame = null;
+
+async function loadTopologyTab() {
+    const realismNoteEl = document.getElementById('topology-realism-note');
+    const devBadge = document.getElementById('topology-device-count-badge');
+    const onlineBadge = document.getElementById('topology-online-badge');
+
+    try {
+        const res = await fetch('/api/network/topology');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        topologyData = await res.json();
+
+        if (devBadge) devBadge.textContent = `${topologyData.meta?.total_devices || 0} устройств`;
+        if (onlineBadge) onlineBadge.textContent = `${topologyData.meta?.online_devices || 0} онлайн`;
+        if (realismNoteEl && topologyData.meta?.l2_realism_note) {
+            realismNoteEl.textContent = topologyData.meta.l2_realism_note;
+        }
+
+        initTopologyGraph(topologyData);
+    } catch (e) {
+        console.error('Failed to load network topology', e);
+        showToast(`Ошибка загрузки топологии: ${e.message}`, 'error');
+    }
+}
+window.loadTopologyTab = loadTopologyTab;
+
+function initTopologyGraph(data) {
+    const svg = document.getElementById('topology-svg');
+    if (!svg) return;
+
+    const width = svg.clientWidth || 900;
+    const height = svg.clientHeight || 650;
+
+    topologyTransform = { x: 0, y: 0, scale: 1 };
+    applyTopologyTransform();
+
+    const nodes = JSON.parse(JSON.stringify(data.nodes || []));
+    const links = JSON.parse(JSON.stringify(data.links || []));
+
+    const cx = width / 2;
+    const cy = height / 2;
+
+    const nodeMap = {};
+    nodes.forEach(n => {
+        nodeMap[n.id] = n;
+        n.vx = 0;
+        n.vy = 0;
+
+        if (n.id === 'node_internet') {
+            n.x = cx - 120;
+            n.y = 80;
+            n.fixed = true;
+        } else if (n.id === 'node_dns') {
+            n.x = cx + 120;
+            n.y = 80;
+            n.fixed = true;
+        } else if (n.id === 'node_router') {
+            n.x = cx;
+            n.y = 170;
+            n.fixed = true;
+        } else if (n.id === 'segment_Bridge0') {
+            n.x = cx - 220;
+            n.y = 280;
+            n.fixed = true;
+        } else if (n.id === 'segment_Bridge1') {
+            n.x = cx + 220;
+            n.y = 280;
+            n.fixed = true;
+        } else if (n.id === 'ap_wifi_24') {
+            n.x = cx - 340;
+            n.y = 390;
+            n.fixed = true;
+        } else if (n.id === 'ap_wifi_5') {
+            n.x = cx - 220;
+            n.y = 390;
+            n.fixed = true;
+        } else if (n.id === 'ap_lan') {
+            n.x = cx - 100;
+            n.y = 390;
+            n.fixed = true;
+        } else if (n.id === 'ap_guest') {
+            n.x = cx + 220;
+            n.y = 390;
+            n.fixed = true;
+        } else {
+            const parent = nodeMap[n.parent_ap] || nodeMap[n.segment_id] || { x: cx, y: cy };
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 60 + Math.random() * 80;
+            n.x = parent.x + Math.cos(angle) * dist;
+            n.y = parent.y + 70 + Math.sin(angle) * 40;
+            n.fixed = false;
+        }
+    });
+
+    const mappedLinks = [];
+    links.forEach(l => {
+        const src = nodeMap[l.source];
+        const tgt = nodeMap[l.target];
+        if (src && tgt) {
+            mappedLinks.push({
+                ...l,
+                sourceNode: src,
+                targetNode: tgt
+            });
+        }
+    });
+
+    topologyNodes = nodes;
+    topologyLinks = mappedLinks;
+
+    runTopologySimulation();
+    setupTopologyInteraction(svg);
+}
+
+function runTopologySimulation() {
+    let iterations = 60;
+
+    function step() {
+        if (iterations <= 0 && !draggedNode) {
+            renderTopologyElements();
+            return;
+        }
+
+        for (let i = 0; i < topologyNodes.length; i++) {
+            for (let j = i + 1; j < topologyNodes.length; j++) {
+                const n1 = topologyNodes[i];
+                const n2 = topologyNodes[j];
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const distSq = dx * dx + dy * dy || 1;
+                const dist = Math.sqrt(distSq);
+
+                if (dist < 180) {
+                    const force = (180 - dist) / dist * 0.08;
+                    if (!n1.fixed && n1 !== draggedNode) {
+                        n1.x -= dx * force;
+                        n1.y -= dy * force;
+                    }
+                    if (!n2.fixed && n2 !== draggedNode) {
+                        n2.x += dx * force;
+                        n2.y += dy * force;
+                    }
+                }
+            }
+        }
+
+        topologyLinks.forEach(link => {
+            const s = link.sourceNode;
+            const t = link.targetNode;
+            const dx = t.x - s.x;
+            const dy = t.y - s.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const targetDist = link.type === 'client' ? 70 : 90;
+            const diff = (dist - targetDist) / dist * 0.05;
+
+            if (!s.fixed && s !== draggedNode) {
+                s.x += dx * diff;
+                s.y += dy * diff;
+            }
+            if (!t.fixed && t !== draggedNode) {
+                t.x -= dx * diff;
+                t.y -= dy * diff;
+            }
+        });
+
+        topologyNodes.forEach(n => {
+            if (n.type === 'device' && !n.fixed && n !== draggedNode) {
+                if (n.y < 440) n.y = 440 + Math.random() * 20;
+            }
+        });
+
+        renderTopologyElements();
+        iterations--;
+
+        if (iterations > 0 || draggedNode) {
+            topologyAnimFrame = requestAnimationFrame(step);
+        }
+    }
+
+    if (topologyAnimFrame) cancelAnimationFrame(topologyAnimFrame);
+    topologyAnimFrame = requestAnimationFrame(step);
+}
+
+function renderTopologyElements() {
+    const linksGroup = document.getElementById('topology-links');
+    const nodesGroup = document.getElementById('topology-nodes');
+    if (!linksGroup || !nodesGroup) return;
+
+    linksGroup.innerHTML = topologyLinks.map(l => {
+        const s = l.sourceNode;
+        const t = l.targetNode;
+
+        let strokeColor = '#334155';
+        let strokeWidth = '1.5';
+        let strokeDash = '';
+
+        if (l.type === 'wan') {
+            strokeColor = l.status === 'active' ? '#06b6d4' : '#64748b';
+            strokeWidth = '2.5';
+        } else if (l.type === 'dns') {
+            strokeColor = '#10b981';
+            strokeWidth = '2';
+        } else if (l.type === 'trunk') {
+            strokeColor = '#3b82f6';
+            strokeWidth = '2.5';
+        } else if (l.type === 'uplink') {
+            strokeColor = '#64748b';
+            strokeWidth = '1.5';
+        } else if (l.type === 'client') {
+            if (l.is_wan_blocked) {
+                strokeColor = '#f43f5e';
+                strokeWidth = '2';
+            } else if (!l.is_online) {
+                strokeColor = '#475569';
+                strokeDash = 'stroke-dasharray="4,4"';
+                strokeWidth = '1';
+            } else {
+                strokeColor = '#059669';
+                strokeWidth = '1.5';
+            }
+        }
+
+        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" ${strokeDash} opacity="0.75" />`;
+    }).join('');
+
+    nodesGroup.innerHTML = topologyNodes.map(n => {
+        let r = 18;
+        let fill = '#0f172a';
+        let stroke = '#64748b';
+        let strokeWidth = '2';
+        let labelColor = '#e2e8f0';
+
+        if (n.type === 'router') {
+            r = 28;
+            fill = 'url(#grad-router)';
+            stroke = '#06b6d4';
+            strokeWidth = '3';
+        } else if (n.type === 'wan') {
+            r = 22;
+            fill = '#1e1b4b';
+            stroke = '#818cf8';
+            strokeWidth = '2.5';
+        } else if (n.type === 'dns') {
+            r = 20;
+            fill = '#064e3b';
+            stroke = '#34d399';
+            strokeWidth = '2';
+        } else if (n.type === 'segment') {
+            r = 24;
+            if (n.id === 'segment_Bridge0') {
+                fill = 'url(#grad-bridge0)';
+                stroke = '#10b981';
+            } else {
+                fill = 'url(#grad-bridge1)';
+                stroke = '#f59e0b';
+            }
+            strokeWidth = '2.5';
+        } else if (n.type === 'access_point') {
+            r = 18;
+            fill = '#1e293b';
+            stroke = '#94a3b8';
+            strokeWidth = '1.5';
+        } else if (n.type === 'device') {
+            r = 16;
+            if (n.is_wan_blocked || n.profile === 'quarantine') {
+                fill = '#881337';
+                stroke = '#f43f5e';
+                strokeWidth = '2.5';
+            } else if (!n.is_online) {
+                fill = '#1e293b';
+                stroke = '#475569';
+                labelColor = '#94a3b8';
+            } else if (n.profile === 'trusted') {
+                fill = '#064e3b';
+                stroke = '#10b981';
+            } else if (['smart_tv', 'camera', 'iot'].includes(n.profile)) {
+                fill = '#78350f';
+                stroke = '#fbbf24';
+            } else {
+                fill = '#083344';
+                stroke = '#22d3ee';
+            }
+        }
+
+        const shortLabel = (n.label || '').length > 14 ? (n.label || '').substring(0, 12) + '…' : (n.label || '');
+        const cursor = n.type === 'device' ? 'cursor-pointer' : 'cursor-grab';
+
+        return `
+            <g class="topology-node-group ${cursor}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+                <circle r="${r + 4}" fill="${stroke}" opacity="0.15" />
+                <circle r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+                <text y="${r + 14}" text-anchor="middle" font-size="10" font-weight="600" fill="${labelColor}" font-family="system-ui, sans-serif" style="text-shadow: 0 1px 3px rgba(0,0,0,0.9); pointer-events: none;">
+                    ${escapeHtml(shortLabel)}
+                </text>
+            </g>
+        `;
+    }).join('');
+}
+
+function setupTopologyInteraction(svg) {
+    if (svg._topoInit) return;
+    svg._topoInit = true;
+
+    const tooltip = document.getElementById('topology-tooltip');
+
+    svg.addEventListener('mousedown', e => {
+        const targetNodeEl = e.target.closest('.topology-node-group');
+        if (targetNodeEl) {
+            const nodeId = targetNodeEl.getAttribute('data-id');
+            const node = topologyNodes.find(n => n.id === nodeId);
+            if (node) {
+                draggedNode = node;
+                runTopologySimulation();
+                return;
+            }
+        }
+
+        isPanningTopology = true;
+        panStart = { x: e.clientX - topologyTransform.x, y: e.clientY - topologyTransform.y };
+    });
+
+    window.addEventListener('mousemove', e => {
+        if (draggedNode) {
+            const rect = svg.getBoundingClientRect();
+            draggedNode.x = (e.clientX - rect.left - topologyTransform.x) / topologyTransform.scale;
+            draggedNode.y = (e.clientY - rect.top - topologyTransform.y) / topologyTransform.scale;
+            renderTopologyElements();
+            return;
+        }
+
+        if (isPanningTopology) {
+            topologyTransform.x = e.clientX - panStart.x;
+            topologyTransform.y = e.clientY - panStart.y;
+            applyTopologyTransform();
+            return;
+        }
+
+        const targetNodeEl = e.target.closest('.topology-node-group');
+        if (targetNodeEl && tooltip) {
+            const nodeId = targetNodeEl.getAttribute('data-id');
+            const n = topologyNodes.find(item => item.id === nodeId);
+            if (n) {
+                let statusBadge = '<span class="text-emerald-400 font-bold">● Онлайн</span>';
+                if (n.is_wan_blocked) {
+                    statusBadge = '<span class="text-rose-400 font-bold">🚫 WAN Заблокирован</span>';
+                } else if (!n.is_online && n.type === 'device') {
+                    statusBadge = '<span class="text-slate-400 font-bold">○ Офлайн</span>';
+                }
+
+                const segName = n.segment_id === 'segment_Bridge1' ? 'Гостевой (Bridge1 - Изолирован)' : 'Домашний (Bridge0 - Общий L2)';
+                const ipMac = n.ip ? `${n.ip} • ${n.mac || ''}` : (n.details?.interface || '');
+
+                tooltip.innerHTML = `
+                    <div class="font-bold text-white text-xs flex items-center justify-between gap-2 border-b border-slate-800 pb-1">
+                        <span>${escapeHtml(n.label || '')}</span>
+                        ${statusBadge}
+                    </div>
+                    <div class="text-[11px] text-slate-400 font-mono">${escapeHtml(ipMac)}</div>
+                    ${n.type === 'device' ? `<div class="text-[10px] text-slate-500">Сегмент: <span class="text-slate-300">${segName}</span></div>` : ''}
+                    ${n.vendor ? `<div class="text-[10px] text-slate-500">Вендор: <span class="text-slate-300">${escapeHtml(n.vendor)}</span></div>` : ''}
+                    ${n.type === 'device' ? `<div class="text-[9px] text-cyan-400 mt-1 italic">Нажмите для перехода в настройки устройства</div>` : ''}
+                `;
+
+                const rect = svg.getBoundingClientRect();
+                tooltip.style.left = `${e.clientX - rect.left + 15}px`;
+                tooltip.style.top = `${e.clientY - rect.top + 15}px`;
+                tooltip.classList.remove('hidden');
+                return;
+            }
+        }
+
+        if (tooltip) tooltip.classList.add('hidden');
+    });
+
+    window.addEventListener('mouseup', () => {
+        isPanningTopology = false;
+        draggedNode = null;
+    });
+
+    svg.addEventListener('wheel', e => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
+        zoomTopology(factor, e.clientX, e.clientY);
+    });
+
+    svg.addEventListener('click', e => {
+        const targetNodeEl = e.target.closest('.topology-node-group');
+        if (targetNodeEl) {
+            const nodeId = targetNodeEl.getAttribute('data-id');
+            const n = topologyNodes.find(item => item.id === nodeId);
+            if (n && n.type === 'device' && n.mac) {
+                openDeviceModal(n.mac);
+            }
+        }
+    });
+}
+
+function applyTopologyTransform() {
+    const vp = document.getElementById('topology-viewport');
+    if (vp) {
+        vp.setAttribute('transform', `translate(${topologyTransform.x}, ${topologyTransform.y}) scale(${topologyTransform.scale})`);
+    }
+}
+
+function zoomTopology(factor, originX, originY) {
+    const svg = document.getElementById('topology-svg');
+    if (!svg) return;
+
+    const rect = svg.getBoundingClientRect();
+    const cx = originX !== undefined ? originX - rect.left : rect.width / 2;
+    const cy = originY !== undefined ? originY - rect.top : rect.height / 2;
+
+    const newScale = Math.min(Math.max(topologyTransform.scale * factor, 0.4), 2.5);
+    const scaleDiff = newScale - topologyTransform.scale;
+
+    topologyTransform.x -= (cx - topologyTransform.x) * (scaleDiff / topologyTransform.scale);
+    topologyTransform.y -= (cy - topologyTransform.y) * (scaleDiff / topologyTransform.scale);
+    topologyTransform.scale = newScale;
+
+    applyTopologyTransform();
+}
+window.zoomTopology = zoomTopology;
+
+function resetTopologyView() {
+    topologyTransform = { x: 0, y: 0, scale: 1 };
+    applyTopologyTransform();
+}
+window.resetTopologyView = resetTopologyView;
+

@@ -807,3 +807,89 @@ async def get_dns_provider_helpers_api():
             ]
         }
     }
+
+
+class ToggleDotRequest(BaseModel):
+    block: bool = True
+
+
+@router.get("/api/dns/security/bypass-status")
+async def get_dns_bypass_status():
+    """Returns status of DoT/DoH blocking rules and recent bypass detections."""
+    db = get_db()
+    dot_blocked = False
+    active_sinkholes = []
+    active_blackholes = []
+    try:
+        from keenguard.web.state import get_keenetic_client
+        k_client = get_keenetic_client()
+        if k_client:
+            dot_blocked = await k_client.is_dot_blocked()
+            active_sinkholes = await k_client.get_active_sinkholes()
+            active_blackholes = await k_client.get_active_ip_blackholes()
+    except Exception as e:
+        logger.debug("Failed fetching router DNS security status: %s", e)
+
+    from keenguard.core.dns.doh_catalog import DOH_DOMAINS, PUBLIC_RESOLVER_IPS
+    doh_domain_count = len(DOH_DOMAINS)
+    doh_sinkholed_count = len([d for d in DOH_DOMAINS.keys() if d in active_sinkholes])
+
+    events = await db.get_recent_events(limit=50)
+    bypass_events = [e for e in events if e.event_type in ("dot_bypass", "doh_bypass", "external_dns_bypass")]
+
+    return {
+        "dot_blocked": dot_blocked,
+        "doh_catalog_total": doh_domain_count,
+        "doh_catalog_sinkholed": doh_sinkholed_count,
+        "active_ip_blackholes_count": len(active_blackholes),
+        "recent_bypass_events": [e.model_dump() for e in bypass_events[:10]],
+    }
+
+
+@router.post("/api/dns/security/toggle-dot")
+async def toggle_dot_blocking(req: ToggleDotRequest):
+    """Enables or disables hardware blocking of port 853 TCP/UDP on Keenetic."""
+    from keenguard.web.state import get_keenetic_client
+    k_client = get_keenetic_client()
+    if not k_client:
+        raise HTTPException(status_code=503, detail="Keenetic client is not available")
+
+    success = await k_client.block_dot_traffic(req.block)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update DoT blocking rules on router")
+
+    return {"status": "ok", "dot_blocked": req.block}
+
+
+@router.post("/api/dns/security/sinkhole-doh")
+async def sinkhole_doh_providers():
+    """Adds static DNS sinkhole records (0.0.0.0) for known DoH providers to Keenetic."""
+    from keenguard.web.state import get_keenetic_client
+    k_client = get_keenetic_client()
+    if not k_client:
+        raise HTTPException(status_code=503, detail="Keenetic client is not available")
+
+    succeeded, failed = await k_client.sinkhole_doh_providers()
+    return {
+        "status": "ok",
+        "succeeded_count": len(succeeded),
+        "failed_count": len(failed),
+        "succeeded": succeeded[:20],
+    }
+
+
+@router.post("/api/dns/security/blackhole-doh-ips")
+async def blackhole_doh_ips():
+    """Adds static reject IP routes for known Anycast DoH resolvers to Keenetic."""
+    from keenguard.web.state import get_keenetic_client
+    k_client = get_keenetic_client()
+    if not k_client:
+        raise HTTPException(status_code=503, detail="Keenetic client is not available")
+
+    succeeded, failed = await k_client.blackhole_public_doh_resolvers()
+    return {
+        "status": "ok",
+        "succeeded_count": len(succeeded),
+        "failed_count": len(failed),
+        "succeeded": succeeded[:20],
+    }

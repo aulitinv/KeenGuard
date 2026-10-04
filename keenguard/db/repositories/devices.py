@@ -42,7 +42,8 @@ class DeviceRepository(BaseRepository):
             tv_post_record_seconds=r["tv_post_record_seconds"] if "tv_post_record_seconds" in keys else None,
             tv_day_mode=r["tv_day_mode"] if "tv_day_mode" in keys else None,
             wizard_completed=bool(r["wizard_completed"]) if "wizard_completed" in keys else False,
-            segment=r["segment"] if ("segment" in keys and r["segment"]) else "Home"
+            segment=r["segment"] if ("segment" in keys and r["segment"]) else "Home",
+            bandwidth_limit_kbps=r["bandwidth_limit_kbps"] if ("bandwidth_limit_kbps" in keys and r["bandwidth_limit_kbps"] is not None) else 0
         )
 
     async def upsert_device(self, device: DeviceRecord) -> None:
@@ -54,8 +55,8 @@ class DeviceRepository(BaseRepository):
                     first_seen, last_seen, is_online, rx_bytes, tx_bytes,
                     custom_name, notes, preset_id, designated_nvr_ip,
                     auto_quarantine_override, custom_allowed_ports,
-                    tv_pre_record_seconds, tv_post_record_seconds, tv_day_mode, wizard_completed, segment
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tv_pre_record_seconds, tv_post_record_seconds, tv_day_mode, wizard_completed, segment, bandwidth_limit_kbps
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(mac) DO UPDATE SET
                     ip = excluded.ip,
                     hostname = COALESCE(excluded.hostname, devices.hostname),
@@ -81,7 +82,8 @@ class DeviceRepository(BaseRepository):
                     tv_post_record_seconds = COALESCE(excluded.tv_post_record_seconds, devices.tv_post_record_seconds),
                     tv_day_mode = COALESCE(excluded.tv_day_mode, devices.tv_day_mode),
                     wizard_completed = CASE WHEN excluded.wizard_completed = 1 THEN 1 ELSE devices.wizard_completed END,
-                    segment = COALESCE(excluded.segment, devices.segment)
+                    segment = COALESCE(excluded.segment, devices.segment),
+                    bandwidth_limit_kbps = CASE WHEN excluded.bandwidth_limit_kbps > 0 THEN excluded.bandwidth_limit_kbps ELSE devices.bandwidth_limit_kbps END
             """, (
                 device.mac.upper(), device.ip, device.hostname, device.vendor,
                 device.profile, int(device.is_blocked_wan), int(device.is_isolated_lan),
@@ -91,7 +93,8 @@ class DeviceRepository(BaseRepository):
                 device.preset_id, device.designated_nvr_ip, device.auto_quarantine_override,
                 json.dumps(device.custom_allowed_ports) if isinstance(device.custom_allowed_ports, list) else device.custom_allowed_ports,
                 device.tv_pre_record_seconds, device.tv_post_record_seconds,
-                device.tv_day_mode, int(device.wizard_completed), device.segment or "Home"
+                device.tv_day_mode, int(device.wizard_completed), device.segment or "Home",
+                int(device.bandwidth_limit_kbps or 0)
             ))
             await conn.commit()
 
@@ -212,3 +215,14 @@ class DeviceRepository(BaseRepository):
             del_cursor = await conn.execute("DELETE FROM devices WHERE is_online = 0")
             await conn.commit()
             return del_cursor.rowcount
+
+    async def update_device_speed_limit(self, mac: str, speed_kbps: int) -> bool:
+        """Updates bandwidth rate limit in kbps for device (0 = unlimited)."""
+        clean_mac = mac.upper()
+        async with self.get_connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE devices SET bandwidth_limit_kbps = ? WHERE mac = ?",
+                (max(0, int(speed_kbps)), clean_mac)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
