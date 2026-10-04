@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from scapy.all import Packet, wrpcap
 
 from keenguard.config import settings as default_settings
+from keenguard.core.audit.geoip import is_streaming_service
 
 logger = logging.getLogger("keenguard.audit.report")
 
@@ -77,6 +78,18 @@ def build_device_audit_report(session: Any) -> Dict[str, Any]:
 
     if session.http_inspections:
         findings.append(f"Инспекция пакетов выявила {len(session.http_inspections)} незашифрованных HTTP-запросов (методы, хосты, пути URI).")
+
+    streaming_flows = [
+        f for f in session.flows.values()
+        if is_streaming_service(f.get("dst_port", 0), f.get("protocol", "TCP"))[0]
+    ]
+    if streaming_flows:
+        stream_names = sorted({
+            is_streaming_service(f["dst_port"], f.get("protocol", "TCP"))[1]
+            for f in streaming_flows
+            if is_streaming_service(f["dst_port"], f.get("protocol", "TCP"))[1]
+        })
+        findings.append(f"Обнаружен легитимный локальный медиастриминг: {', '.join(stream_names)}. Сессии проверены и помечены как безопасные.")
 
     if not findings:
         findings.append("Подозрительной активности не выявлено. Все внешние соединения защищены TLS/SSL или стандартным DNS.")
@@ -181,6 +194,14 @@ def build_network_audit_report(session: Any) -> Dict[str, Any]:
         findings.append(f"Обнаружено {len(crit_lat)} подозрительных попыток межузлового взаимодействия (Lateral Movement) на критические порты.")
     if unencrypted:
         findings.append(f"Зафиксировано {len(unencrypted)} незашифрованных потоков данных к внешним серверам.")
+
+    streaming_count = sum(
+        1 for f in session.flows.values()
+        if is_streaming_service(f.get("dst_port", 0), f.get("protocol", "TCP"))[0]
+    )
+    if streaming_count > 0:
+        findings.append(f"Зафиксированы сессии легитимного медиастриминга ({streaming_count} потоков: AirPlay/Cast/Virtual Desktop/Steam/Moonlight/DLNA).")
+
     if not findings:
         findings.append("Сетевой трафик в пределах нормы, критических аномалий не зафиксировано.")
 

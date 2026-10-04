@@ -18,6 +18,7 @@ from scapy.all import Packet, Ether, IP, IPv6, ICMP, ARP, TCP, UDP, Raw
 
 from keenguard.core.dissector import PacketDissector, TCP_PORT_NAMES, UDP_PORT_NAMES, ICMP_TYPES
 from keenguard.core.enums import Severity, EventType
+from keenguard.core.audit.geoip import is_streaming_service
 
 logger = logging.getLogger("keenguard.lan_tracker")
 
@@ -127,6 +128,7 @@ class LanTrafficTracker:
         port: Optional[int] = None,
         protocol: Optional[str] = None,
         devices_map: Optional[Dict[str, Any]] = None,
+        bytes_count: int = 0
     ) -> Optional[Dict[str, Any]]:
         """
         Enforces LAN policy presets on observed internal flows/packets.
@@ -241,6 +243,10 @@ class LanTrafficTracker:
             elif is_router_dst and is_infra_port:
                 is_allowed = True
             elif is_multicast_dst and port in (5353, 1900):
+                is_allowed = True
+            elif is_streaming_service(port, protocol or "TCP")[0] and src_dev.get("profile") in ("smart_tv", "trusted", "unassigned"):
+                is_allowed = True
+            elif bytes_count > 10240 and port >= 1024 and port not in (445, 139, 22, 23, 3389, 5555):
                 is_allowed = True
 
             if not is_allowed:
@@ -631,7 +637,8 @@ class LanTrafficTracker:
             dst_ip=dst_ip,
             port=port,
             protocol=proto_str,
-            devices_map=devices_map
+            devices_map=devices_map,
+            bytes_count=len(pkt)
         )
 
         # Extract payload snippet if present
@@ -733,7 +740,8 @@ class LanTrafficTracker:
                 dst_ip=dst,
                 port=dport,
                 protocol=proto_name,
-                devices_map=devices_map
+                devices_map=devices_map,
+                bytes_count=int(entry.get("bytes", 64) or 64)
             )
 
             summary = f"{proto_name} (Keenetic): {src_dev['name']} -> {dst_dev['name']}:{dport}"

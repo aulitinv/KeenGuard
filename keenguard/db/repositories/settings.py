@@ -19,7 +19,10 @@ BUILTIN_LAN_PRESETS = [
         "description": "Разрешен просмотр видео, DLNA (порт 8200), AirPlay/Cast, mDNS/SSDP. Запрещены или подозрительны SSH, Telnet, SMB, RDP.",
         "is_builtin": 1,
         "rules": {
-            "allowed_services": ["DLNA:8200", "HTTP:80", "HTTPS:443", "HTTP_ALT:8080", "mDNS:5353", "SSDP:1900"],
+            "allowed_services": [
+                "DLNA:8200", "HTTP:80", "HTTPS:443", "HTTP_ALT:8080", "mDNS:5353", "SSDP:1900",
+                "CAST:8008", "CAST_SSL:8009", "AIRPLAY:7000", "AIRPLAY_MEDIA:7100"
+            ],
             "alert_services": ["SSH:22", "SMB:445", "SMB_NETBIOS:139"],
             "blocked_services": ["Telnet:23", "RDP:3389"],
             "lan_to_lan_policy": "restricted"

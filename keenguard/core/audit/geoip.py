@@ -122,3 +122,90 @@ async def lookup_geoip_online(ip: str) -> Dict[str, str]:
 def identify_provider(dst_ip: str) -> str:
     geo = identify_geoip(dst_ip)
     return f"{geo['flag']} {geo['provider']}"
+
+
+def is_streaming_service(dport: int, proto: str = "TCP") -> tuple[bool, Optional[str]]:
+    """
+    Identifies legitimate local media streaming protocols:
+    - Virtual Desktop: TCP/UDP 38810..38840
+    - Steam In-Home / Steam Link: UDP 27031, 27036; TCP 27036, 27037
+    - Moonlight / Sunshine: TCP 47984, 47989, 48010; UDP 47998..48002
+    - Oculus Air Link: UDP 5669; UDP 50000..50020
+    - Google Cast / DIAL: TCP 8008, 8009
+    - Apple AirPlay: TCP 7000, 7100; UDP 6000..6002, 7010, 7011
+    - DLNA / UPnP Media: TCP 8200, 2869
+    Returns (is_streaming, service_name).
+    """
+    p = proto.upper() if proto else "TCP"
+    try:
+        dport_num = int(dport)
+    except (ValueError, TypeError):
+        return False, None
+
+    # Virtual Desktop (VR streaming)
+    if 38810 <= dport_num <= 38840:
+        if dport_num == 38810:
+            return True, "Virtual Desktop Streamer (Control)"
+        elif dport_num == 38820:
+            return True, "Virtual Desktop Video Stream"
+        elif dport_num == 38830:
+            return True, "Virtual Desktop Audio/Mic Stream"
+        return True, "Virtual Desktop Stream"
+
+    # Steam In-Home Streaming / Steam Link
+    if dport_num in (27031, 27036, 27037):
+        if dport_num == 27031:
+            return True, "Steam In-Home Streaming (Discovery)"
+        elif dport_num == 27036:
+            return True, "Steam In-Home Streaming (Control/Video)"
+        elif dport_num == 27037:
+            return True, "Steam In-Home Streaming (Data)"
+
+    # Moonlight / Sunshine / NVIDIA GameStream
+    if dport_num in (47984, 47989, 48010) or (47998 <= dport_num <= 48002):
+        if dport_num == 47984:
+            return True, "Moonlight/Sunshine (HTTPS Control)"
+        elif dport_num == 47989:
+            return True, "Moonlight/Sunshine (HTTP Pairing)"
+        elif dport_num == 48010:
+            return True, "Moonlight/Sunshine (RTSP Control)"
+        elif dport_num == 47998:
+            return True, "Moonlight/Sunshine (Video UDP)"
+        elif dport_num == 47999:
+            return True, "Moonlight/Sunshine (Control UDP)"
+        elif dport_num == 48000:
+            return True, "Moonlight/Sunshine (Audio UDP)"
+        elif dport_num == 48002:
+            return True, "Moonlight/Sunshine (Mic UDP)"
+        return True, "Moonlight/Sunshine Streaming"
+
+    # Oculus Air Link
+    if dport_num == 5669 and p == "UDP":
+        return True, "Oculus Air Link (Discovery)"
+    if 50000 <= dport_num <= 50020 and p == "UDP":
+        return True, "Oculus Air Link (Media Stream)"
+
+    # Google Cast / DIAL
+    if dport_num in (8008, 8009):
+        if dport_num == 8008:
+            return True, "Google Cast (HTTP/DIAL)"
+        return True, "Google Cast (V2 TLS)"
+
+    # Apple AirPlay 2
+    if dport_num in (7000, 7100):
+        if dport_num == 7000:
+            return True, "AirPlay (Screen Mirroring)"
+        return True, "AirPlay (Media Streaming)"
+    if 6000 <= dport_num <= 6002 and p == "UDP":
+        return True, "AirPlay (Audio RTP)"
+    if dport_num in (7010, 7011) and p == "UDP":
+        return True, "AirPlay (Screen RTP)"
+
+    # DLNA / UPnP AV
+    if dport_num in (8200, 2869):
+        if dport_num == 8200:
+            return True, "MiniDLNA / Keenetic Media Server"
+        return True, "SSDP Event Notification / DLNA"
+
+    return False, None
+

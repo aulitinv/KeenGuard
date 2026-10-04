@@ -9,7 +9,7 @@ from scapy.all import Packet, IP, IPv6, TCP, UDP, Raw
 
 from keenguard.config import settings
 from keenguard.db.models import DeviceRecord
-from keenguard.core.audit.geoip import KNOWN_SERVICES, is_lan_ip, identify_geoip
+from keenguard.core.audit.geoip import KNOWN_SERVICES, is_lan_ip, identify_geoip, is_streaming_service
 from keenguard.core.audit.report import build_device_audit_report, build_network_audit_report, save_pcap_packets
 
 logger = logging.getLogger("keenguard.audit.session")
@@ -21,7 +21,10 @@ def evaluate_lan_access_policy(
     dport: int,
     designated_nvr_ip: Optional[str] = None,
     custom_allowed_ports: Optional[str] = None,
-    preset_rules: Optional[Dict[str, Any]] = None
+    preset_rules: Optional[Dict[str, Any]] = None,
+    proto: str = "TCP",
+    bytes_transferred: int = 0,
+    packets_transferred: int = 0
 ) -> tuple[str, bool]:
     """
     Evaluates LAN communication risk and returns (risk_level, is_blocked).
@@ -50,14 +53,28 @@ def evaluate_lan_access_policy(
         except (AttributeError, ValueError) as err:
             logger.debug("Failed parsing custom_allowed_ports: %s", err)
 
+    # Check legitimate media streaming protocols (Virtual Desktop, Steam Link, Moonlight, AirPlay, Cast, DLNA)
+    is_stream, _ = is_streaming_service(dport, proto)
+    if is_stream and src_profile in ("trusted", "smart_tv", "unassigned"):
+        return "safe", False
+
     # Trusted devices (PCs, laptops, phones) have full LAN access by default
     if src_profile == "trusted" and not preset_rules:
         return "safe", False
+
+    # High-throughput data session behavioral heuristic:
+    # If bytes > 10 KB or packets > 10 on non-exploit ports, this is an established application session, NOT a scan probe!
+    EXPLOIT_PORTS = {445, 139, 22, 23, 3389, 5555}
+    is_data_stream = (dport >= 1024 and dport not in EXPLOIT_PORTS) and (bytes_transferred > 10240 or packets_transferred > 10)
 
     # If preset rules are provided
     if preset_rules:
         allowed = preset_rules.get("allowed_services", [])
         if "*" in allowed or str(dport) in allowed or any(f":{dport}" in a for a in allowed):
+            return "safe", False
+
+        # Streaming exceptions for presets
+        if is_stream:
             return "safe", False
 
         alerts = preset_rules.get("alert_services", [])
@@ -74,13 +91,21 @@ def evaluate_lan_access_policy(
         elif lan_policy == "isolated":
             return "critical", True
         else:
+            # "restricted" policy:
+            # If high-throughput data stream or UDP ephemeral streaming on TV, allow as safe
+            if is_data_stream:
+                return "safe", False
+            if src_profile == "smart_tv" and proto.upper() == "UDP" and dport >= 1024:
+                return "safe", False
             return "warning", False
 
     # Default fallback behavior based on profile
     if src_profile == "trusted":
         return "safe", False
     elif src_profile == "smart_tv":
-        if dport in (8200, 80, 443, 8080, 5353, 1900):
+        if dport in (8200, 80, 443, 8080, 5353, 1900, 8008, 8009, 7000, 7100, 2869) or is_stream:
+            return "safe", False
+        if dport >= 1024 and (proto.upper() == "UDP" or is_data_stream):
             return "safe", False
         if dport in (22, 23, 445, 139, 3389):
             return "warning", False
@@ -91,8 +116,16 @@ def evaluate_lan_access_policy(
         if dport in (445, 139, 22, 23, 3389, 5555):
             return "critical", True
         return "warning", False
-    elif src_profile in ("iot", "unassigned"):
+    elif src_profile == "iot":
         if dport in (1883, 8883, 5683, 53, 123):
+            return "safe", False
+        if dport in (445, 139, 22, 23, 3389, 5555):
+            return "critical", True
+        return "warning", False
+    elif src_profile == "unassigned":
+        if is_stream or is_data_stream:
+            return "safe", False
+        if dport in (1883, 8883, 5683, 53, 123, 80, 443):
             return "safe", False
         if dport in (445, 139, 22, 23, 3389, 5555):
             return "critical", True
@@ -287,9 +320,18 @@ class AuditSession:
             b_down = int(e.get("bytes-out", 0))
             p_up = int(e.get("packets", 0))
             p_down = int(e.get("packets-out", 0))
+            total_bytes = b_up + b_down
+            total_packets = p_up + p_down
 
             key = f"{proto}_{dst_ip}_{dport}"
-            service_info = KNOWN_SERVICES.get(dport, {"name": f"Порт {dport}", "encrypted": False, "risk": "safe"})
+            service_info = KNOWN_SERVICES.get(dport)
+            if not service_info:
+                is_stream_svc, stream_name = is_streaming_service(dport, proto)
+                if is_stream_svc:
+                    service_info = {"name": stream_name, "encrypted": True, "risk": "safe"}
+                else:
+                    service_info = {"name": f"Порт {dport}", "encrypted": False, "risk": "safe"}
+
             is_lan = is_lan_ip(dst_ip)
 
             # Assess risk using role-based policy
@@ -310,10 +352,16 @@ class AuditSession:
                         dport=dport,
                         designated_nvr_ip=designated_nvr,
                         custom_allowed_ports=custom_ports,
-                        preset_rules=preset_rules
+                        preset_rules=preset_rules,
+                        proto=proto,
+                        bytes_transferred=total_bytes,
+                        packets_transferred=total_packets
                     )
 
-                    if risk in ("warning", "critical"):
+                    is_stream_svc, _ = is_streaming_service(dport, proto)
+                    is_media_data = is_stream_svc or (dport >= 1024 and total_bytes > 10240 and dport not in (445, 139, 22, 23, 3389, 5555))
+
+                    if risk in ("warning", "critical") and not is_media_data:
                         probe_key = f"{dst_ip}:{dport}"
                         if not any(p["target"] == probe_key for p in self.lan_probes):
                             self.lan_probes.append({
@@ -466,8 +514,18 @@ class NetworkAuditSession:
             d_stat["packets_up"] = max(d_stat["packets_up"], p_up)
             d_stat["packets_down"] = max(d_stat["packets_down"], p_down)
 
+            total_b = b_up + b_down
+            total_p = p_up + p_down
+
             flow_key = f"{src_ip}_{proto}_{dst_ip}_{dport}"
-            service_info = KNOWN_SERVICES.get(dport, {"name": f"Порт {dport}", "encrypted": False, "risk": "safe"})
+            service_info = KNOWN_SERVICES.get(dport)
+            if not service_info:
+                is_stream_svc, stream_name = is_streaming_service(dport, proto)
+                if is_stream_svc:
+                    service_info = {"name": stream_name, "encrypted": True, "risk": "safe"}
+                else:
+                    service_info = {"name": f"Порт {dport}", "encrypted": False, "risk": "safe"}
+
             is_lan = is_lan_ip(dst_ip)
             risk = service_info.get("risk", "safe")
 
@@ -496,10 +554,16 @@ class NetworkAuditSession:
                         dport=dport,
                         designated_nvr_ip=designated_nvr,
                         custom_allowed_ports=custom_ports,
-                        preset_rules=preset_rules
+                        preset_rules=preset_rules,
+                        proto=proto,
+                        bytes_transferred=total_b,
+                        packets_transferred=total_p
                     )
 
-                    if risk in ("warning", "critical"):
+                    is_stream_svc, _ = is_streaming_service(dport, proto)
+                    is_media_data = is_stream_svc or (dport >= 1024 and total_b > 10240 and dport not in (445, 139, 22, 23, 3389, 5555))
+
+                    if risk in ("warning", "critical") and not is_media_data:
                         if not any(lm["key"] == lat_key for lm in self.lateral_movements):
                             lm_entry = {
                                 "key": lat_key,

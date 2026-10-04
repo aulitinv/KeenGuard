@@ -93,5 +93,110 @@
     "name": "ADB (Отладка Android)",
     "encrypted": false,
     "risk": "critical"
+  },
+  "38810": {
+    "name": "Virtual Desktop Streamer (Control)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "38820": {
+    "name": "Virtual Desktop Video Stream",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "38830": {
+    "name": "Virtual Desktop Audio/Mic Stream",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "38840": {
+    "name": "Virtual Desktop Stream",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "27031": {
+    "name": "Steam In-Home Streaming (Discovery)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "27036": {
+    "name": "Steam In-Home Streaming (Control/Video)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "27037": {
+    "name": "Steam In-Home Streaming (Data)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "47984": {
+    "name": "Moonlight/Sunshine (HTTPS Control)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "47989": {
+    "name": "Moonlight/Sunshine (HTTP Pairing)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "48010": {
+    "name": "Moonlight/Sunshine (RTSP Control)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "47998": {
+    "name": "Moonlight/Sunshine (Video UDP)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "47999": {
+    "name": "Moonlight/Sunshine (Control UDP)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "48000": {
+    "name": "Moonlight/Sunshine (Audio UDP)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "48002": {
+    "name": "Moonlight/Sunshine (Mic UDP)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "5669": {
+    "name": "Oculus Air Link (Discovery)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "8008": {
+    "name": "Google Cast (HTTP/DIAL)",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "8009": {
+    "name": "Google Cast (V2 TLS)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "7000": {
+    "name": "AirPlay (Screen Mirroring)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "7100": {
+    "name": "AirPlay (Media Streaming)",
+    "encrypted": true,
+    "risk": "safe"
+  },
+  "8200": {
+    "name": "MiniDLNA / Keenetic Media Server",
+    "encrypted": false,
+    "risk": "safe"
+  },
+  "2869": {
+    "name": "SSDP Event Notification / DLNA",
+    "encrypted": false,
+    "risk": "safe"
   }
 }
