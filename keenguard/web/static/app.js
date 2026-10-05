@@ -37,7 +37,7 @@ async function checkAuthStatus() {
             updateWebAccessBadges(data.web_host, true, data.is_localhost);
             if (data.auth_required && !data.authenticated) {
                 showLoginModal();
-            } else {
+            } else if (!isAuthModalOpen) {
                 hideLoginModal();
             }
         }
@@ -179,11 +179,11 @@ async function submitLogin(e) {
 async function logout() {
     try {
         await _originalFetch('/api/auth/logout', { method: 'POST' });
-        showToast('Сессия завершена', 'info');
-        checkAuthStatus();
-        showLoginModal();
+        showToast('Панель заблокирована', 'info');
     } catch (err) {
         console.error('Logout error:', err);
+    } finally {
+        showLoginModal();
     }
 }
 
@@ -492,6 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadWifiAudit();
             checkRouterUpdates();
             loadSecurityScoreForDashboard();
+            loadL7TrafficSummary();
         }
     }, 10000);
 
@@ -513,6 +514,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function initModalDismissHandlers() {
     const modalIds = [
         'device-modal',
+        'command-palette-modal',
         'digest-modal',
         'event-modal',
         'domain-detail-modal',
@@ -557,6 +559,7 @@ function initModalDismissHandlers() {
 
 function closeAnyModal(id) {
     if (id === 'device-modal') closeDeviceModal();
+    else if (id === 'command-palette-modal') closeCommandPalette();
     else if (id === 'digest-modal') closeDigestModal();
     else if (id === 'event-modal') closeEventModal();
     else if (id === 'domain-detail-modal') closeDomainModal();
@@ -1367,6 +1370,7 @@ async function switchTab(tabId) {
         checkRouterUpdates();
         updateLiveTrafficChart();
         loadSecurityScoreForDashboard();
+        loadL7TrafficSummary();
     }
 
     if (tabId !== 'settings') {
@@ -1392,6 +1396,7 @@ async function refreshAllData() {
         checkRouterUpdates();
         updateLiveTrafficChart();
         loadSecurityScoreForDashboard();
+        loadL7TrafficSummary();
     } else if (activeTab === 'dns') {
         if (typeof activeDnsSubTab !== 'undefined' && activeDnsSubTab === 'filter') {
             loadDnsFilterTab();
@@ -2019,36 +2024,42 @@ function renderDevicesGrid(devices) {
     renderDevicesGrouped(devices);
 }
 
-// Device Detail Modal Sub-Tabs
+// Device Detail Modal Sub-Tabs (4 tabs: overview, policies, traffic, special)
 function switchDeviceModalTab(tab) {
-    const polTab = document.getElementById('modal-tab-policies');
-    const trafTab = document.getElementById('modal-tab-traffic');
-    const polBtn = document.getElementById('modal-tab-btn-policies');
-    const trafBtn = document.getElementById('modal-tab-btn-traffic');
-    if (!polTab || !trafTab) return;
+    const tabs = ['overview', 'policies', 'traffic', 'special'];
+    const target = (tab === 'security' || tab === 'policies') ? 'policies' : tab;
 
-    if (tab === 'policies') {
-        polTab.classList.remove('hidden');
-        trafTab.classList.add('hidden');
-        if (polBtn) polBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition';
-        if (trafBtn) trafBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition';
-    } else {
-        polTab.classList.add('hidden');
-        trafTab.classList.remove('hidden');
-        if (trafBtn) trafBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition';
-        if (polBtn) polBtn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition';
-        if (currentDeviceMac) {
-            loadDeviceTrafficChart(currentDeviceMac);
+    tabs.forEach(t => {
+        const pane = document.getElementById(`modal-tab-${t}`);
+        const btn = document.getElementById(`modal-tab-btn-${t}`);
+        if (pane) {
+            if (t === target) {
+                pane.classList.remove('hidden');
+            } else {
+                pane.classList.add('hidden');
+            }
         }
+        if (btn) {
+            if (t === target) {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition shrink-0';
+            } else {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0';
+            }
+        }
+    });
+
+    if (target === 'traffic' && currentDeviceMac) {
+        loadDeviceTrafficChart(currentDeviceMac);
     }
-    lucide.createIcons();
+    if (window.lucide) lucide.createIcons();
 }
+window.switchDeviceModalTab = switchDeviceModalTab;
 
 // Device Detail Modal
 async function openDeviceModal(mac) {
     if (!mac) return;
     currentDeviceMac = mac;
-    switchDeviceModalTab('policies');
+    switchDeviceModalTab('overview');
     const modal = document.getElementById('device-modal');
     if (!modal) return;
     modal.classList.remove('hidden');
@@ -2067,97 +2078,82 @@ async function openDeviceModal(mac) {
         }
         const prof = (d.profile && PROFILES[d.profile]) ? PROFILES[d.profile] : PROFILES.unassigned;
 
+        // 1. Header & Identity
         const nameEl = document.getElementById('modal-dev-name');
         if (nameEl) nameEl.textContent = d.custom_name || d.hostname || d.mac;
         const macEl = document.getElementById('modal-dev-mac');
         if (macEl) macEl.textContent = d.mac;
-        const ipEl = document.getElementById('modal-dev-ip');
-        if (ipEl) ipEl.textContent = d.ip || 'Не назначен';
-        const vendorEl = document.getElementById('modal-dev-vendor');
-        if (vendorEl) vendorEl.textContent = d.vendor || 'Неизвестен';
-
-        const profSelect = document.getElementById('modal-profile-select');
-        if (profSelect) profSelect.value = d.profile || 'unassigned';
-        const wanToggle = document.getElementById('modal-toggle-wan');
-        if (wanToggle) wanToggle.checked = Boolean(d.is_blocked_wan);
-
-        // LAN Policy Preset & Quarantine Override
-        if (!allLanPresets || allLanPresets.length === 0) {
-            await loadLanPresets();
-        }
-        const presetSelect = document.getElementById('modal-lan-preset-select');
-        if (presetSelect) {
-            presetSelect.value = d.preset_id || '';
-        }
-
-        const customPortsInput = document.getElementById('modal-custom-allowed-ports');
-        if (customPortsInput) {
-            customPortsInput.value = (d.custom_allowed_ports && Array.isArray(d.custom_allowed_ports)) 
-                ? d.custom_allowed_ports.join(', ') 
-                : '';
-        }
-        const customPortsStatus = document.getElementById('modal-custom-ports-status');
-        if (customPortsStatus) customPortsStatus.classList.add('hidden');
-
-        const nvrGroup = document.getElementById('modal-nvr-group');
-        const nvrInput = document.getElementById('modal-nvr-ip');
-        if (nvrGroup && nvrInput) {
-            if (d.profile === 'camera') {
-                nvrGroup.classList.remove('hidden');
-                nvrInput.value = d.designated_nvr_ip || '';
-            } else {
-                nvrGroup.classList.add('hidden');
-            }
-        }
-
-        const autoQuarSelect = document.getElementById('modal-auto-quarantine-override');
-        if (autoQuarSelect) {
-            autoQuarSelect.value = d.auto_quarantine_override || 'profile_default';
-        }
-
-        // LAN status indicator & Keenetic hardware segmentation reality
-        const lanBadge = document.getElementById('modal-lan-badge');
-        const lanSub = document.getElementById('modal-lan-subtitle');
-        const risk = d.segment_risk || {};
-        const seg = (d.segment || 'Home').trim();
-        const isGuest = d.is_isolated_lan || seg.toLowerCase().includes('guest') || seg.toLowerCase().includes('гостев');
-
-        if (lanBadge) {
-            if (isGuest) {
-                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">🔒 Изолирован (Гостевая сеть)</span>';
-                if (lanSub) lanSub.textContent = "Аппаратная изоляция: L2-доступ к другим клиентам заблокирован роутером.";
-            } else if (risk.risk_level === 'high') {
-                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30" title="L2-трафик идет в обход файрвола">⚠️ В Bridge0 (L2 риск)</span>';
-                if (lanSub) lanSub.textContent = risk.recommendation || "L2-трафик между клиентами идет в обход файрвола роутера. Перенесите в Гостевую сеть Keenetic.";
-            } else {
-                lanBadge.innerHTML = `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">🔓 Сегмент: ${escapeHtml(seg)}</span>`;
-                if (lanSub) lanSub.textContent = risk.recommendation || "В основном мосте Home (Bridge0).";
-            }
-        }
-
-        // Smart TV specific options visibility
-        const tvOptions = document.getElementById('modal-tv-options');
-        if (tvOptions) {
-            if (d.profile === 'smart_tv') {
-                tvOptions.classList.remove('hidden');
-                const airToggle = document.getElementById('modal-toggle-airplay');
-                if (airToggle) airToggle.checked = Boolean(d.airplay_allowed);
-                const dlnaToggle = document.getElementById('modal-toggle-dlna');
-                if (dlnaToggle) dlnaToggle.checked = d.dlna_allowed !== false;
-                const nightToggle = document.getElementById('modal-toggle-night');
-                if (nightToggle) nightToggle.checked = Boolean(d.night_mode_enabled);
-            } else {
-                tvOptions.classList.add('hidden');
-            }
-        }
-
         const iconContainer = document.getElementById('modal-dev-icon');
         if (iconContainer) {
             iconContainer.className = `p-2 rounded-xl ${prof.bg} ${prof.color}`;
             iconContainer.innerHTML = `<i data-lucide="${prof.icon}" class="w-5 h-5"></i>`;
         }
 
-        // MAC Randomization & Device Identity banner logic
+        // 2. Tab 1: Overview
+        const ipEl = document.getElementById('modal-dev-ip');
+        if (ipEl) ipEl.textContent = d.ip || 'Не назначен';
+        const vendorEl = document.getElementById('modal-dev-vendor');
+        if (vendorEl) vendorEl.textContent = d.vendor || 'Неизвестен';
+
+        const macTypeEl = document.getElementById('modal-dev-mac-type');
+        if (macTypeEl) {
+            if (d.is_random_mac) {
+                macTypeEl.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">Случайный (LAA)</span>';
+            } else {
+                macTypeEl.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">Заводской OUI</span>';
+            }
+        }
+
+        const segDispEl = document.getElementById('modal-dev-segment-disp');
+        if (segDispEl) {
+            segDispEl.textContent = d.segment ? `${d.segment} (${d.segment.toLowerCase().includes('guest') ? 'Bridge1' : 'Bridge0'})` : 'Bridge0 (Home)';
+        }
+
+        const statusEl = document.getElementById('modal-dev-status-text');
+        if (statusEl) {
+            if (d.is_online) {
+                statusEl.innerHTML = '<span class="text-emerald-400 font-bold">● В сети</span>';
+            } else {
+                statusEl.innerHTML = '<span class="text-slate-400 font-medium">○ Офлайн</span>';
+            }
+        }
+
+        const rssiEl = document.getElementById('modal-dev-rssi-text');
+        if (rssiEl) {
+            if (d.rssi !== null && d.rssi !== undefined) {
+                rssiEl.textContent = `${d.rssi} dBm`;
+            } else if ((d.interface || '').toLowerCase().includes('eth') || (d.interface || '').toLowerCase().includes('port') || (d.interface || '').toLowerCase().includes('lan')) {
+                rssiEl.textContent = 'Проводное (LAN)';
+            } else {
+                rssiEl.textContent = 'Wi-Fi';
+            }
+        }
+
+        const bandEl = document.getElementById('modal-dev-band-text');
+        if (bandEl) {
+            const iface = (d.interface || '').toLowerCase();
+            if (iface.includes('5g') || iface.includes('wifimaster1')) {
+                bandEl.textContent = 'Wi-Fi 5 GHz';
+            } else if (iface.includes('wifi') || iface.includes('wifimaster0')) {
+                bandEl.textContent = 'Wi-Fi 2.4 GHz';
+            } else if (iface.includes('eth') || iface.includes('lan') || iface.includes('port')) {
+                bandEl.textContent = 'Ethernet LAN';
+            } else {
+                bandEl.textContent = d.interface || 'Локальный порт';
+            }
+        }
+
+        const seenEl = document.getElementById('modal-dev-seen-text');
+        if (seenEl) {
+            const first = d.first_seen ? d.first_seen.substring(0, 10) : '-';
+            const last = d.last_seen ? d.last_seen.substring(11, 16) : '-';
+            seenEl.textContent = `Первый: ${first} • Активность: ${last}`;
+        }
+
+        const customNameInp = document.getElementById('modal-dev-custom-name-input');
+        if (customNameInp) customNameInp.value = d.custom_name || '';
+
+        // MAC Randomization Banner
         const rotBanner = document.getElementById('modal-mac-rotation-banner');
         const rotTitle = document.getElementById('modal-mac-rotation-title');
         const rotBody = document.getElementById('modal-mac-rotation-body');
@@ -2206,17 +2202,123 @@ async function openDeviceModal(mac) {
             }
         }
 
+        // 3. Tab 2: Security & Policies
+        const profSelect = document.getElementById('modal-profile-select');
+        if (profSelect) profSelect.value = d.profile || 'unassigned';
+        const wanToggle = document.getElementById('modal-toggle-wan');
+        if (wanToggle) wanToggle.checked = Boolean(d.is_blocked_wan);
+
+        if (!allLanPresets || allLanPresets.length === 0) {
+            await loadLanPresets();
+        }
+        const presetSelect = document.getElementById('modal-lan-preset-select');
+        if (presetSelect) {
+            presetSelect.value = d.preset_id || '';
+        }
+
+        const customPortsInput = document.getElementById('modal-custom-allowed-ports');
+        if (customPortsInput) {
+            customPortsInput.value = (d.custom_allowed_ports && Array.isArray(d.custom_allowed_ports)) 
+                ? d.custom_allowed_ports.join(', ') 
+                : '';
+        }
+        const customPortsStatus = document.getElementById('modal-custom-ports-status');
+        if (customPortsStatus) customPortsStatus.classList.add('hidden');
+
+        const autoQuarSelect = document.getElementById('modal-auto-quarantine-override');
+        if (autoQuarSelect) {
+            autoQuarSelect.value = d.auto_quarantine_override || 'profile_default';
+        }
+
+        // LAN status indicator & Keenetic hardware segmentation reality
+        const lanBadge = document.getElementById('modal-lan-badge');
+        const lanSub = document.getElementById('modal-lan-subtitle');
+        const risk = d.segment_risk || {};
+        const seg = (d.segment || 'Home').trim();
+        const isGuest = d.is_isolated_lan || seg.toLowerCase().includes('guest') || seg.toLowerCase().includes('гостев');
+
+        if (lanBadge) {
+            if (isGuest) {
+                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">🔒 Изолирован (Гостевая сеть)</span>';
+                if (lanSub) lanSub.textContent = "Аппаратная изоляция: L2-доступ к другим клиентам заблокирован роутером.";
+            } else if (risk.risk_level === 'high') {
+                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30" title="L2-трафик идет в обход файрвола">⚠️ В Bridge0 (L2 риск)</span>';
+                if (lanSub) lanSub.textContent = risk.recommendation || "L2-трафик между клиентами идет в обход файрвола роутера. Перенесите в Гостевую сеть Keenetic.";
+            } else {
+                lanBadge.innerHTML = `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">🔓 Сегмент: ${escapeHtml(seg)}</span>`;
+                if (lanSub) lanSub.textContent = risk.recommendation || "В основном мосте Home (Bridge0).";
+            }
+        }
+
         // Smart Segmentation recommendation banner toggle
         const tipEl = document.getElementById('modal-segmentation-tip');
         if (tipEl) {
             const isSegmentable = d.profile === 'smart_home_hub' || d.profile === 'iot';
             if (isSegmentable) {
                 tipEl.classList.remove('hidden');
-                tipEl.removeAttribute('open'); // Keep collapsed by default so it stays compact
+                tipEl.removeAttribute('open');
             } else {
                 tipEl.classList.add('hidden');
             }
         }
+
+        // 4. Tab 3: Traffic & Shaper
+        const shaperBadge = document.getElementById('modal-shaper-badge');
+        const shaperPreset = document.getElementById('modal-shaper-preset-select');
+        const shaperCustom = document.getElementById('modal-shaper-custom-input');
+        const curLimit = d.bandwidth_limit_kbps || 0;
+        if (shaperBadge) {
+            shaperBadge.textContent = curLimit > 0 ? (curLimit >= 1024 ? `${(curLimit / 1024).toFixed(1)} Мбит/с` : `${curLimit} Кбит/с`) : 'Без ограничений';
+        }
+        if (shaperPreset && shaperCustom) {
+            const presetValues = ['0', '512', '2048', '5120', '15360'];
+            if (presetValues.includes(String(curLimit))) {
+                shaperPreset.value = String(curLimit);
+                shaperCustom.classList.add('hidden');
+                shaperCustom.value = '';
+            } else {
+                shaperPreset.value = 'custom';
+                shaperCustom.classList.remove('hidden');
+                shaperCustom.value = curLimit > 0 ? curLimit : '';
+            }
+        }
+
+        // 5. Tab 4: Special (TV, Camera, Notes)
+        const isSpecialDevice = (d.profile === 'smart_tv' || d.profile === 'camera');
+        const specialBadge = document.getElementById('modal-special-badge');
+        if (specialBadge) {
+            if (isSpecialDevice) specialBadge.classList.remove('hidden');
+            else specialBadge.classList.add('hidden');
+        }
+
+        const tvBlock = document.getElementById('modal-special-tv-block');
+        if (tvBlock) {
+            if (d.profile === 'smart_tv') {
+                tvBlock.classList.remove('hidden');
+                const airToggle = document.getElementById('modal-toggle-airplay');
+                if (airToggle) airToggle.checked = Boolean(d.airplay_allowed);
+                const dlnaToggle = document.getElementById('modal-toggle-dlna');
+                if (dlnaToggle) dlnaToggle.checked = d.dlna_allowed !== false;
+                const nightToggle = document.getElementById('modal-toggle-night');
+                if (nightToggle) nightToggle.checked = Boolean(d.night_mode_enabled);
+            } else {
+                tvBlock.classList.add('hidden');
+            }
+        }
+
+        const camBlock = document.getElementById('modal-special-camera-block');
+        if (camBlock) {
+            if (d.profile === 'camera') {
+                camBlock.classList.remove('hidden');
+                const nvrInput = document.getElementById('modal-nvr-ip');
+                if (nvrInput) nvrInput.value = d.designated_nvr_ip || '';
+            } else {
+                camBlock.classList.add('hidden');
+            }
+        }
+
+        const notesInp = document.getElementById('modal-dev-notes-input');
+        if (notesInp) notesInp.value = d.notes || '';
 
         // Offline device deletion button
         const delDevBtn = document.getElementById('btn-delete-device-modal');
@@ -2228,7 +2330,7 @@ async function openDeviceModal(mac) {
             }
         }
 
-        lucide.createIcons();
+        if (window.lucide) lucide.createIcons();
 
         await checkDeviceAuditState(mac);
         loadDeviceTrafficChart(mac);
@@ -2237,6 +2339,92 @@ async function openDeviceModal(mac) {
         console.error('Error opening device modal', e);
     }
 }
+
+function onModalShaperPresetChange(val) {
+    const customInp = document.getElementById('modal-shaper-custom-input');
+    if (!customInp) return;
+    if (val === 'custom') {
+        customInp.classList.remove('hidden');
+        customInp.focus();
+    } else {
+        customInp.classList.add('hidden');
+        customInp.value = val;
+    }
+}
+window.onModalShaperPresetChange = onModalShaperPresetChange;
+
+async function applyModalSpeedLimit() {
+    if (!currentDeviceMac) return;
+    const select = document.getElementById('modal-shaper-preset-select');
+    const customInp = document.getElementById('modal-shaper-custom-input');
+    let speed = 0;
+    if (select && select.value === 'custom' && customInp) {
+        speed = parseInt(customInp.value, 10) || 0;
+    } else if (select) {
+        speed = parseInt(select.value, 10) || 0;
+    }
+
+    try {
+        const res = await fetch(`/api/devices/${encodeURIComponent(currentDeviceMac)}/speed-limit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ speed_kbps: speed })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const textSpeed = speed > 0 ? (speed >= 1024 ? `${(speed / 1024).toFixed(1)} Мбит/с` : `${speed} Кбит/с`) : 'Без ограничений';
+        showToast(speed > 0 ? `Лимит скорости установлен: ${textSpeed}` : 'Ограничение скорости снято');
+        const badge = document.getElementById('modal-shaper-badge');
+        if (badge) badge.textContent = textSpeed;
+        await loadDevices();
+    } catch (e) {
+        console.error('Failed to set speed limit', e);
+        showToast(`Ошибка: ${e.message}`, true);
+    }
+}
+window.applyModalSpeedLimit = applyModalSpeedLimit;
+
+async function saveModalCustomName(name) {
+    if (!currentDeviceMac) return;
+    try {
+        const res = await fetch(`/api/devices/${encodeURIComponent(currentDeviceMac)}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ custom_name: (name || '').trim() })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast('Имя устройства обновлено');
+        const nameEl = document.getElementById('modal-dev-name');
+        if (nameEl) nameEl.textContent = name.trim() || currentDeviceMac;
+        await loadDevices();
+    } catch (e) {
+        console.error('Failed to rename device', e);
+        showToast('Ошибка при переименовании устройства', true);
+    }
+}
+window.saveModalCustomName = saveModalCustomName;
+
+async function saveModalNotes(notes) {
+    if (!currentDeviceMac) return;
+    try {
+        const res = await fetch(`/api/devices/${encodeURIComponent(currentDeviceMac)}/notes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes: notes || '' })
+        });
+        if (res.ok) {
+            showToast('Заметка сохранена');
+        } else {
+            throw new Error(`HTTP ${res.status}`);
+        }
+    } catch (e) {
+        console.error('Failed to save notes', e);
+        showToast('Ошибка сохранения заметки', true);
+    }
+}
+window.saveModalNotes = saveModalNotes;
 
 function closeDeviceModal() {
     if (auditTimerInterval) clearInterval(auditTimerInterval);
@@ -4861,6 +5049,134 @@ async function updateLiveTrafficChart() {
         console.error('Error updating live traffic chart', e);
     }
 }
+
+// ==========================================
+// L7 Application Traffic Breakdown
+// ==========================================
+
+const L7_CATEGORY_NAMES = {
+    streaming: 'Стриминг',
+    communication: 'Связь',
+    gaming: 'Игры',
+    web: 'Веб',
+    vpn: 'VPN / Защита',
+    system: 'Система',
+    p2p: 'P2P / Торренты',
+    other: 'Прочее'
+};
+
+const L7_CATEGORY_COLORS = {
+    streaming: '#8b5cf6',
+    communication: '#10b981',
+    gaming: '#f59e0b',
+    web: '#06b6d4',
+    vpn: '#3b82f6',
+    system: '#6366f1',
+    p2p: '#ec4899',
+    other: '#64748b'
+};
+
+function getFlowsPlural(n) {
+    if (n % 10 === 1 && n % 100 !== 11) return 'поток';
+    if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'потока';
+    return 'потоков';
+}
+
+async function loadL7TrafficSummary() {
+    const badgeEl = document.getElementById('l7-active-flows-badge');
+    const volumeEl = document.getElementById('l7-total-volume');
+    const barEl = document.getElementById('l7-category-bar');
+    const legendEl = document.getElementById('l7-category-legend');
+    const gridEl = document.getElementById('l7-apps-grid');
+
+    if (!barEl || !gridEl) return;
+
+    try {
+        const res = await fetch('/api/traffic/l7-summary');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const totalBytes = data.total_bytes || 0;
+        const activeFlows = data.active_flows_count || 0;
+        const categories = data.categories_breakdown || [];
+        const apps = data.apps_breakdown || [];
+
+        if (badgeEl) {
+            badgeEl.textContent = `${activeFlows} активных ${getFlowsPlural(activeFlows)}`;
+        }
+        if (volumeEl) {
+            volumeEl.textContent = `Объем: ${formatBytes(totalBytes)}`;
+        }
+
+        // 1. Render Segmented Category Bar
+        if (categories.length > 0 && totalBytes > 0) {
+            barEl.innerHTML = categories.map(cat => {
+                const color = L7_CATEGORY_COLORS[cat.category] || '#64748b';
+                const pct = cat.percentage || 0;
+                const name = L7_CATEGORY_NAMES[cat.category] || cat.category;
+                return `<div style="width: ${pct}%; background-color: ${color};" class="h-full transition-all duration-300" title="${escapeHtml(name)}: ${pct}% (${formatBytes(cat.bytes)})"></div>`;
+            }).join('');
+
+            // Category Legend
+            legendEl.innerHTML = categories.map(cat => {
+                const color = L7_CATEGORY_COLORS[cat.category] || '#64748b';
+                const name = L7_CATEGORY_NAMES[cat.category] || cat.category;
+                return `
+                    <div class="flex items-center space-x-1.5">
+                        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color};"></span>
+                        <span class="text-slate-300 font-medium">${escapeHtml(name)}</span>
+                        <span class="text-slate-500 font-mono text-[11px]">${cat.percentage}%</span>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            barEl.innerHTML = `<div class="bg-slate-800 h-full w-full"></div>`;
+            legendEl.innerHTML = `<span class="text-slate-500 italic text-[11px]">Ожидание активности сетевых сессий...</span>`;
+        }
+
+        // 2. Render Top Applications Grid
+        if (apps.length > 0) {
+            gridEl.innerHTML = apps.slice(0, 6).map(app => {
+                const color = L7_CATEGORY_COLORS[app.category] || '#64748b';
+                const catName = L7_CATEGORY_NAMES[app.category] || app.category;
+                const iconName = app.icon || 'activity';
+
+                return `
+                    <div class="bg-surface-950/70 border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-slate-700 transition">
+                        <div class="flex items-start justify-between gap-1 mb-2">
+                            <div class="flex items-center space-x-2 min-w-0">
+                                <div class="p-1.5 rounded-lg shrink-0" style="background-color: ${color}20; color: ${color};">
+                                    <i data-lucide="${escapeHtml(iconName)}" class="w-4 h-4"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <h4 class="font-bold text-xs text-white truncate" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</h4>
+                                    <span class="text-[10px] text-slate-400 block truncate">${escapeHtml(catName)}</span>
+                                </div>
+                            </div>
+                            <span class="text-xs font-mono font-bold shrink-0" style="color: ${color};">${app.percentage}%</span>
+                        </div>
+                        <div class="space-y-1.5 pt-1 border-t border-slate-800/60">
+                            <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                                <span>${formatBytes(app.bytes)}</span>
+                                <span class="text-[10px] text-slate-500">${app.flow_count || 1} фл.</span>
+                            </div>
+                            <div class="w-full h-1.5 rounded-full bg-slate-900 overflow-hidden">
+                                <div class="h-full rounded-full" style="width: ${app.percentage}%; background-color: ${color};"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            gridEl.innerHTML = `<div class="text-slate-500 text-xs italic py-4 col-span-full">Нет активных потоков приложений для отображения.</div>`;
+        }
+
+        if (window.lucide) lucide.createIcons({ roots: [gridEl] });
+    } catch (e) {
+        console.error('Failed to load L7 traffic summary', e);
+    }
+}
+window.loadL7TrafficSummary = loadL7TrafficSummary;
 
 // Device Traffic Chart
 async function loadDeviceTrafficChart(mac) {
@@ -12201,8 +12517,12 @@ window.openInvestigatorForDevice = openInvestigatorForDevice;
 // ==========================================
 
 let topologyData = null;
+let topologyRawNodes = [];
+let topologyRawLinks = [];
 let topologyNodes = [];
 let topologyLinks = [];
+let currentTopologyFilter = 'all';
+let isTopologyFullscreen = false;
 let topologyTransform = { x: 0, y: 0, scale: 1 };
 let isPanningTopology = false;
 let panStart = { x: 0, y: 0 };
@@ -12237,23 +12557,64 @@ function initTopologyGraph(data) {
     const svg = document.getElementById('topology-svg');
     if (!svg) return;
 
-    const width = svg.clientWidth || 900;
-    const height = svg.clientHeight || 650;
-
     topologyTransform = { x: 0, y: 0, scale: 1 };
     applyTopologyTransform();
 
-    const nodes = JSON.parse(JSON.stringify(data.nodes || []));
-    const links = JSON.parse(JSON.stringify(data.links || []));
+    topologyRawNodes = JSON.parse(JSON.stringify(data.nodes || []));
+    topologyRawLinks = JSON.parse(JSON.stringify(data.links || []));
 
+    applyTopologyFilterAndRender(false);
+    setupTopologyInteraction(svg);
+}
+
+function applyTopologyFilterAndRender(preservePositions = true) {
+    const svg = document.getElementById('topology-svg');
+    if (!svg) return;
+
+    const width = svg.clientWidth || 900;
+    const height = svg.clientHeight || 650;
     const cx = width / 2;
     const cy = height / 2;
 
+    const existingPosMap = {};
+    if (preservePositions && topologyNodes && topologyNodes.length) {
+        topologyNodes.forEach(n => {
+            existingPosMap[n.id] = { x: n.x, y: n.y, fixed: n.fixed };
+        });
+    }
+
+    const filteredNodes = topologyRawNodes.filter(n => {
+        if (n.type !== 'device') return true;
+        if (currentTopologyFilter === 'online') {
+            return n.is_online === true;
+        }
+        if (currentTopologyFilter === 'hide_trusted') {
+            return n.profile !== 'trusted';
+        }
+        if (currentTopologyFilter === 'iot_tv') {
+            return ['smart_tv', 'camera', 'iot'].includes(n.profile);
+        }
+        if (currentTopologyFilter === 'quarantine') {
+            return n.profile === 'quarantine' || n.is_wan_blocked;
+        }
+        return true;
+    });
+
+    const validNodeIds = new Set(filteredNodes.map(n => n.id));
+    const filteredLinks = topologyRawLinks.filter(l => validNodeIds.has(l.source) && validNodeIds.has(l.target));
+
     const nodeMap = {};
-    nodes.forEach(n => {
+    filteredNodes.forEach(n => {
         nodeMap[n.id] = n;
         n.vx = 0;
         n.vy = 0;
+
+        if (existingPosMap[n.id]) {
+            n.x = existingPosMap[n.id].x;
+            n.y = existingPosMap[n.id].y;
+            n.fixed = existingPosMap[n.id].fixed;
+            return;
+        }
 
         if (n.id === 'node_internet') {
             n.x = cx - 120;
@@ -12292,17 +12653,55 @@ function initTopologyGraph(data) {
             n.y = 390;
             n.fixed = true;
         } else {
-            const parent = nodeMap[n.parent_ap] || nodeMap[n.segment_id] || { x: cx, y: cy };
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 60 + Math.random() * 80;
-            n.x = parent.x + Math.cos(angle) * dist;
-            n.y = parent.y + 70 + Math.sin(angle) * 40;
             n.fixed = false;
         }
     });
 
+    // Compute orderly fan coordinates for all client devices (prevent overlapping and initial jitter)
+    const apChildren = {};
+    filteredNodes.forEach(n => {
+        if (!['node_internet', 'node_dns', 'node_router', 'segment_Bridge0', 'segment_Bridge1', 'ap_wifi_24', 'ap_wifi_5', 'ap_lan', 'ap_guest'].includes(n.id)) {
+            const parentId = n.parent_ap || n.segment_id || 'ap_wifi_24';
+            if (!apChildren[parentId]) apChildren[parentId] = [];
+            apChildren[parentId].push(n);
+        }
+    });
+
+    Object.entries(apChildren).forEach(([parentId, children]) => {
+        const parent = nodeMap[parentId] || { x: cx, y: 390 };
+        const total = children.length;
+        children.forEach((n, idx) => {
+            if (existingPosMap[n.id]) {
+                n.x = existingPosMap[n.id].x;
+                n.y = existingPosMap[n.id].y;
+                n.fixed = existingPosMap[n.id].fixed;
+                return;
+            }
+            let tier = 0;
+            let tierIdx = idx;
+            let tierTotal = total;
+            if (total > 6) {
+                tier = idx % 2;
+                tierIdx = Math.floor(idx / 2);
+                tierTotal = Math.ceil(total / 2);
+            }
+            const radius = 95 + tier * 65;
+            const startAngle = Math.PI * 0.22;
+            const endAngle = Math.PI * 0.78;
+            const step = tierTotal > 1 ? (endAngle - startAngle) / (tierTotal - 1) : 0;
+            const angle = tierTotal > 1 ? (startAngle + tierIdx * step) : Math.PI * 0.5;
+
+            const spreadFactor = (parentId === 'ap_wifi_24' || total > 8) ? 1.35 : 1.0;
+            n.x = parent.x + Math.cos(angle) * radius * spreadFactor;
+            n.y = parent.y + Math.sin(angle) * radius;
+            n.vx = 0;
+            n.vy = 0;
+            n.fixed = false;
+        });
+    });
+
     const mappedLinks = [];
-    links.forEach(l => {
+    filteredLinks.forEach(l => {
         const src = nodeMap[l.source];
         const tgt = nodeMap[l.target];
         if (src && tgt) {
@@ -12314,15 +12713,67 @@ function initTopologyGraph(data) {
         }
     });
 
-    topologyNodes = nodes;
+    topologyNodes = filteredNodes;
     topologyLinks = mappedLinks;
 
+    // Update filter chip UI active states
+    const filterIds = ['all', 'online', 'hide_trusted', 'iot_tv', 'quarantine'];
+    filterIds.forEach(f => {
+        const btn = document.getElementById(`topo-filter-${f}`);
+        if (!btn) return;
+        if (f === currentTopologyFilter) {
+            btn.className = 'topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 transition';
+        } else {
+            btn.className = 'topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition';
+        }
+    });
+
     runTopologySimulation();
-    setupTopologyInteraction(svg);
 }
 
+function setTopologyFilter(filter) {
+    currentTopologyFilter = filter;
+    applyTopologyFilterAndRender(true);
+}
+window.setTopologyFilter = setTopologyFilter;
+
+function toggleTopologyFullscreen() {
+    const card = document.getElementById('topology-container-card');
+    const icon = document.getElementById('topology-fullscreen-icon');
+    if (!card) return;
+
+    isTopologyFullscreen = !isTopologyFullscreen;
+    if (isTopologyFullscreen) {
+        card.classList.add('topology-fullscreen');
+        if (icon) {
+            icon.setAttribute('data-lucide', 'shrink');
+            if (window.lucide) lucide.createIcons({ roots: [icon.parentElement] });
+        }
+    } else {
+        card.classList.remove('topology-fullscreen');
+        if (icon) {
+            icon.setAttribute('data-lucide', 'expand');
+            if (window.lucide) lucide.createIcons({ roots: [icon.parentElement] });
+        }
+    }
+
+    setTimeout(() => {
+        resetTopologyView();
+        if (topologyData) {
+            applyTopologyFilterAndRender(false);
+        }
+    }, 100);
+}
+window.toggleTopologyFullscreen = toggleTopologyFullscreen;
+
+window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && isTopologyFullscreen) {
+        toggleTopologyFullscreen();
+    }
+});
+
 function runTopologySimulation() {
-    let iterations = 60;
+    let iterations = 45;
 
     function step() {
         if (iterations <= 0 && !draggedNode) {
@@ -12330,51 +12781,65 @@ function runTopologySimulation() {
             return;
         }
 
+        // 1. Repulsion between non-fixed nodes (only when overlapping or too close, < 70px)
+        const repulsionDist = 70;
         for (let i = 0; i < topologyNodes.length; i++) {
+            const n1 = topologyNodes[i];
             for (let j = i + 1; j < topologyNodes.length; j++) {
-                const n1 = topologyNodes[i];
                 const n2 = topologyNodes[j];
                 const dx = n2.x - n1.x;
                 const dy = n2.y - n1.y;
                 const distSq = dx * dx + dy * dy || 1;
                 const dist = Math.sqrt(distSq);
 
-                if (dist < 180) {
-                    const force = (180 - dist) / dist * 0.08;
+                if (dist < repulsionDist) {
+                    const force = (repulsionDist - dist) / dist * 0.12;
                     if (!n1.fixed && n1 !== draggedNode) {
-                        n1.x -= dx * force;
-                        n1.y -= dy * force;
+                        n1.vx -= dx * force;
+                        n1.vy -= dy * force;
                     }
                     if (!n2.fixed && n2 !== draggedNode) {
-                        n2.x += dx * force;
-                        n2.y += dy * force;
+                        n2.vx += dx * force;
+                        n2.vy += dy * force;
                     }
                 }
             }
         }
 
+        // 2. Gentle spring force along links
         topologyLinks.forEach(link => {
             const s = link.sourceNode;
             const t = link.targetNode;
+            if (!s || !t) return;
             const dx = t.x - s.x;
             const dy = t.y - s.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const targetDist = link.type === 'client' ? 70 : 90;
-            const diff = (dist - targetDist) / dist * 0.05;
+            const targetDist = link.type === 'client' ? 105 : 90;
+            const diff = (dist - targetDist) / dist * 0.04;
 
             if (!s.fixed && s !== draggedNode) {
-                s.x += dx * diff;
-                s.y += dy * diff;
+                s.vx += dx * diff;
+                s.vy += dy * diff;
             }
             if (!t.fixed && t !== draggedNode) {
-                t.x -= dx * diff;
-                t.y -= dy * diff;
+                t.vx -= dx * diff;
+                t.vy -= dy * diff;
             }
         });
 
+        // 3. Velocity integration with 55% damping (friction eliminates all jitter/shaking)
         topologyNodes.forEach(n => {
-            if (n.type === 'device' && !n.fixed && n !== draggedNode) {
-                if (n.y < 440) n.y = 440 + Math.random() * 20;
+            if (!n.fixed && n !== draggedNode) {
+                n.vx *= 0.55;
+                n.vy *= 0.55;
+                n.x += n.vx;
+                n.y += n.vy;
+
+                // Deterministic floor constraint: client devices stay below the AP level (y >= 440)
+                if (n.type === 'device' && n.y < 440) {
+                    n.y = 440;
+                    if (n.vy < 0) n.vy = 0;
+                }
             }
         });
 
@@ -12391,9 +12856,66 @@ function runTopologySimulation() {
 }
 
 function renderTopologyElements() {
+    const boundariesGroup = document.getElementById('topology-boundaries');
     const linksGroup = document.getElementById('topology-links');
     const nodesGroup = document.getElementById('topology-nodes');
     if (!linksGroup || !nodesGroup) return;
+
+    if (boundariesGroup) {
+        let b0Svg = '';
+        const b0Nodes = topologyNodes.filter(n => n.id === 'segment_Bridge0' || n.segment_id === 'segment_Bridge0' || ['ap_wifi_24', 'ap_wifi_5', 'ap_lan'].includes(n.id));
+        if (b0Nodes.length > 0) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            b0Nodes.forEach(n => {
+                if (n.x < minX) minX = n.x;
+                if (n.x > maxX) maxX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.y > maxY) maxY = n.y;
+            });
+            const pad = 36;
+            const w = Math.max((maxX - minX) + pad * 2, 280);
+            const h = (maxY - minY) + pad * 2;
+            const x = minX - pad;
+            const y = minY - pad;
+            b0Svg = `
+                <g class="topology-boundary-group" pointer-events="none">
+                    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="20" ry="20" fill="rgba(16, 185, 129, 0.03)" stroke="rgba(16, 185, 129, 0.3)" stroke-dasharray="6,4" stroke-width="1.5" />
+                    <rect x="${x}" y="${y}" width="265" height="22" rx="6" ry="6" fill="#064e3b" opacity="0.9" stroke="rgba(16, 185, 129, 0.5)" stroke-width="1" />
+                    <text x="${x + 10}" y="${y + 15}" fill="#34d399" font-size="10" font-weight="700" font-family="system-ui, sans-serif">
+                        Bridge0: Домашний сегмент (L2 общий домен)
+                    </text>
+                </g>
+            `;
+        }
+
+        let b1Svg = '';
+        const b1Nodes = topologyNodes.filter(n => n.id === 'segment_Bridge1' || n.segment_id === 'segment_Bridge1' || n.id === 'ap_guest');
+        if (b1Nodes.length > 0) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            b1Nodes.forEach(n => {
+                if (n.x < minX) minX = n.x;
+                if (n.x > maxX) maxX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.y > maxY) maxY = n.y;
+            });
+            const pad = 36;
+            const w = Math.max((maxX - minX) + pad * 2, 280);
+            const h = (maxY - minY) + pad * 2;
+            const x = minX - pad;
+            const y = minY - pad;
+            b1Svg = `
+                <g class="topology-boundary-group" pointer-events="none">
+                    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="20" ry="20" fill="rgba(245, 158, 11, 0.03)" stroke="rgba(245, 158, 11, 0.3)" stroke-dasharray="6,4" stroke-width="1.5" />
+                    <rect x="${x}" y="${y}" width="275" height="22" rx="6" ry="6" fill="#78350f" opacity="0.9" stroke="rgba(245, 158, 11, 0.5)" stroke-width="1" />
+                    <text x="${x + 10}" y="${y + 15}" fill="#fbbf24" font-size="10" font-weight="700" font-family="system-ui, sans-serif">
+                        Bridge1: Гостевой сегмент (L2/L3 изоляция)
+                    </text>
+                </g>
+            `;
+        }
+
+        boundariesGroup.innerHTML = b0Svg + b1Svg;
+    }
 
     linksGroup.innerHTML = topologyLinks.map(l => {
         const s = l.sourceNode;
@@ -12519,6 +13041,9 @@ function setupTopologyInteraction(svg) {
             const node = topologyNodes.find(n => n.id === nodeId);
             if (node) {
                 draggedNode = node;
+                draggedNode.fixed = true;
+                draggedNode.vx = 0;
+                draggedNode.vy = 0;
                 runTopologySimulation();
                 return;
             }
@@ -12533,6 +13058,8 @@ function setupTopologyInteraction(svg) {
             const rect = svg.getBoundingClientRect();
             draggedNode.x = (e.clientX - rect.left - topologyTransform.x) / topologyTransform.scale;
             draggedNode.y = (e.clientY - rect.top - topologyTransform.y) / topologyTransform.scale;
+            draggedNode.vx = 0;
+            draggedNode.vy = 0;
             renderTopologyElements();
             return;
         }
@@ -12583,7 +13110,12 @@ function setupTopologyInteraction(svg) {
 
     window.addEventListener('mouseup', () => {
         isPanningTopology = false;
-        draggedNode = null;
+        if (draggedNode) {
+            draggedNode.fixed = true;
+            draggedNode.vx = 0;
+            draggedNode.vy = 0;
+            draggedNode = null;
+        }
     });
 
     svg.addEventListener('wheel', e => {
@@ -12635,4 +13167,465 @@ function resetTopologyView() {
     applyTopologyTransform();
 }
 window.resetTopologyView = resetTopologyView;
+
+// ==========================================
+// Command Palette (Ctrl+K / Cmd+K)
+// ==========================================
+
+let isCommandPaletteOpen = false;
+let commandPaletteCategory = 'all';
+let commandPaletteSelectedIndex = 0;
+let commandPaletteMatches = [];
+
+const COMMAND_PALETTE_ACTIONS = [
+    {
+        type: 'nav',
+        id: 'nav_dashboard',
+        category: 'navigation',
+        title: 'Дашборд сети',
+        subtitle: 'Главная панель, статус роутера, L7 трафик и эфир',
+        icon: 'layout-dashboard',
+        badge: 'Раздел',
+        action: () => switchTab('dashboard')
+    },
+    {
+        type: 'nav',
+        id: 'nav_topology',
+        category: 'navigation',
+        title: 'Интерактивная топология сети',
+        subtitle: 'Карта сегментов Bridge0 / Bridge1 и клиентов',
+        icon: 'git-merge',
+        badge: 'Раздел',
+        action: () => switchTab('topology')
+    },
+    {
+        type: 'nav',
+        id: 'nav_devices',
+        category: 'navigation',
+        title: 'Устройства в сети',
+        subtitle: 'Список хостов, профилей, шейпинга и изоляции',
+        icon: 'laptop',
+        badge: 'Раздел',
+        action: () => switchTab('devices')
+    },
+    {
+        type: 'nav',
+        id: 'nav_lan',
+        category: 'navigation',
+        title: 'Локальные связи (LAN)',
+        subtitle: 'Матрица связности и предотвращение ботнетов',
+        icon: 'network',
+        badge: 'Раздел',
+        action: () => switchTab('lan')
+    },
+    {
+        type: 'nav',
+        id: 'nav_security',
+        category: 'navigation',
+        title: 'Центр безопасности & Чеклист',
+        subtitle: '10 ключевых векторов защиты периметра',
+        icon: 'shield-check',
+        badge: 'Раздел',
+        action: () => switchTab('security')
+    },
+    {
+        type: 'nav',
+        id: 'nav_alerts',
+        category: 'navigation',
+        title: 'Инциденты & UPnP аудит',
+        subtitle: 'Журнал обнаруженных угроз и пробросов WAN',
+        icon: 'alert-triangle',
+        badge: 'Раздел',
+        action: () => switchTab('alerts')
+    },
+    {
+        type: 'nav',
+        id: 'nav_dns',
+        category: 'navigation',
+        title: 'DNS & DoH/DoT защита',
+        subtitle: 'Мониторинг запросов, sinkhole и DoH блокировка',
+        icon: 'globe',
+        badge: 'Раздел',
+        action: () => switchTab('dns')
+    },
+    {
+        type: 'nav',
+        id: 'nav_investigator',
+        category: 'navigation',
+        title: 'Мастер расследований (Wizard)',
+        subtitle: 'Пошаговый анализ сетевых инцидентов и аномалий',
+        icon: 'crosshair',
+        badge: 'Раздел',
+        action: () => switchTab('investigator')
+    },
+    {
+        type: 'nav',
+        id: 'nav_audits',
+        category: 'navigation',
+        title: 'Аудит трафика устройств',
+        subtitle: 'Глубокий анализ потоков и сохранение PCAP',
+        icon: 'activity',
+        badge: 'Раздел',
+        action: () => switchTab('audits')
+    },
+    {
+        type: 'nav',
+        id: 'nav_packets',
+        category: 'navigation',
+        title: 'Инспектор сетевых пакетов',
+        subtitle: 'Wireshark-анализ Ethernet/IP/L7 и Hex/ASCII дамп',
+        icon: 'binary',
+        badge: 'Раздел',
+        action: () => switchTab('packets')
+    },
+    {
+        type: 'nav',
+        id: 'nav_tv',
+        category: 'navigation',
+        title: 'Smart TV & Криминалистика',
+        subtitle: 'Ночные пробуждения, фоновая телеметрия и буфер',
+        icon: 'tv',
+        badge: 'Раздел',
+        action: () => switchTab('tv_forensics')
+    },
+    {
+        type: 'nav',
+        id: 'nav_settings',
+        category: 'navigation',
+        title: 'Настройки системы',
+        subtitle: 'Параметры Keenetic, Telegram-бот, учетная запись',
+        icon: 'settings',
+        badge: 'Раздел',
+        action: () => switchTab('settings')
+    },
+    {
+        type: 'action',
+        id: 'action_sec_wizard',
+        category: 'navigation',
+        title: 'Запустить мастер экспресс-настройки',
+        subtitle: 'Пошаговый аудит ролей и профилей безопасности',
+        icon: 'sparkles',
+        badge: 'Мастер',
+        action: () => openSecurityWizard()
+    },
+    {
+        type: 'action',
+        id: 'action_toggle_sidebar',
+        category: 'navigation',
+        title: 'Свернуть / развернуть меню навигации',
+        subtitle: 'Переключение компактного режима меню (Клавиша: [ )',
+        icon: 'panel-left-close',
+        badge: 'Интерфейс',
+        action: () => toggleSidebar()
+    },
+    {
+        type: 'action',
+        id: 'action_full_audit',
+        category: 'navigation',
+        title: 'Запустить экспресс-аудит всей сети',
+        subtitle: 'Переход в раздел аудита и старт сетевой сессии',
+        icon: 'play',
+        badge: 'Аудит',
+        action: () => {
+            switchTab('audits');
+            const select = document.getElementById('audit-launch-device');
+            if (select) select.value = 'NETWORK';
+            startTrafficAuditFromTab();
+        }
+    },
+    {
+        type: 'action',
+        id: 'action_lock_panel',
+        category: 'action',
+        title: 'Заблокировать панель (Экран входа)',
+        subtitle: 'Выйти из сессии администратора и показать окно авторизации',
+        icon: 'lock',
+        badge: 'Доступ',
+        action: () => logout()
+    }
+];
+
+function openCommandPalette() {
+    const modal = document.getElementById('command-palette-modal');
+    const input = document.getElementById('cmd-palette-input');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+    isCommandPaletteOpen = true;
+    commandPaletteSelectedIndex = 0;
+
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 50);
+    }
+    renderCommandPaletteResults();
+}
+window.openCommandPalette = openCommandPalette;
+
+function closeCommandPalette() {
+    const modal = document.getElementById('command-palette-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    isCommandPaletteOpen = false;
+}
+window.closeCommandPalette = closeCommandPalette;
+
+function clearCommandPaletteInput() {
+    const input = document.getElementById('cmd-palette-input');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    renderCommandPaletteResults();
+}
+window.clearCommandPaletteInput = clearCommandPaletteInput;
+
+function setCommandPaletteCategory(cat) {
+    commandPaletteCategory = cat;
+    ['all', 'devices', 'navigation'].forEach(c => {
+        const btn = document.getElementById(`cmd-cat-${c}`);
+        if (!btn) return;
+        if (c === cat) {
+            btn.className = 'cmd-cat-chip px-2.5 py-1 rounded-lg font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 transition';
+        } else {
+            btn.className = 'cmd-cat-chip px-2.5 py-1 rounded-lg font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition';
+        }
+    });
+    commandPaletteSelectedIndex = 0;
+    renderCommandPaletteResults();
+}
+window.setCommandPaletteCategory = setCommandPaletteCategory;
+
+function renderCommandPaletteResults() {
+    const input = document.getElementById('cmd-palette-input');
+    const resultsContainer = document.getElementById('cmd-palette-results');
+    const matchCountEl = document.getElementById('cmd-palette-match-count');
+    const clearBtn = document.getElementById('cmd-palette-clear-btn');
+    if (!resultsContainer) return;
+
+    const query = (input?.value || '').trim().toLowerCase();
+    if (clearBtn) {
+        if (query) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+    }
+
+    const matches = [];
+
+    // 1. Match Devices
+    if (commandPaletteCategory === 'all' || commandPaletteCategory === 'devices') {
+        const devList = Array.isArray(devices) ? devices : [];
+        devList.forEach(dev => {
+            const name = (dev.custom_name || dev.hostname || dev.name || '').toLowerCase();
+            const ip = (dev.ip || '').toLowerCase();
+            const mac = (dev.mac || '').toLowerCase();
+            const vendor = (dev.vendor || '').toLowerCase();
+            const profile = (dev.profile || '').toLowerCase();
+
+            if (!query || name.includes(query) || ip.includes(query) || mac.includes(query) || vendor.includes(query) || profile.includes(query)) {
+                matches.push({
+                    type: 'device',
+                    id: dev.mac,
+                    device: dev,
+                    title: dev.custom_name || dev.hostname || dev.ip || dev.mac,
+                    subtitle: `${dev.ip || 'Нет IP'} • ${dev.mac} • ${dev.vendor || 'Unknown Vendor'}`,
+                    profile: dev.profile || 'unassigned',
+                    is_online: dev.is_online,
+                    is_blocked_wan: dev.is_blocked_wan,
+                    action: () => {
+                        closeCommandPalette();
+                        openDeviceModal(dev.mac);
+                    }
+                });
+            }
+        });
+    }
+
+    // 2. Match Actions / Navigation
+    if (commandPaletteCategory === 'all' || commandPaletteCategory === 'navigation') {
+        COMMAND_PALETTE_ACTIONS.forEach(act => {
+            const title = act.title.toLowerCase();
+            const sub = act.subtitle.toLowerCase();
+            if (!query || title.includes(query) || sub.includes(query) || act.id.includes(query)) {
+                matches.push(act);
+            }
+        });
+    }
+
+    commandPaletteMatches = matches;
+    if (matchCountEl) matchCountEl.textContent = `${matches.length} совпадений`;
+
+    if (matches.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="text-center py-12 px-4 space-y-2">
+                <i data-lucide="search-x" class="w-8 h-8 text-slate-600 mx-auto"></i>
+                <h4 class="text-sm font-semibold text-slate-300">Ничего не найдено</h4>
+                <p class="text-xs text-slate-500 max-w-sm mx-auto">
+                    По запросу "${escapeHtml(query)}" устройств или системных команд не обнаружено. Попробуйте изменить поисковую фразу.
+                </p>
+            </div>
+        `;
+        if (window.lucide) lucide.createIcons({ roots: [resultsContainer] });
+        return;
+    }
+
+    if (commandPaletteSelectedIndex >= matches.length) {
+        commandPaletteSelectedIndex = Math.max(0, matches.length - 1);
+    }
+
+    resultsContainer.innerHTML = matches.map((item, idx) => {
+        const isSelected = idx === commandPaletteSelectedIndex;
+        const selectedCls = isSelected ? 'selected' : '';
+
+        if (item.type === 'device') {
+            const dev = item.device;
+            const onlineDot = dev.is_online
+                ? '<span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Онлайн"></span>'
+                : '<span class="w-2 h-2 rounded-full bg-slate-600 shrink-0" title="Офлайн"></span>';
+
+            const blockedBadge = dev.is_blocked_wan
+                ? '<span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30">Блок WAN</span>'
+                : '';
+
+            return `
+                <div class="cmd-item ${selectedCls} p-2.5 rounded-xl flex items-center justify-between gap-3 cursor-pointer group" onclick="executeCommandPaletteItem(${idx})">
+                    <div class="flex items-center space-x-3 min-w-0">
+                        ${onlineDot}
+                        <div class="min-w-0">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-bold text-xs text-white truncate">${escapeHtml(item.title)}</span>
+                                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">${escapeHtml(item.profile)}</span>
+                                ${blockedBadge}
+                            </div>
+                            <span class="text-[11px] text-slate-400 font-mono truncate block">${escapeHtml(item.subtitle)}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-1.5 shrink-0">
+                        <button onclick="event.stopPropagation(); closeCommandPalette(); openDeviceModal('${dev.mac}');" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Открыть инспектор">
+                            <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); closeCommandPalette(); switchTab('audits'); startDeviceAuditFromPalette('${dev.mac}');" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Запустить аудит">
+                            <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); closeCommandPalette(); switchTab('packets'); filterPacketsByDevice('${dev.mac}');" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Инспектор пакетов">
+                            <i data-lucide="binary" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Navigation or Action item
+        return `
+            <div class="cmd-item ${selectedCls} p-2.5 rounded-xl flex items-center justify-between gap-3 cursor-pointer group" onclick="executeCommandPaletteItem(${idx})">
+                <div class="flex items-center space-x-3 min-w-0">
+                    <div class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 shrink-0">
+                        <i data-lucide="${escapeHtml(item.icon)}" class="w-4 h-4"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <span class="font-bold text-xs text-white truncate block">${escapeHtml(item.title)}</span>
+                        <span class="text-[11px] text-slate-400 truncate block">${escapeHtml(item.subtitle)}</span>
+                    </div>
+                </div>
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 shrink-0">
+                    ${escapeHtml(item.badge || 'Перейти')}
+                </span>
+            </div>
+        `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons({ roots: [resultsContainer] });
+
+    // Scroll selected into view
+    const selectedEl = resultsContainer.querySelector('.cmd-item.selected');
+    if (selectedEl) {
+        selectedEl.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function executeCommandPaletteItem(idx) {
+    const item = commandPaletteMatches[idx];
+    if (!item) return;
+    closeCommandPalette();
+    if (typeof item.action === 'function') {
+        item.action();
+    }
+}
+window.executeCommandPaletteItem = executeCommandPaletteItem;
+
+function startDeviceAuditFromPalette(mac) {
+    switchTab('audits');
+    const select = document.getElementById('audit-launch-device');
+    if (select) {
+        select.value = mac;
+    }
+    startTrafficAuditFromTab();
+}
+window.startDeviceAuditFromPalette = startDeviceAuditFromPalette;
+
+function filterPacketsByDevice(mac) {
+    const select = document.getElementById('pkt-device-select');
+    if (select) {
+        select.value = mac;
+        onPacketDeviceSelectChange();
+    }
+}
+window.filterPacketsByDevice = filterPacketsByDevice;
+
+// Global hotkeys and event listeners
+window.addEventListener('keydown', e => {
+    // 1. Toggle Command Palette on Ctrl+K / Cmd+K
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (isCommandPaletteOpen) {
+            closeCommandPalette();
+        } else {
+            openCommandPalette();
+        }
+        return;
+    }
+
+    if (!isCommandPaletteOpen) return;
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCommandPalette();
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (commandPaletteMatches.length > 0) {
+            commandPaletteSelectedIndex = (commandPaletteSelectedIndex + 1) % commandPaletteMatches.length;
+            renderCommandPaletteResults();
+        }
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (commandPaletteMatches.length > 0) {
+            commandPaletteSelectedIndex = (commandPaletteSelectedIndex - 1 + commandPaletteMatches.length) % commandPaletteMatches.length;
+            renderCommandPaletteResults();
+        }
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        executeCommandPaletteItem(commandPaletteSelectedIndex);
+    }
+});
+
+// Setup input listeners on load
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('cmd-palette-input');
+    if (input) {
+        input.addEventListener('input', () => {
+            commandPaletteSelectedIndex = 0;
+            renderCommandPaletteResults();
+        });
+    }
+});
+
+// Close command palette on click outside
+document.addEventListener('mousedown', e => {
+    if (!isCommandPaletteOpen) return;
+    const modal = document.getElementById('command-palette-modal');
+    const content = modal?.querySelector('div.bg-surface-900');
+    if (modal && !modal.classList.contains('hidden') && content && !content.contains(e.target)) {
+        closeCommandPalette();
+    }
+});
+
 

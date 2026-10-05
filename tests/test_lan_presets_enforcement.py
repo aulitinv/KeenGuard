@@ -10,7 +10,7 @@ def test_sniffer_transparency_status():
     sniffer = NetworkSniffer()
     status = sniffer.get_status()
     assert status["cross_client_l2_visibility"] is False
-    assert status["capture_mode"] == "local_promiscuous"
+    assert status["capture_mode"] in ("local_promiscuous", "conntrack_passive", "promiscuous_active")
     assert "зеркалирование" in status["recommended_action"] or "Conntrack" in status["recommended_action"]
 
 

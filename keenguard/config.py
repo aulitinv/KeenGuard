@@ -167,6 +167,11 @@ class Settings(BaseModel):
     db_path: Path = Field(default=DATA_DIR / "keenguard.db")
     pcap_dir: Path = Field(default=PCAP_DIR)
     max_pcap_files: int = Field(default=50)
+    pcap_max_age_days: int = Field(default=int(os.getenv("PCAP_MAX_AGE_DAYS", "7")), description="Retention period for stored PCAP packet dumps in days")
+    pcap_max_total_size_mb: int = Field(default=int(os.getenv("PCAP_MAX_TOTAL_SIZE_MB", "50")), description="Maximum total disk usage for PCAP dumps in megabytes")
+
+    # Network Sniffer & CPU Profiling settings
+    sniffer_mode: str = Field(default=os.getenv("SNIFFER_MODE", "conntrack_passive"), description="Mode: 'conntrack_passive' (router-friendly passive Conntrack polling) or 'promiscuous_active' (continuous raw Scapy promiscuous capture)")
 
     # Smart TV & Media settings
     night_mode_start_hour: int = Field(default=0)  # 00:00

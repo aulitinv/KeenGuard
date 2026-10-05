@@ -13,6 +13,7 @@ from keenguard.core.enums import EventType, Severity
 from keenguard.core.digest import digest_generator
 from keenguard.core.audit import audit_manager
 from keenguard.core.forensics import forensics
+from keenguard.core.cleanup import async_cleanup_old_pcap_files
 
 logger = logging.getLogger("keenguard.scheduler")
 
@@ -69,12 +70,32 @@ class BackgroundScheduler:
                         except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                             logger.error("Error running scheduled audit: %s", e)
 
-                # 3. Daily DB Cleanup
+                # 3. Daily DB & Storage Cleanup (04:00)
                 if current_hour == 4 and self._last_cleanup_day != current_day:
                     self._last_cleanup_day = current_day
-                    deleted = await db.cleanup_old_traffic(days=7)
-                    if deleted > 0:
-                        logger.info("Cleaned up %d old traffic history records", deleted)
+                    try:
+                        deleted = await db.cleanup_old_traffic(days=7)
+                        if deleted > 0:
+                            logger.info("Cleaned up %d old traffic history records", deleted)
+                    except Exception as e:
+                        logger.error("Error during traffic cleanup: %s", e)
+
+                    try:
+                        await db.checkpoint_wal()
+                    except Exception as e:
+                        logger.error("Error during SQLite WAL checkpoint: %s", e)
+
+                    try:
+                        pcap_stats = await async_cleanup_old_pcap_files()
+                        if pcap_stats.get("deleted_count", 0) > 0:
+                            logger.info(
+                                "Cleaned up %d old PCAP files (freed %d KB, %d files remaining)",
+                                pcap_stats["deleted_count"],
+                                pcap_stats["freed_bytes"] // 1024,
+                                pcap_stats["remaining_count"]
+                            )
+                    except Exception as e:
+                        logger.error("Error during PCAP storage rotation: %s", e)
 
                 # 4. Smart Night Mode Check & Transitions
                 try:

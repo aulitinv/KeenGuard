@@ -44,6 +44,25 @@ class Database(
     def __init__(self, db_path: Optional[Any] = None):
         super().__init__(db_path=db_path)
 
+    async def checkpoint_wal(self) -> dict:
+        """Flushes SQLite WAL to the primary database file and resets WAL size (TRUNCATE).
+
+        Protects USB flash drive write cycles and prevents uncontrolled disk growth on embedded routers.
+        """
+        async with self.get_connection() as conn:
+            cursor = await conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            row = await cursor.fetchone()
+            result = {
+                "busy": row[0] if row else 0,
+                "log_pages": row[1] if row else 0,
+                "checkpointed_pages": row[2] if row else 0,
+            }
+            logger.info(
+                "SQLite WAL checkpoint(TRUNCATE) executed: busy=%s, log_pages=%s, checkpointed_pages=%s",
+                result["busy"], result["log_pages"], result["checkpointed_pages"]
+            )
+            return result
+
     async def init_db(self):
         """Creates tables and indexes if they do not exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

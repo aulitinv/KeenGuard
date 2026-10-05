@@ -55,6 +55,18 @@
             </div>
         </div>
 
+        <!-- Quick Command Search (Ctrl+K) -->
+        <div class="flex items-center">
+            <button onclick="openCommandPalette()" class="hidden md:flex items-center space-x-2.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/80 transition shadow-inner text-xs group cursor-pointer" title="Быстрый поиск устройств и команд (Ctrl+K)">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 transition"></i>
+                <span class="text-slate-400 group-hover:text-slate-300">Быстрый поиск...</span>
+                <kbd class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-900 border border-slate-700 text-slate-400">Ctrl K</kbd>
+            </button>
+            <button onclick="openCommandPalette()" class="md:hidden p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white border border-slate-700 transition" title="Быстрый поиск (Ctrl+K)">
+                <i data-lucide="search" class="w-4 h-4"></i>
+            </button>
+        </div>
+
         <!-- Quick Status Badges -->
         <div class="flex items-center space-x-4">
             <div id="router-status-badge" onclick="switchTab('settings')" title="Кликните для перехода к настройкам роутера" class="cursor-pointer hover:bg-slate-700/80 transition flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700">
@@ -73,6 +85,9 @@
                 <i data-lucide="shield-check" id="auth-status-icon" class="w-3.5 h-3.5 text-emerald-400"></i>
                 <span id="auth-status-text" class="text-slate-300">127.0.0.1 (Локально)</span>
             </div>
+            <button onclick="logout()" id="btn-header-lock" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-700 transition" title="Заблокировать сессию / Экран авторизации">
+                <i data-lucide="lock" class="w-4 h-4"></i>
+            </button>
         </div>
     </header>
 
@@ -92,89 +107,113 @@
             </div>
 
             <!-- Navigation Links -->
-            <nav class="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 sidebar-nav">
-                <button onclick="switchTab('dashboard')" id="tab-dashboard" data-tooltip="Дашборд" title="Дашборд" class="tab-btn active flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+            <nav class="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1 sidebar-nav custom-scrollbar">
+                <!-- Group 1: Мониторинг сети -->
+                <div class="sidebar-category-header">
+                    <span>Мониторинг сети</span>
+                </div>
+                <button onclick="switchTab('dashboard')" id="tab-dashboard" data-tooltip="Дашборд" title="Дашборд" class="tab-btn active flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
                         <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
                     </span>
                     <span class="tab-label truncate flex-1">Дашборд</span>
                 </button>
-                <button onclick="switchTab('security')" id="tab-security" data-tooltip="Безопасность" title="Безопасность" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
-                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
-                    </span>
-                    <span class="tab-label truncate flex-1">Безопасность</span>
-                    <span id="security-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden">0</span>
-                </button>
-                <button onclick="switchTab('devices')" id="tab-devices" data-tooltip="Устройства" title="Устройства" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
-                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="laptop" class="w-4 h-4"></i>
-                    </span>
-                    <span class="tab-label truncate flex-1">Устройства</span>
-                    <span id="device-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-slate-800 text-slate-400">0</span>
-                </button>
-                <button onclick="switchTab('smarthome')" id="tab-smarthome" data-tooltip="Умный дом" title="Умный дом" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
-                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="home" class="w-4 h-4 text-amber-400"></i>
-                    </span>
-                    <span class="tab-label truncate flex-1">Умный дом</span>
-                    <span id="smarthome-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden">0</span>
-                </button>
-                <button onclick="switchTab('lan')" id="tab-lan" data-tooltip="Локальная сеть" title="Локальная сеть" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
-                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="network" class="w-4 h-4 text-cyan-400"></i>
-                    </span>
-                    <span class="tab-label truncate flex-1">Локальная сеть</span>
-                    <span id="lan-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hidden">0</span>
-                </button>
-                <button onclick="switchTab('topology')" id="tab-topology" data-tooltip="Топология" title="Топология сети" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+                <button onclick="switchTab('topology')" id="tab-topology" data-tooltip="Топология" title="Топология сети" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
                         <i data-lucide="git-merge" class="w-4 h-4 text-purple-400"></i>
                     </span>
                     <span class="tab-label truncate flex-1">Топология сети</span>
                     <span class="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">MAP</span>
                 </button>
-                <button onclick="switchTab('packets')" id="tab-packets" data-tooltip="Инспектор пакетов" title="Инспектор пакетов" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+                <button onclick="switchTab('devices')" id="tab-devices" data-tooltip="Устройства" title="Устройства" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="binary" class="w-4 h-4 text-indigo-400"></i>
+                        <i data-lucide="laptop" class="w-4 h-4"></i>
                     </span>
-                    <span class="tab-label truncate flex-1">Инспектор пакетов</span>
-                    <span id="packets-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hidden">0</span>
+                    <span class="tab-label truncate flex-1">Устройства</span>
+                    <span id="device-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-slate-800 text-slate-400">0</span>
                 </button>
-                <button onclick="switchTab('tv_forensics')" id="tab-tv_forensics" data-tooltip="Smart TV & Forensics" title="Smart TV & Forensics" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+                <button onclick="switchTab('lan')" id="tab-lan" data-tooltip="Локальная сеть" title="Локальная сеть" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="tv" class="w-4 h-4 text-cyan-400"></i>
+                        <i data-lucide="network" class="w-4 h-4 text-cyan-400"></i>
                     </span>
-                    <span class="tab-label truncate flex-1">Smart TV & Forensics</span>
+                    <span class="tab-label truncate flex-1">Локальная сеть</span>
+                    <span id="lan-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hidden">0</span>
                 </button>
-                <button onclick="switchTab('alerts')" id="tab-alerts" data-tooltip="Инциденты & UPnP" title="Инциденты & UPnP" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+                <button onclick="switchTab('smarthome')" id="tab-smarthome" data-tooltip="Умный дом" title="Умный дом" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
+                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
+                        <i data-lucide="home" class="w-4 h-4 text-amber-400"></i>
+                    </span>
+                    <span class="tab-label truncate flex-1">Умный дом</span>
+                    <span id="smarthome-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden">0</span>
+                </button>
+
+                <div class="sidebar-group-divider"></div>
+
+                <!-- Group 2: Центр безопасности -->
+                <div class="sidebar-category-header">
+                    <span>Центр безопасности</span>
+                </div>
+                <button onclick="switchTab('security')" id="tab-security" data-tooltip="Безопасность" title="Безопасность" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
+                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                    </span>
+                    <span class="tab-label truncate flex-1">Безопасность</span>
+                    <span id="security-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden">0</span>
+                </button>
+                <button onclick="switchTab('alerts')" id="tab-alerts" data-tooltip="Инциденты & UPnP" title="Инциденты & UPnP" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
                         <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
                     </span>
                     <span class="tab-label truncate flex-1">Инциденты & UPnP</span>
                     <span id="alerts-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30 hidden">0</span>
                 </button>
-                <button onclick="switchTab('dns')" id="tab-dns" data-tooltip="DNS & Домены" title="DNS & Домены" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+                <button onclick="switchTab('dns')" id="tab-dns" data-tooltip="DNS & Домены" title="DNS & Домены" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
                         <i data-lucide="globe" class="w-4 h-4 text-emerald-400"></i>
                     </span>
                     <span class="tab-label truncate flex-1">DNS & Домены</span>
                 </button>
-                <button onclick="switchTab('audits')" id="tab-audits" data-tooltip="Аудит трафика" title="Аудит трафика" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
-                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
-                        <i data-lucide="activity" class="w-4 h-4 text-cyan-400"></i>
-                    </span>
-                    <span class="tab-label truncate flex-1">Аудит трафика</span>
-                    <span id="audits-active-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hidden animate-pulse">0</span>
-                </button>
-                <button onclick="switchTab('investigator')" id="tab-investigator" data-tooltip="Расследования" title="Исследователь инцидентов (Wizard)" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
+                <button onclick="switchTab('investigator')" id="tab-investigator" data-tooltip="Расследования" title="Исследователь инцидентов (Wizard)" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
                         <i data-lucide="crosshair" class="w-4 h-4 text-rose-400"></i>
                     </span>
                     <span class="tab-label truncate flex-1">Расследования</span>
                     <span id="investigator-active-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 hidden">WIZ</span>
                 </button>
-                <div class="settings-nav-group">
+
+                <div class="sidebar-group-divider"></div>
+
+                <!-- Group 3: Глубокий анализ -->
+                <div class="sidebar-category-header">
+                    <span>Глубокий анализ</span>
+                </div>
+                <button onclick="switchTab('audits')" id="tab-audits" data-tooltip="Аудит трафика" title="Аудит трафика" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
+                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
+                        <i data-lucide="activity" class="w-4 h-4 text-cyan-400"></i>
+                    </span>
+                    <span class="tab-label truncate flex-1">Аудит трафика</span>
+                    <span id="audits-active-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hidden animate-pulse">0</span>
+                </button>
+                <button onclick="switchTab('packets')" id="tab-packets" data-tooltip="Инспектор пакетов" title="Инспектор пакетов" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
+                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
+                        <i data-lucide="binary" class="w-4 h-4 text-indigo-400"></i>
+                    </span>
+                    <span class="tab-label truncate flex-1">Инспектор пакетов</span>
+                    <span id="packets-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hidden">0</span>
+                </button>
+                <button onclick="switchTab('tv_forensics')" id="tab-tv_forensics" data-tooltip="Smart TV & Forensics" title="Smart TV & Forensics" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
+                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
+                        <i data-lucide="tv" class="w-4 h-4 text-cyan-400"></i>
+                    </span>
+                    <span class="tab-label truncate flex-1">Smart TV & Forensics</span>
+                </button>
+
+                <div class="sidebar-group-divider"></div>
+
+                <!-- Group 4: Система -->
+                <div class="sidebar-category-header">
+                    <span>Система</span>
+                </div>
                     <button onclick="toggleSettingsTab(event)" id="tab-settings" data-tooltip="Настройки" title="Настройки" class="tab-btn flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition w-full text-left">
                         <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
                             <i data-lucide="sliders" class="w-4 h-4"></i>
@@ -225,7 +264,6 @@
                             <span class="truncate">Сетевой доступ & Пароль</span>
                         </button>
                     </div>
-                </div>
             </nav>
 
             <!-- Sidebar Footer -->
@@ -468,6 +506,54 @@
                         <canvas id="live-traffic-chart"></canvas>
                     </div>
                     <div class="mt-2 text-[10px] text-slate-500 text-right">Живая скорость обмена за последние 60 сек</div>
+                </div>
+            </div>
+
+            <!-- L7 Application Traffic Breakdown Card -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <div class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                                <i data-lucide="layers" class="w-4 h-4"></i>
+                            </div>
+                            <h3 class="font-semibold text-sm text-slate-100">Распределение сетевого трафика по L7-приложениям</h3>
+                            <span id="l7-active-flows-badge" class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">0 активных потоков</span>
+                        </div>
+                        <p class="text-xs text-slate-400">
+                            Анализ трафика на уровне приложений (SNI, DNS-контекст, порты протоколов): медиастриминг, мессенджеры, онлайн-игры, веб и VPN.
+                        </p>
+                    </div>
+                    <div class="flex items-center space-x-2 shrink-0">
+                        <span id="l7-total-volume" class="text-xs font-mono text-slate-300 bg-surface-950 px-3 py-1.5 rounded-xl border border-slate-800">Объем: 0 MB</span>
+                        <button onclick="loadL7TrafficSummary()" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700" title="Обновить анализ L7">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Segmented Progress Bar for Categories -->
+                <div class="space-y-2">
+                    <div class="w-full h-3 rounded-full bg-slate-950 border border-slate-800/80 overflow-hidden flex" id="l7-category-bar">
+                        <div class="bg-slate-800 h-full w-full"></div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs" id="l7-category-legend">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Top Applications Grid -->
+                <div class="pt-2 border-t border-slate-800/60">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Топ приложений и сервисов</span>
+                        <button onclick="switchTab('audits')" class="text-xs text-indigo-400 hover:text-indigo-300 transition flex items-center space-x-1 font-medium">
+                            <span>Запустить глубокий аудит устройства</span>
+                            <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" id="l7-apps-grid">
+                        <div class="text-slate-500 text-xs italic py-4 col-span-full">Загрузка данных L7-трафика...</div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1278,8 +1364,33 @@
                             <button onclick="resetTopologyView()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Центрировать">
                                 <i data-lucide="maximize-2" class="w-4 h-4"></i>
                             </button>
+                            <button id="btn-topology-fullscreen" onclick="toggleTopologyFullscreen()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Во весь экран">
+                                <i data-lucide="expand" id="topology-fullscreen-icon" class="w-4 h-4"></i>
+                            </button>
                         </div>
                     </div>
+                </div>
+
+                <!-- Filter Chips Toolbar -->
+                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                    <span class="text-xs text-slate-400 font-medium mr-1 flex items-center gap-1">
+                        <i data-lucide="filter" class="w-3.5 h-3.5 text-slate-500"></i> Фильтр:
+                    </span>
+                    <button onclick="setTopologyFilter('all')" id="topo-filter-all" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 transition">
+                        Все
+                    </button>
+                    <button onclick="setTopologyFilter('online')" id="topo-filter-online" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        Только онлайн
+                    </button>
+                    <button onclick="setTopologyFilter('hide_trusted')" id="topo-filter-hide_trusted" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        Скрыть доверенные
+                    </button>
+                    <button onclick="setTopologyFilter('iot_tv')" id="topo-filter-iot_tv" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        Только IoT / ТВ / Камеры
+                    </button>
+                    <button onclick="setTopologyFilter('quarantine')" id="topo-filter-quarantine" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        В карантине / Блок WAN
+                    </button>
                 </div>
 
                 <!-- Technical Realism Disclosure Banner -->
@@ -1295,7 +1406,13 @@
             </div>
 
             <!-- Graph Canvas / SVG Interactive Area -->
-            <div class="relative w-full h-[650px] bg-surface-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+            <div id="topology-container-card" class="relative w-full h-[650px] bg-surface-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+                <!-- Floating Exit Fullscreen Button -->
+                <button id="btn-topology-exit-fs" onclick="toggleTopologyFullscreen()" class="hidden absolute top-4 right-4 z-30 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-slate-200 hover:text-white text-xs font-semibold shadow-lg backdrop-blur-md flex items-center space-x-1.5 transition">
+                    <i data-lucide="shrink" class="w-3.5 h-3.5"></i>
+                    <span>Выйти из полноэкранного режима</span>
+                </button>
+
                 <!-- SVG Canvas for Links & Nodes -->
                 <svg id="topology-svg" class="w-full h-full cursor-grab active:cursor-grabbing select-none" xmlns="http://www.w3.org/2000/svg">
                     <defs>
@@ -1305,7 +1422,7 @@
                         </linearGradient>
                         <linearGradient id="grad-bridge0" x1="0%" y1="0%" x2="100%" y2="100%">
                             <stop offset="0%" stop-color="#10b981" />
-                            <stop offset="100%" stop-color="#059669" />
+                            <stop offset="0%" stop-color="#059669" />
                         </linearGradient>
                         <linearGradient id="grad-bridge1" x1="0%" y1="0%" x2="100%" y2="100%">
                             <stop offset="0%" stop-color="#f59e0b" />
@@ -1313,6 +1430,7 @@
                         </linearGradient>
                     </defs>
                     <g id="topology-viewport">
+                        <g id="topology-boundaries"></g>
                         <g id="topology-links"></g>
                         <g id="topology-nodes"></g>
                     </g>
@@ -3771,7 +3889,7 @@
                             <button type="button" onclick="toggleDnsHelperAccordion('device-id')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
                                 <div class="flex items-center space-x-3">
                                     <div class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
-                                        <i data-lucide="devices" class="w-4 h-4"></i>
+                                        <i data-lucide="laptop" class="w-4 h-4"></i>
                                     </div>
                                     <div>
                                         <div class="text-xs font-bold text-slate-200">Как передавать имена устройств в NextDNS и Control D</div>
@@ -3919,6 +4037,66 @@
     </main>
         </div>
     </div>
+    <!-- Modal: Command Palette (Ctrl+K) -->
+    <div id="command-palette-modal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md hidden flex items-start justify-center pt-14 sm:pt-20 p-3 sm:p-4 transition-all duration-200">
+        <div class="bg-surface-900 border border-slate-700/80 rounded-2xl max-w-2xl w-full max-h-[82vh] flex flex-col shadow-2xl overflow-hidden">
+            <!-- Search Input Bar -->
+            <div class="p-3.5 border-b border-slate-800 flex items-center space-x-3 bg-surface-950/60 shrink-0">
+                <i data-lucide="search" class="w-5 h-5 text-indigo-400 shrink-0"></i>
+                <input
+                    id="cmd-palette-input"
+                    type="text"
+                    placeholder="Поиск по имени, IP, MAC, вендору или названию раздела..."
+                    class="w-full bg-transparent border-none text-slate-100 placeholder-slate-500 text-sm focus:outline-none font-medium"
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+                <div class="flex items-center space-x-1.5 shrink-0">
+                    <button onclick="clearCommandPaletteInput()" id="cmd-palette-clear-btn" class="hidden text-slate-500 hover:text-slate-300 p-1 rounded-lg transition" title="Очистить поиск">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                    <kbd class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 border border-slate-700 text-slate-400">ESC</kbd>
+                </div>
+            </div>
+
+            <!-- Quick Filter Chips -->
+            <div class="px-4 py-2 bg-surface-900 border-b border-slate-800/80 flex items-center space-x-2 text-xs shrink-0 overflow-x-auto">
+                <button onclick="setCommandPaletteCategory('all')" id="cmd-cat-all" class="cmd-cat-chip px-2.5 py-1 rounded-lg font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 transition">
+                    Все
+                </button>
+                <button onclick="setCommandPaletteCategory('devices')" id="cmd-cat-devices" class="cmd-cat-chip px-2.5 py-1 rounded-lg font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                    Устройства
+                </button>
+                <button onclick="setCommandPaletteCategory('navigation')" id="cmd-cat-navigation" class="cmd-cat-chip px-2.5 py-1 rounded-lg font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                    Команды & Разделы
+                </button>
+            </div>
+
+            <!-- Results Scrollable List -->
+            <div id="cmd-palette-results" class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar min-h-[220px] max-h-[50vh]">
+                <!-- Populated dynamically by JS -->
+            </div>
+
+            <!-- Footer Toolbar / Hints -->
+            <div class="px-4 py-2.5 bg-surface-950/80 border-t border-slate-800 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <span class="flex items-center space-x-1">
+                        <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">↑↓</kbd>
+                        <span>Навигация</span>
+                    </span>
+                    <span class="flex items-center space-x-1">
+                        <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">↵</kbd>
+                        <span>Выбрать</span>
+                    </span>
+                    <span class="flex items-center space-x-1">
+                        <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">Esc</kbd>
+                        <span>Закрыть</span>
+                    </span>
+                </div>
+                <div id="cmd-palette-match-count" class="text-slate-500 font-mono text-[10px]">0 совпадений</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal: Device Details -->
     <div id="device-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
@@ -3947,43 +4125,97 @@
 
             <!-- Body: Scrollable -->
             <div class="overflow-y-auto flex-1 p-4 sm:p-5 space-y-3.5 custom-scrollbar text-xs">
-                <!-- IP & Vendor Bar -->
-                <div class="grid grid-cols-2 gap-2 bg-surface-950 p-2.5 rounded-xl border border-slate-800">
-                    <div>
-                        <span class="text-slate-500 text-[11px]">IP-адрес:</span>
-                        <span id="modal-dev-ip" class="block font-mono text-slate-200 mt-0.5">192.168.1.100</span>
-                    </div>
-                    <div>
-                        <span class="text-slate-500 text-[11px]">Вендор:</span>
-                        <span id="modal-dev-vendor" class="block text-slate-200 mt-0.5 truncate">Vendor Name</span>
-                    </div>
-                </div>
-
-                <!-- MAC Randomization & Device Identity Banner -->
-                <div id="modal-mac-rotation-banner" class="hidden p-2.5 rounded-xl bg-amber-950/30 border border-amber-800/40 text-xs space-y-1.5">
-                    <div class="flex items-center space-x-2 text-amber-300 font-semibold">
-                        <i data-lucide="shuffle" class="w-4 h-4 text-amber-400 shrink-0"></i>
-                        <span id="modal-mac-rotation-title">Случайный / ротируемый MAC-адрес</span>
-                    </div>
-                    <div id="modal-mac-rotation-body" class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
-                        <!-- Populated dynamically via app.js -->
-                    </div>
-                </div>
-
-                <!-- Modal Sub-Tabs -->
-                <div class="flex border-b border-slate-800 gap-1 pb-1">
-                    <button id="modal-tab-btn-policies" onclick="switchDeviceModalTab('policies')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition">
+                <!-- Modal Sub-Tabs (4 horizontal tabs) -->
+                <div class="flex border-b border-slate-800 gap-1 pb-1 overflow-x-auto select-none no-scrollbar">
+                    <button id="modal-tab-btn-overview" onclick="switchDeviceModalTab('overview')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition shrink-0">
+                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                        <span>Обзор</span>
+                    </button>
+                    <button id="modal-tab-btn-policies" onclick="switchDeviceModalTab('policies')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0">
                         <i data-lucide="shield" class="w-3.5 h-3.5"></i>
-                        <span>Политики и защита</span>
+                        <span>Безопасность</span>
                     </button>
-                    <button id="modal-tab-btn-traffic" onclick="switchDeviceModalTab('traffic')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition">
+                    <button id="modal-tab-btn-traffic" onclick="switchDeviceModalTab('traffic')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0">
                         <i data-lucide="activity" class="w-3.5 h-3.5"></i>
-                        <span>Трафик и аудит</span>
+                        <span>Трафик & Шейпинг</span>
+                    </button>
+                    <button id="modal-tab-btn-special" onclick="switchDeviceModalTab('special')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 relative">
+                        <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                        <span>Специальное</span>
+                        <span id="modal-special-badge" class="w-2 h-2 rounded-full bg-cyan-400 hidden absolute top-1 right-1"></span>
                     </button>
                 </div>
 
-                <!-- Tab 1: Policies & Access -->
-                <div id="modal-tab-policies" class="space-y-3">
+                <!-- Tab 1: Overview -->
+                <div id="modal-tab-overview" class="space-y-3">
+                    <!-- Network & Hardware Info Grid -->
+                    <div class="grid grid-cols-2 gap-2 bg-surface-950 p-2.5 rounded-xl border border-slate-800">
+                        <div>
+                            <span class="text-slate-500 text-[11px]">IP-адрес:</span>
+                            <span id="modal-dev-ip" class="block font-mono text-slate-200 mt-0.5">192.168.1.100</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Вендор:</span>
+                            <span id="modal-dev-vendor" class="block text-slate-200 mt-0.5 truncate">Vendor Name</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Тип MAC-адреса:</span>
+                            <div id="modal-dev-mac-type" class="mt-0.5">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Заводской OUI</span>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Сетевой сегмент:</span>
+                            <span id="modal-dev-segment-disp" class="block text-slate-200 mt-0.5 truncate font-mono">Bridge0 (Home)</span>
+                        </div>
+                    </div>
+
+                    <!-- Connection & Signal Telemetry -->
+                    <div class="grid grid-cols-2 gap-2 bg-surface-950 p-2.5 rounded-xl border border-slate-800">
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Статус в сети:</span>
+                            <span id="modal-dev-status-text" class="block mt-0.5 font-medium text-emerald-400">● В сети</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Сигнал Wi-Fi / Порт:</span>
+                            <span id="modal-dev-rssi-text" class="block font-mono text-slate-200 mt-0.5">-</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Интерфейс:</span>
+                            <span id="modal-dev-band-text" class="block text-slate-200 mt-0.5">-</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Активность:</span>
+                            <span id="modal-dev-seen-text" class="block text-slate-400 mt-0.5 text-[10px]">-</span>
+                        </div>
+                    </div>
+
+                    <!-- Custom Name / Alias -->
+                    <div class="bg-surface-950 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+                        <label class="text-slate-400 font-medium text-[11px] block">Пользовательское имя (псевдоним):</label>
+                        <div class="flex items-center space-x-1.5">
+                            <input type="text" id="modal-dev-custom-name-input" placeholder="Например: Телевизор в гостиной" class="flex-1 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
+                            <button type="button" onclick="saveModalCustomName(document.getElementById('modal-dev-custom-name-input').value)" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1 shrink-0">
+                                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- MAC Randomization & Device Identity Banner -->
+                    <div id="modal-mac-rotation-banner" class="hidden p-2.5 rounded-xl bg-amber-950/30 border border-amber-800/40 text-xs space-y-1.5">
+                        <div class="flex items-center space-x-2 text-amber-300 font-semibold">
+                            <i data-lucide="shuffle" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                            <span id="modal-mac-rotation-title">Случайный / ротируемый MAC-адрес</span>
+                        </div>
+                        <div id="modal-mac-rotation-body" class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                            <!-- Populated dynamically via app.js -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Policies & Security -->
+                <div id="modal-tab-policies" class="hidden space-y-3">
                     <!-- Unified Policy & Security Profile Selector -->
                     <div>
                         <div class="flex items-center justify-between mb-1">
@@ -4008,7 +4240,38 @@
                         </select>
                     </div>
 
-                    <!-- Advanced Granular LAN Policy Accordion (100% preservation of flexibility) -->
+                    <!-- Granular Policy Toggles (2-column grid) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800">
+                        <label class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition">
+                            <div class="pr-2">
+                                <span class="font-medium text-slate-200 text-xs block">Блок WAN (Интернет)</span>
+                                <span class="text-[10px] text-slate-500 leading-tight block">Запрещает выход наружу</span>
+                            </div>
+                            <input type="checkbox" id="modal-toggle-wan" onchange="toggleModalWan(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                        </label>
+
+                        <div class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80">
+                            <div class="pr-2">
+                                <span class="font-medium text-slate-200 text-xs block">Сетевой сегмент / LAN</span>
+                                <span class="text-[10px] text-slate-500 leading-tight block" id="modal-lan-subtitle">В домашней сети Bridge0</span>
+                            </div>
+                            <div id="modal-lan-badge" class="shrink-0 mt-0.5">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">Bridge0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto-Quarantine Override -->
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">Автокарантин при инцидентах:</label>
+                        <select id="modal-auto-quarantine-override" onchange="saveModalAutoQuarantine(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <option value="profile_default">По умолчанию глобальной политики</option>
+                            <option value="always_quarantine">Всегда закрывать доступ в интернет (WAN)</option>
+                            <option value="never_quarantine">Никогда не блокировать (только предупреждения)</option>
+                        </select>
+                    </div>
+
+                    <!-- Advanced Granular LAN Policy Accordion -->
                     <details id="modal-advanced-lan-details" class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80 group">
                         <summary class="flex items-center justify-between cursor-pointer list-none select-none text-slate-300 font-medium text-xs">
                             <div class="flex items-center space-x-2">
@@ -4047,24 +4310,7 @@
                         </div>
                     </details>
 
-                    <!-- Designated NVR IP for Cameras -->
-                    <div id="modal-nvr-group" class="hidden">
-                        <label class="block font-medium text-slate-300 mb-1">Доверенный регистратор / NVR (IP):</label>
-                        <input type="text" id="modal-nvr-ip" placeholder="192.168.1.200" onchange="saveModalNvrIp(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono">
-                        <span class="text-[10px] text-slate-500">Локальный стрим на этот IP разрешен и не вызывает тревог утечки</span>
-                    </div>
-
-                    <!-- Auto-Quarantine Override -->
-                    <div>
-                        <label class="block font-medium text-slate-300 mb-1">Автокарантин при инцидентах:</label>
-                        <select id="modal-auto-quarantine-override" onchange="saveModalAutoQuarantine(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
-                            <option value="profile_default">По умолчанию глобальной политики</option>
-                            <option value="always_quarantine">Всегда закрывать доступ в интернет (WAN)</option>
-                            <option value="never_quarantine">Никогда не блокировать (только предупреждения)</option>
-                        </select>
-                    </div>
-
-                    <!-- Asymmetric Segmentation Recommendation Tip Banner (Collapsible Accordion) -->
+                    <!-- Asymmetric Segmentation Recommendation Tip Banner -->
                     <details id="modal-segmentation-tip" class="hidden p-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 group">
                         <summary class="flex items-center justify-between cursor-pointer list-none select-none text-purple-300 font-semibold text-xs">
                             <div class="flex items-center space-x-2">
@@ -4091,61 +4337,9 @@
                             </div>
                         </div>
                     </details>
-
-                    <!-- Compact Granular Policy Toggles (2-column grid) -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800">
-                        <label class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition">
-                            <div class="pr-2">
-                                <span class="font-medium text-slate-200 text-xs block">Блок WAN (Интернет)</span>
-                                <span class="text-[10px] text-slate-500 leading-tight block">Запрещает выход наружу</span>
-                            </div>
-                            <input type="checkbox" id="modal-toggle-wan" onchange="toggleModalWan(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
-                        </label>
-
-                        <div class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80">
-                            <div class="pr-2">
-                                <span class="font-medium text-slate-200 text-xs block">Сетевой сегмент / LAN</span>
-                                <span class="text-[10px] text-slate-500 leading-tight block" id="modal-lan-subtitle">В домашней сети Bridge0</span>
-                            </div>
-                            <div id="modal-lan-badge" class="shrink-0 mt-0.5">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">Bridge0</span>
-                            </div>
-                        </div>
-
-                        <!-- Smart TV specific options (hidden for other device profiles) -->
-                        <div id="modal-tv-options" class="hidden sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800/60">
-                            <div class="sm:col-span-2 text-[11px] font-bold text-indigo-300 flex items-center space-x-1.5">
-                                <i data-lucide="tv" class="w-3.5 h-3.5"></i>
-                                <span>Медиа-опции Smart TV:</span>
-                            </div>
-                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition">
-                                <div class="pr-2">
-                                    <span class="font-medium text-slate-200 text-xs block">AirPlay / Cast Relay</span>
-                                    <span class="text-[10px] text-slate-500 leading-tight block">Ретрансляция mDNS (актуально в Guest сети)</span>
-                                </div>
-                                <input type="checkbox" id="modal-toggle-airplay" onchange="toggleModalAirplay(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
-                            </label>
-
-                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition">
-                                <div class="pr-2">
-                                    <span class="font-medium text-slate-200 text-xs block">Keenetic DLNA</span>
-                                    <span class="text-[10px] text-slate-500 leading-tight block">Доступ к медиа роутера (порт 8200)</span>
-                                </div>
-                                <input type="checkbox" id="modal-toggle-dlna" onchange="toggleModalDlna(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
-                            </label>
-
-                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition sm:col-span-2">
-                                <div class="pr-2">
-                                    <span class="font-medium text-slate-200 text-xs block">Пассивный ночной мониторинг (00:00 - 07:00)</span>
-                                    <span class="text-[10px] text-slate-500 leading-tight block">Запись PCAP-дампов при пробуждениях (WOL/mDNS)</span>
-                                </div>
-                                <input type="checkbox" id="modal-toggle-night" onchange="toggleModalNight(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
-                            </label>
-                        </div>
-                    </div>
                 </div>
 
-                <!-- Tab 2: Traffic & Audit -->
+                <!-- Tab 3: Traffic & Shaping -->
                 <div id="modal-tab-traffic" class="hidden space-y-3.5">
                     <!-- Live Device Traffic Rate Chart -->
                     <div class="space-y-2">
@@ -4158,6 +4352,35 @@
                         </div>
                         <div class="bg-surface-950 p-2 rounded-xl border border-slate-800 relative h-28">
                             <canvas id="device-traffic-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Keenetic Bandwidth Traffic Shaper Section -->
+                    <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-slate-300 flex items-center space-x-1.5">
+                                <i data-lucide="gauge" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>Ограничение скорости (Keenetic Traffic Shaper)</span>
+                            </span>
+                            <span id="modal-shaper-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">Без ограничений</span>
+                        </div>
+                        <p class="text-[10px] text-slate-400 leading-relaxed">
+                            Аппаратное ограничение пропускной способности хоста через KeeneticOS RCI.
+                        </p>
+                        <div class="flex items-center space-x-2 pt-1">
+                            <select id="modal-shaper-preset-select" onchange="onModalShaperPresetChange(this.value)" class="flex-1 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs">
+                                <option value="0">0 — Без ограничений</option>
+                                <option value="512">512 Кбит/с — IoT / Датчики</option>
+                                <option value="2048">2048 Кбит/с — Музыка / SD</option>
+                                <option value="5120">5 Мбит/с — Серфинг / Офис</option>
+                                <option value="15360">15 Мбит/с — Full HD видео</option>
+                                <option value="custom">Свое значение...</option>
+                            </select>
+                            <input type="number" id="modal-shaper-custom-input" placeholder="Кбит/с" class="hidden w-24 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono">
+                            <button type="button" onclick="applyModalSpeedLimit()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium transition flex items-center space-x-1 shrink-0 shadow-sm">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Применить</span>
+                            </button>
                         </div>
                     </div>
 
@@ -4253,6 +4476,76 @@
                             </div>
                             <button onclick="resetModalAudit()" class="w-full py-1.5 text-center text-[11px] text-slate-400 hover:text-slate-200">
                                 Новое исследование
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Special (Smart TV, Camera, Notes) -->
+                <div id="modal-tab-special" class="hidden space-y-3">
+                    <!-- Smart TV Block -->
+                    <div id="modal-special-tv-block" class="hidden space-y-2 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <div class="text-[11px] font-bold text-indigo-300 flex items-center space-x-1.5">
+                            <i data-lucide="tv" class="w-4 h-4 text-cyan-400"></i>
+                            <span>Интеграции Smart TV / Медиаплеера:</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-900 border border-slate-800 hover:border-slate-700 cursor-pointer transition">
+                                <div class="pr-2">
+                                    <span class="font-medium text-slate-200 text-xs block">AirPlay / Cast Relay</span>
+                                    <span class="text-[10px] text-slate-500 leading-tight block">Ретрансляция mDNS в гостевой сети</span>
+                                </div>
+                                <input type="checkbox" id="modal-toggle-airplay" onchange="toggleModalAirplay(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                            </label>
+
+                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-900 border border-slate-800 hover:border-slate-700 cursor-pointer transition">
+                                <div class="pr-2">
+                                    <span class="font-medium text-slate-200 text-xs block">Keenetic DLNA</span>
+                                    <span class="text-[10px] text-slate-500 leading-tight block">Доступ к медиа роутера (порт 8200)</span>
+                                </div>
+                                <input type="checkbox" id="modal-toggle-dlna" onchange="toggleModalDlna(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                            </label>
+
+                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-900 border border-slate-800 hover:border-slate-700 cursor-pointer transition sm:col-span-2">
+                                <div class="pr-2">
+                                    <span class="font-medium text-slate-200 text-xs block">Пассивный ночной мониторинг (00:00 - 07:00)</span>
+                                    <span class="text-[10px] text-slate-500 leading-tight block">Запись PCAP-дампов при фоновых пробуждениях (WOL/mDNS)</span>
+                                </div>
+                                <input type="checkbox" id="modal-toggle-night" onchange="toggleModalNight(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Camera & NVR Block -->
+                    <div id="modal-special-camera-block" class="hidden space-y-2 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <div class="text-[11px] font-bold text-amber-300 flex items-center space-x-1.5">
+                            <i data-lucide="video" class="w-4 h-4 text-amber-400"></i>
+                            <span>Параметры безопасности IP-камеры:</span>
+                        </div>
+                        <div class="space-y-1.5 pt-1">
+                            <label class="block font-medium text-slate-300 text-xs">Доверенный видеорегистратор / NVR (IP):</label>
+                            <div class="flex items-center space-x-1.5">
+                                <input type="text" id="modal-nvr-ip" placeholder="192.168.1.200" class="flex-1 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono focus:border-indigo-500 focus:outline-none">
+                                <button type="button" onclick="saveModalNvrIp(document.getElementById('modal-nvr-ip').value)" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1 shrink-0">
+                                    <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                    <span>Сохранить</span>
+                                </button>
+                            </div>
+                            <span class="text-[10px] text-slate-500 block">Локальный RTSP стрим на этот IP разрешен и не вызывает тревог утечки</span>
+                        </div>
+                    </div>
+
+                    <!-- General Device Notes Block -->
+                    <div class="space-y-1.5 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <label class="text-slate-400 font-medium text-[11px] flex items-center space-x-1.5">
+                            <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i>
+                            <span>Заметки администратора:</span>
+                        </label>
+                        <textarea id="modal-dev-notes-input" rows="3" placeholder="Дополнительное описание, физическое расположение розетки или назначение устройства..." class="w-full bg-surface-900 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:border-indigo-500 focus:outline-none resize-none"></textarea>
+                        <div class="flex justify-end pt-1">
+                            <button type="button" onclick="saveModalNotes(document.getElementById('modal-dev-notes-input').value)" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition flex items-center space-x-1">
+                                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить заметку</span>
                             </button>
                         </div>
                     </div>

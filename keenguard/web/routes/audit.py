@@ -9,10 +9,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from keenguard.config import settings
+from keenguard.core.app_classifier import app_classifier
 from keenguard.core.classifier import DeviceClassifier
 from keenguard.web.state import (
     get_db,
     get_audit_manager,
+    get_keenetic_client,
 )
 from keenguard.web.ws import ws_manager
 
@@ -312,3 +314,90 @@ async def get_live_traffic():
     db = get_db()
     summary = await db.get_network_traffic_summary(limit=30)
     return summary
+
+
+@router.get("/api/traffic/l7-summary")
+async def get_l7_traffic_summary():
+    """
+    Returns aggregated L7 application traffic breakdown across active network flows.
+    Correlates active router NAT connections with DNS cache and domain signatures.
+    """
+    db = get_db()
+    k_client = get_keenetic_client()
+
+    # 1. Update app_classifier DNS cache from Keenetic router DNS proxy if available
+    try:
+        dns_cache = await k_client.get_dns_cache()
+        if dns_cache:
+            for entry in dns_cache:
+                ip = entry.get("ip")
+                domain = entry.get("domain")
+                if ip and domain:
+                    app_classifier.cache_dns_resolution(ip, domain)
+    except Exception as e:
+        logger.debug("Failed to pull DNS cache for L7 classifier: %s", e)
+
+    # 2. Also populate from recent local DB DNS queries
+    try:
+        recent_dns = await db.get_dns_queries(limit=100)
+        if recent_dns:
+            for q in recent_dns:
+                domain = q.get("query_domain") or q.get("domain")
+                answers = q.get("answers") or []
+                for ans in answers:
+                    if isinstance(ans, str) and "." in ans:
+                        app_classifier.cache_dns_resolution(ans, domain)
+    except Exception as e:
+        logger.debug("Failed to query recent DNS queries for L7 classifier: %s", e)
+
+    # 3. Pull active NAT flows from router
+    nat_entries = []
+    try:
+        nat_entries = await k_client.get_nat_table()
+    except Exception as e:
+        logger.debug("Failed to pull NAT table for L7 classifier: %s", e)
+
+    classified_flows = []
+    if nat_entries:
+        for entry in nat_entries:
+            src_ip = entry.get("src") or entry.get("source")
+            dst_ip = entry.get("dst") or entry.get("destination")
+            dport = entry.get("dport") or entry.get("port")
+            proto = (entry.get("protocol") or entry.get("proto") or "tcp").lower()
+            bytes_val = entry.get("bytes", 0) or (entry.get("bytes-out", 0) + entry.get("bytes-in", 0))
+
+            if dport:
+                try:
+                    dport = int(dport)
+                except (ValueError, TypeError):
+                    dport = None
+
+            res = app_classifier.classify_flow(
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                dst_port=dport,
+                proto=proto
+            )
+            classified_flows.append({
+                **res,
+                "bytes": max(int(bytes_val), 1024),
+                "src_ip": src_ip,
+                "dst_ip": dst_ip,
+            })
+
+    # 4. Fallback in mock mode if no NAT flows returned
+    if not classified_flows and getattr(k_client, "mock_mode", False):
+        demo_flows = [
+            {"src_ip": "192.168.1.10", "dst_ip": "142.250.180.14", "dport": 443, "proto": "tcp", "bytes": 850000, "app_id": "youtube", "name": "YouTube", "category": "streaming", "icon": "video"},
+            {"src_ip": "192.168.1.20", "dst_ip": "149.154.167.99", "dport": 443, "proto": "tcp", "bytes": 220000, "app_id": "telegram", "name": "Telegram", "category": "communication", "icon": "send"},
+            {"src_ip": "192.168.1.30", "dst_ip": "162.254.197.40", "dport": 27015, "proto": "udp", "bytes": 350000, "app_id": "steam", "name": "Steam", "category": "gaming", "icon": "gamepad-2"},
+            {"src_ip": "192.168.1.40", "dst_ip": "54.154.10.20", "dport": 443, "proto": "tcp", "bytes": 480000, "app_id": "netflix", "name": "Netflix", "category": "streaming", "icon": "film"},
+            {"src_ip": "192.168.1.50", "dst_ip": "198.51.100.1", "dport": 51820, "proto": "udp", "bytes": 150000, "app_id": "wireguard", "name": "WireGuard", "category": "vpn", "icon": "shield"},
+            {"src_ip": "192.168.1.60", "dst_ip": "93.184.216.34", "dport": 443, "proto": "tcp", "bytes": 180000, "app_id": "web", "name": "Веб-серфинг", "category": "web", "icon": "globe"},
+        ]
+        classified_flows.extend(demo_flows)
+
+    summary = app_classifier.aggregate_apps(classified_flows)
+    summary["active_flows_count"] = len(classified_flows)
+    return summary
+

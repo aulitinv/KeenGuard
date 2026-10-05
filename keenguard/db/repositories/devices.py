@@ -105,6 +105,7 @@ class DeviceRepository(BaseRepository):
                                    dlna_allowed: Optional[bool] = None,
                                    night_mode_enabled: Optional[bool] = None,
                                    custom_name: Any = _UNSET,
+                                   notes: Any = _UNSET,
                                    preset_id: Any = _UNSET,
                                    designated_nvr_ip: Any = _UNSET,
                                    auto_quarantine_override: Optional[str] = None,
@@ -136,6 +137,9 @@ class DeviceRepository(BaseRepository):
         if custom_name is not _UNSET:
             updates.append("custom_name = ?")
             params.append(custom_name)
+        if notes is not _UNSET:
+            updates.append("notes = ?")
+            params.append(notes)
         if preset_id is not _UNSET:
             updates.append("preset_id = ?")
             params.append(preset_id)

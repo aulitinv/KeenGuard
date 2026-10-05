@@ -55,6 +55,10 @@ class RenameRequest(BaseModel):
     custom_name: str
 
 
+class NotesRequest(BaseModel):
+    notes: str
+
+
 class SpeedLimitRequest(BaseModel):
     speed_kbps: int
 
@@ -284,6 +288,16 @@ async def rename_device(mac: str, req: RenameRequest):
     success = await db.update_device_policy(clean_mac, custom_name=req.custom_name)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "success": success}
+
+
+@router.post("/api/devices/{mac}/notes")
+async def update_device_notes(mac: str, req: NotesRequest):
+    db = get_db()
+    clean_mac = _validate_mac(mac)
+    success = await db.update_device_policy(clean_mac, notes=req.notes)
+    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
+    return {"status": "ok", "success": success, "notes": req.notes}
+
 
 
 @router.post("/api/devices/{mac}/speed-limit")

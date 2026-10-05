@@ -115,3 +115,25 @@ async def test_wizard_submit_camera_with_nvr():
         assert dev["auto_quarantine_override"] == "always_quarantine"
         assert dev["custom_allowed_ports"] == [554, 80]
         assert dev["wizard_completed"] is True
+
+@pytest.mark.asyncio
+async def test_device_notes_endpoint():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        mac = "44:55:66:77:88:99"
+        await db.upsert_device(DeviceRecord(
+            mac=mac,
+            ip="192.168.1.199",
+            hostname="Device-With-Notes",
+            profile="trusted"
+        ))
+
+        res = await ac.post(f"/api/devices/{mac}/notes", json={"notes": "Устройство в кабинете, порт LAN-3"})
+        assert res.status_code == 200
+        assert res.json()["status"] == "ok"
+        assert res.json()["notes"] == "Устройство в кабинете, порт LAN-3"
+
+        # Verify in DB
+        db_dev = await db.get_device(mac)
+        assert db_dev.notes == "Устройство в кабинете, порт LAN-3"
+

@@ -142,3 +142,25 @@ def test_audit_report_with_app_breakdown():
     assert len(report["apps_breakdown"]) > 0
     assert report["apps_breakdown"][0]["app_id"] == "youtube"
     assert report["apps_breakdown"][0]["category"] == "streaming"
+
+
+@pytest.mark.asyncio
+async def test_api_l7_traffic_summary():
+    from httpx import AsyncClient, ASGITransport
+    from keenguard.web.app import app
+    from keenguard.core.keenetic import keenetic_client
+
+    keenetic_client.mock_mode = True
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/traffic/l7-summary")
+        assert res.status_code == 200
+        data = res.json()
+        assert "total_bytes" in data
+        assert "categories_breakdown" in data
+        assert "apps_breakdown" in data
+        assert "active_flows_count" in data
+        assert data["total_bytes"] > 0
+        assert len(data["categories_breakdown"]) > 0
+        assert len(data["apps_breakdown"]) > 0
+

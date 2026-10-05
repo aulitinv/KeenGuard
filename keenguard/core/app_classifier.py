@@ -75,8 +75,8 @@ APP_CATALOG: Dict[str, Dict[str, Any]] = {
     "discord": {
         "name": "Discord",
         "category": "communication",
-        "domains": ["discord.gg", "discord.com", "discordapp.com", "discordapp.net"],
-        "ports": [range(50000, 65535)],
+        "domains": ["discord.gg", "discord.com", "discordapp.com", "discordapp.net", "discord.media"],
+        "ports": [],
         "icon": "message-square"
     },
     "zoom": {

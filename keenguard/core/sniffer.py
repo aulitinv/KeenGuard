@@ -525,6 +525,15 @@ class NetworkSniffer:
         self._db_thread = threading.Thread(target=self._db_worker, daemon=True)
         self._db_thread.start()
 
+        mode = getattr(settings, "sniffer_mode", "conntrack_passive")
+        if mode == "conntrack_passive":
+            logger.info(
+                "Sniffer started in CPU-optimized passive mode ('conntrack_passive'). "
+                "Continuous raw Scapy promiscuous capture disabled to preserve router CPU; "
+                "router Conntrack/NAT polling is active for traffic tracking."
+            )
+            return
+
         def _sniff_worker():
             from scapy.all import sniff
             logger.info("Starting network sniffer thread (interface=%s)...", interface or "default")
@@ -555,6 +564,43 @@ class NetworkSniffer:
         self._thread = threading.Thread(target=_sniff_worker, daemon=True)
         self._thread.start()
 
+    def start_on_demand_capture(self, interface: Optional[str] = None, duration_seconds: int = 60) -> threading.Thread:
+        """Launches a transient, time-limited raw packet capture for audit or forensics sessions.
+
+        Automatically stops after duration_seconds to prevent CPU exhaustion on router hardware.
+        """
+        def _timed_worker():
+            from scapy.all import sniff
+            logger.info("Starting on-demand timed capture (duration=%ds, iface=%s)...", duration_seconds, interface or "default")
+            bpf = (
+                "icmp or arp or "
+                "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683 or "
+                "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
+                "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or "
+                "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
+                "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
+                "port 6667 or port 6668 or port 8443 or port 9999))"
+            )
+            stop_time = time.time() + duration_seconds
+            try:
+                sniff_kwargs = {
+                    "filter": bpf,
+                    "prn": self._process_packet,
+                    "store": 0,
+                    "timeout": duration_seconds,
+                    "stop_filter": lambda _: (time.time() >= stop_time) or (not self.running),
+                }
+                if interface:
+                    sniff_kwargs["iface"] = interface
+                sniff(**sniff_kwargs)
+            except Exception as e:
+                logger.warning("On-demand capture stopped with error: %s", e)
+            logger.info("On-demand timed capture completed.")
+
+        t = threading.Thread(target=_timed_worker, daemon=True)
+        t.start()
+        return t
+
     def stop(self):
         self.running = False
         if self._db_thread and self._db_thread.is_alive():
@@ -562,14 +608,30 @@ class NetworkSniffer:
                 self._db_thread.join(timeout=1.0)
             except Exception:
                 pass
+        if self._thread and self._thread.is_alive():
+            try:
+                self._thread.join(timeout=1.0)
+            except Exception:
+                pass
 
     def get_status(self) -> Dict[str, Any]:
-        """Returns sniffer status, including technical realism disclosures regarding L2 visibility."""
+        """Returns sniffer status, including technical realism disclosures regarding L2 visibility and CPU optimization."""
+        mode = getattr(settings, "sniffer_mode", "conntrack_passive")
+        is_passive = (mode == "conntrack_passive")
         return {
             "running": self.running,
-            "capture_mode": "local_promiscuous",
+            "capture_mode": mode,
+            "is_passive_mode": is_passive,
+            "cpu_optimized": is_passive,
             "cross_client_l2_visibility": False,
-            "note": "Локальный сниффер видит только трафик хоста и broadcast/multicast. Для полного мониторинга L2 между клиентами настройте зеркалирование портов или используйте Conntrack роутера",
+            "note": (
+                "Пассивный режим Conntrack включен для снижения нагрузки на CPU роутера. "
+                "Локальный сниффер видит только трафик хоста и broadcast/multicast. "
+                "Для полного анализа межклиентского L2-трафика настройте зеркалирование портов или используйте аппаратный дамп роутера."
+                if is_passive else
+                "Локальный сниффер активен (promiscuous). Видит только трафик хоста и broadcast/multicast. "
+                "Для полного мониторинга L2 между клиентами настройте зеркалирование портов или используйте Conntrack роутера."
+            ),
             "recommended_action": "Для полной видимости L2-трафика настройте зеркалирование портов или используйте Conntrack роутера",
             "tracked_tvs": list(self.tracked_tv_macs),
             "ring_buffers_count": len(self.ring_buffers),
