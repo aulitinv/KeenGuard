@@ -18,6 +18,14 @@ class ForensicsEngine:
         self.tv_last_known_state: Dict[str, bool] = {}  # mac -> is_active
         self.recent_triggers: List[Dict[str, Any]] = []
         self.active_wake_collectors: Dict[str, List[Any]] = {}  # mac -> post-wake packet list
+        self._tasks: set = set()
+
+    def _create_task(self, coro):
+        import asyncio
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
 
     def on_packet(self, pkt: Any, src_mac: Optional[str], dst_mac: Optional[str]):
         """Collects live packets for TVs currently in their post-wake recording window."""
@@ -54,9 +62,8 @@ class ForensicsEngine:
 
         # TV transitioned from SLEEP (False) to AWAKE (True) - ignore startup baseline (None)
         if prev_state is False and is_active:
-            import asyncio
             # Launch in background so the post-wake capture window doesn't block the main polling loop
-            asyncio.create_task(self._handle_tv_wake(mac, ip, hostname))
+            self._create_task(self._handle_tv_wake(mac, ip, hostname))
 
     async def _handle_tv_wake(self, mac: str, ip: str, hostname: Optional[str] = None):
         import time
@@ -98,13 +105,15 @@ class ForensicsEngine:
                 matching_trigger = trig
                 break
 
+        wake_category = "standby_keepalive"
         if matching_trigger:
             is_autonomous = False
             culprit_mac = matching_trigger.get("source_mac")
             culprit_ip = matching_trigger.get("source_ip")
             culprit_name = matching_trigger.get("source_name", culprit_ip)
-            cause_description = f"Пробуждение по локальной команде: {matching_trigger.get('description', 'local trigger')}"
-            event_severity = "critical" if is_night else "info"
+            cause_description = f"Пробуждение по внешней команде: {matching_trigger.get('description', 'local trigger')}"
+            wake_category = "wake_command"
+            event_severity = "warning" if is_night else "info"
         elif valid_triggers:
             last_trig = valid_triggers[-1]
             if last_trig.get("event_type") in ["airplay_activity", "cast_activity", "dial_activity"]:
@@ -112,18 +121,24 @@ class ForensicsEngine:
                 trig_src_ip = last_trig.get("source_ip") or ""
                 if (clean_mac and trig_src_mac == clean_mac) or (ip and trig_src_ip == ip):
                     is_autonomous = True
-                    cause_description = f"Автономное пробуждение (телевизор сам начал анонс/поиск {last_trig.get('event_type')})"
-                    event_severity = "critical" if is_night else "info"
+                    wake_category = "standby_keepalive"
+                    cause_description = f"Штатный дежурный режим (фоновый анонс {last_trig.get('event_type')})"
+                    event_severity = "info"
                 else:
                     is_autonomous = False
                     culprit_ip = trig_src_ip
                     culprit_mac = trig_src_mac
+                    wake_category = "wake_command"
                     cause_description = f"Возможное пробуждение через трансляцию {last_trig.get('event_type')} от {culprit_ip}"
-                    event_severity = "critical" if is_night else "info"
+                    event_severity = "warning" if is_night else "info"
             else:
-                event_severity = "critical" if is_night else "warning"
+                wake_category = "standby_keepalive"
+                cause_description = "Штатный дежурный режим Standby (фоновая проверка связи / NTP / облако вендора)"
+                event_severity = "info"
         else:
-            event_severity = "critical" if is_night else "warning"
+            wake_category = "standby_keepalive"
+            cause_description = "Штатный дежурный режим Standby (фоновая проверка связи / NTP / облако вендора)"
+            event_severity = "info"
 
         # Check daytime tracking filter
         if not is_night:
@@ -236,11 +251,17 @@ class ForensicsEngine:
             packet_count, len(pre_packets), len(post_packets), capture_source, pcap_filename, clean_mac
         )
 
-        prefix = "🚨 [НОЧНАЯ ТРЕВОГА]" if is_night else ("⚠️ [ПОДОЗРИТЕЛЬНО]" if is_autonomous else "📺 [АКТИВНОСТЬ]")
-        full_desc = f"{prefix} {tv_name} включился: {cause_description}."
+        if wake_category == "wake_command":
+            prefix = "🟡 [КОМАНДА ВКЛЮЧЕНИЯ]" if is_night else "📺 [ТРАНСЛЯЦИЯ]"
+        elif wake_category == "suspicious_wake":
+            prefix = "🚨 [НОЧНАЯ АНОМАЛИЯ]"
+        else:
+            prefix = "🟢 [ДЕЖУРНЫЙ РЕЖИМ STANDBY]" if is_night else "📺 [ДЕЖУРНЫЙ РЕЖИМ]"
+
+        full_desc = f"{prefix} {tv_name}: {cause_description}."
         if is_autonomous:
             source_lbl = "аппаратный дамп роутера" if capture_source == "router_hardware" else "локальный срез"
-            full_desc += f" Сохранен {source_lbl} (-{pre_seconds}с .. +{post_seconds}с, {packet_count} пак.). Запущен аудит."
+            full_desc += f" Сохранен {source_lbl} (-{pre_seconds}с .. +{post_seconds}с, {packet_count} пак.)."
 
         # 5. Record SecurityEvent in Database
         event = SecurityEvent(
@@ -255,6 +276,7 @@ class ForensicsEngine:
             details={
                 "is_night": is_night,
                 "is_autonomous": is_autonomous,
+                "wake_category": wake_category,
                 "capture_source": capture_source,
                 "packet_dump_count": packet_count,
                 "pre_packets_count": len(pre_packets),
@@ -289,7 +311,7 @@ class ForensicsEngine:
         if event_severity in ("warning", "critical"):
             try:
                 from keenguard.core.notifier import notifier
-                asyncio.create_task(notifier.send_alert(event))
+                self._create_task(notifier.send_alert(event))
             except Exception as e:
                 logger.debug("Failed to dispatch TV wake alert to Telegram: %s", e)
 

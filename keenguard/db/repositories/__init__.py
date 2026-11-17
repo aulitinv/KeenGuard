@@ -10,6 +10,7 @@ from keenguard.db.repositories.iot import IotRepository
 from keenguard.db.repositories.lan import LanRepository
 from keenguard.db.repositories.blackhole import BlackholeRepository
 from keenguard.db.repositories.stats import StatsRepository
+from keenguard.db.repositories.rules import RulesRepository, BUILTIN_SECURITY_RULES
 
 __all__ = [
     "BaseRepository",
@@ -26,4 +27,6 @@ __all__ = [
     "LanRepository",
     "BlackholeRepository",
     "StatsRepository",
+    "RulesRepository",
+    "BUILTIN_SECURITY_RULES",
 ]

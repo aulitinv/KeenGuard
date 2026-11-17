@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -303,10 +304,13 @@ async def get_audit_report_detail(report_id: str):
 
 @router.get("/api/audit/pcap/{filename}")
 async def download_audit_pcap(filename: str):
-    file_path = settings.pcap_dir / filename
-    if not file_path.exists():
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid PCAP filename")
+    file_path = (settings.pcap_dir / safe_name).resolve()
+    if not file_path.is_file() or not file_path.is_relative_to(settings.pcap_dir.resolve()):
         raise HTTPException(status_code=404, detail="PCAP file not found")
-    return FileResponse(path=str(file_path), filename=filename, media_type="application/vnd.tcpdump.pcap")
+    return FileResponse(path=str(file_path), filename=safe_name, media_type="application/vnd.tcpdump.pcap")
 
 
 @router.get("/api/traffic/live")

@@ -64,6 +64,78 @@ class SecurityEvent(BaseModel):
     description: str
     details: Optional[Dict[str, Any]] = None
     pcap_file: Optional[str] = None
+    matched_rule_id: Optional[str] = None
+    matched_rule_name: Optional[str] = None
+
+class RuleSource(BaseModel):
+    invert: bool = False
+    device_macs: List[str] = Field(default_factory=list)
+    profiles: List[str] = Field(default_factory=list)
+    segments: List[str] = Field(default_factory=list)
+    vendors: List[str] = Field(default_factory=list)
+    properties: List[str] = Field(default_factory=list)
+
+class RuleDestination(BaseModel):
+    direction: str = "lan_to_lan"  # lan_to_lan, lan_to_wan, lan_to_router, wan_to_lan, any
+    invert_targets: bool = False
+    targets: List[str] = Field(default_factory=list)  # IPs, subnets
+    domains: List[str] = Field(default_factory=list)
+    invert_ports: bool = False
+    ports: List[Union[int, str]] = Field(default_factory=list)
+    protocols: List[str] = Field(default_factory=lambda: ["TCP", "UDP"])
+
+class RuleContext(BaseModel):
+    volume_operator: Optional[str] = None  # ">", "<", None
+    volume_bytes: int = 0
+    bandwidth_operator: Optional[str] = None  # ">", "<", None
+    bandwidth_kbps: float = 0.0
+    time_window: str = "always"  # always, night_only, day_only
+    rate_limit_burst: Optional[int] = None
+
+class RuleReaction(BaseModel):
+    severity: Union[Severity, str] = Severity.INFO
+    action_mode: str = "pass"  # "pass" (whitelist) or "alert" (flag incident)
+    notify_telegram: bool = False
+    telegram_mode: str = "digest"  # "immediate" or "digest"
+    record_pcap_seconds: int = 0
+    hardware_wan_block: bool = False
+    apply_preset_id: Optional[str] = None
+
+class RuleTelemetry(BaseModel):
+    hits_total: int = 0
+    hits_24h: int = 0
+    last_hit_at: Optional[str] = None
+    last_hit_summary: Optional[str] = None
+
+class SecurityRule(BaseModel):
+    id: str
+    order_index: int
+    name: str
+    description: Optional[str] = ""
+    enabled: bool = True
+    is_builtin: bool = False
+    category: str = "general"  # core, media, perimeter, iot, custom
+    temporary_until: Optional[str] = None
+    source: RuleSource = Field(default_factory=RuleSource)
+    destination: RuleDestination = Field(default_factory=RuleDestination)
+    context: RuleContext = Field(default_factory=RuleContext)
+    reaction: RuleReaction = Field(default_factory=RuleReaction)
+    telemetry: RuleTelemetry = Field(default_factory=RuleTelemetry)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class RuleHitRecord(BaseModel):
+    id: Optional[int] = None
+    rule_id: str
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    src_ip: Optional[str] = None
+    src_mac: Optional[str] = None
+    dst_ip: Optional[str] = None
+    port: Optional[int] = None
+    protocol: str = "TCP"
+    bytes_count: int = 0
+    action_taken: str = "pass"
+    summary: Optional[str] = None
 
 class AuditReportRecord(BaseModel):
     id: str

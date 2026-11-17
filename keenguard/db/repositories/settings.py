@@ -21,7 +21,8 @@ BUILTIN_LAN_PRESETS = [
         "rules": {
             "allowed_services": [
                 "DLNA:8200", "HTTP:80", "HTTPS:443", "HTTP_ALT:8080", "mDNS:5353", "SSDP:1900",
-                "CAST:8008", "CAST_SSL:8009", "AIRPLAY:7000", "AIRPLAY_MEDIA:7100"
+                "CAST:8008", "CAST_SSL:8009", "AIRPLAY:7000", "AIRPLAY_MEDIA:7100",
+                "JELLYFIN:8096", "JELLYFIN_SSL:8920", "PLEX:32400"
             ],
             "alert_services": ["SSH:22", "SMB:445", "SMB_NETBIOS:139"],
             "blocked_services": ["Telnet:23", "RDP:3389"],

@@ -17,7 +17,9 @@ async def export_devices(format: str = "csv"):
     db = get_db()
     devices = await db.get_all_devices()
     if format == "json":
-        return [d.model_dump() for d in devices]
+        import json
+        json_bytes = json.dumps([d.model_dump() for d in devices], ensure_ascii=False, indent=2).encode("utf-8")
+        return Response(content=json_bytes, media_type="application/json", headers={"Content-Disposition": "attachment; filename=devices.json"})
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -34,7 +36,9 @@ async def export_events(format: str = "csv", limit: int = 500):
     db = get_db()
     events = await db.get_recent_events(limit=limit)
     if format == "json":
-        return [e.model_dump() for e in events]
+        import json
+        json_bytes = json.dumps([e.model_dump() for e in events], ensure_ascii=False, indent=2).encode("utf-8")
+        return Response(content=json_bytes, media_type="application/json", headers={"Content-Disposition": "attachment; filename=security_events.json"})
 
     output = io.StringIO()
     writer = csv.writer(output)

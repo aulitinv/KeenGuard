@@ -49,6 +49,7 @@ class DevicePolicyUpdateRequest(BaseModel):
 
 class ToggleRequest(BaseModel):
     enabled: bool
+    apply_to_linked: bool = False
 
 
 class RenameRequest(BaseModel):
@@ -239,8 +240,88 @@ async def set_profile(mac: str, update: ProfileUpdate):
 async def toggle_wan(mac: str, req: ToggleRequest):
     clean_mac = _validate_mac(mac)
     success = await profile_manager.toggle_wan(clean_mac, block=req.enabled)
-    await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
-    return {"status": "ok", "blocked_wan": req.enabled, "success": success}
+    affected_macs = [clean_mac]
+
+    if req.apply_to_linked:
+        db = get_db()
+        devices = await db.get_all_devices()
+        rotations = DeviceClassifier.detect_mac_rotations(devices)
+        for grp in rotations:
+            if clean_mac in grp["all_macs"]:
+                for other_mac in grp["all_macs"]:
+                    if other_mac != clean_mac:
+                        await profile_manager.toggle_wan(other_mac, block=req.enabled)
+                        affected_macs.append(other_mac)
+                break
+
+    for m in affected_macs:
+        await ws_manager.broadcast({"type": "device_updated", "mac": m})
+
+    return {
+        "status": "ok",
+        "blocked_wan": req.enabled,
+        "success": success,
+        "affected_macs": affected_macs,
+        "applied_to_linked": req.apply_to_linked and len(affected_macs) > 1
+    }
+
+
+@router.post("/api/devices/{mac}/apply_policy_to_group")
+async def apply_policy_to_group(mac: str):
+    """
+    Applies current device's security policy (profile, preset, WAN block, quarantine override, custom ports)
+    to all correlated MAC addresses in the same MAC rotation / alias group.
+    """
+    clean_mac = _validate_mac(mac)
+    db = get_db()
+    source_dev = await db.get_device(clean_mac)
+    if not source_dev:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    devices = await db.get_all_devices()
+    rotations = DeviceClassifier.detect_mac_rotations(devices)
+    target_group = None
+    for grp in rotations:
+        if clean_mac in grp["all_macs"]:
+            target_group = grp
+            break
+
+    if not target_group:
+        return {
+            "status": "no_group",
+            "message": "Устройство не входит в группу ротации MAC",
+            "affected_macs": [clean_mac]
+        }
+
+    affected_macs = []
+    for other_mac in target_group["all_macs"]:
+        if other_mac == clean_mac:
+            continue
+        try:
+            await policy_manager.apply_policy(
+                mac=other_mac,
+                policy_id=source_dev.profile,
+                preset_id=source_dev.preset_id,
+                designated_nvr_ip=source_dev.designated_nvr_ip,
+                auto_quarantine_override=source_dev.auto_quarantine_override,
+                custom_allowed_ports=source_dev.custom_allowed_ports,
+                is_blocked_wan=source_dev.is_blocked_wan,
+                tv_pre_record_seconds=source_dev.tv_pre_record_seconds,
+                tv_post_record_seconds=source_dev.tv_post_record_seconds,
+                tv_day_mode=source_dev.tv_day_mode,
+            )
+            affected_macs.append(other_mac)
+            await ws_manager.broadcast({"type": "device_updated", "mac": other_mac})
+        except Exception as e:
+            logger.error("Failed to propagate policy to %s: %s", other_mac, e)
+
+    return {
+        "status": "ok",
+        "source_mac": clean_mac,
+        "group_hostname": target_group["hostname"],
+        "affected_macs": affected_macs,
+        "count": len(affected_macs)
+    }
 
 
 @router.post("/api/devices/{mac}/toggle_lan")
@@ -252,9 +333,95 @@ async def toggle_lan(mac: str, req: ToggleRequest):
     dev = await db.get_device(clean_mac)
     is_iso = dev.is_isolated_lan if dev else False
     msg = None
+    needs_phys = False
     if req.enabled and not is_iso:
-        msg = "Для физической изоляции Wi-Fi устройств подключите их к Гостевой Wi-Fi сети Keenetic."
-    return {"status": "ok", "isolated_lan": is_iso, "success": success, "message": msg}
+        needs_phys = True
+        msg = "Устройство находится в основном мосте Bridge0 (192.168.1.0/24). L2-трафик коммутируется аппаратно. Для изоляции переключите устройство в Гостевой Wi-Fi или отдельный сегмент."
+    return {
+        "status": "ok" if not needs_phys else "needs_physical_segmentation",
+        "isolated_lan": is_iso,
+        "success": success,
+        "message": msg,
+        "needs_physical_segmentation": needs_phys,
+        "guide_url": f"/api/devices/{clean_mac}/isolation_guide"
+    }
+
+
+@router.get("/api/devices/{mac}/isolation_guide")
+async def get_isolation_guide(mac: str):
+    """Returns step-by-step physical network isolation instructions for a device."""
+    db = get_db()
+    clean_mac = _validate_mac(mac)
+    dev = await db.get_device(clean_mac)
+    if not dev:
+        raise HTTPException(status_code=404, detail="Устройство не найдено")
+
+    backend = router_manager.get_backend()
+    hosts = await backend.get_hosts()
+    host_info = next((h for h in hosts if h.mac == clean_mac), None)
+
+    is_isolated = is_host_lan_isolated(getattr(host_info, "interface", None), getattr(host_info, "ip", dev.ip))
+    segment = getattr(host_info, "segment", "Home") or "Home"
+    iface = getattr(host_info, "interface", None)
+    iface_str = str(iface) if iface else "Bridge0"
+
+    is_wifi = "wifi" in iface_str.lower() or "ra" in iface_str.lower() or "ap" in iface_str.lower() or getattr(dev, "connection_type", "") == "wifi"
+
+    steps = []
+    if is_isolated:
+        steps.append({
+            "title": "Устройство уже изолировано",
+            "desc": f"Устройство находится в изолированном сегменте '{segment}' ({getattr(host_info, 'ip', dev.ip)}). Пакеты к домашней сети фильтруются роутером.",
+            "done": True
+        })
+    elif is_wifi:
+        steps = [
+            {
+                "title": "Шаг 1: Включите Гостевую сеть в Keenetic",
+                "desc": "Откройте панель роутера (http://192.168.1.1) ➔ «Мои сети и Wi-Fi» ➔ «Гостевая сеть». Убедитесь, что она включена.",
+                "action": "open_router_wifi"
+            },
+            {
+                "title": "Шаг 2: Подключите устройство к Гостевой сети",
+                "desc": f"На самом устройстве ({dev.custom_name or dev.hostname or clean_mac}) выберите Гостевую Wi-Fi сеть. Роутер выдаст IP из изолированной подсети (например, 192.168.2.X).",
+                "action": "reconnect_device"
+            },
+            {
+                "title": "Шаг 3: Аппаратная изоляция готова",
+                "desc": "В гостевой сети роутер аппаратно блокирует L2-трафик к домашним устройствам. KeenGuard автоматически зафиксирует изоляцию.",
+                "action": "auto_detect"
+            }
+        ]
+    else:
+        steps = [
+            {
+                "title": "Шаг 1: Создайте изолированный сегмент в Keenetic",
+                "desc": "В панели Keenetic перейдите в «Сетевые правила» ➔ «Сегменты» ➔ «Добавить сегмент» (например, «Изолированный» или «IoT», подсеть 192.168.2.1/24).",
+                "action": "create_segment"
+            },
+            {
+                "title": "Шаг 2: Перенесите проводной порт в этот сегмент",
+                "desc": "В настройках созданного сегмента отметьте проводной порт роутера, к которому подключено это устройство, и снимите галочку в сегменте «Домашняя сеть».",
+                "action": "reassign_port"
+            },
+            {
+                "title": "Шаг 3: Готово",
+                "desc": "Кабельный порт перейдет в отдельный L2-домен (VLAN), и прямой трафик к другим домашним ПК будет заблокирован.",
+                "action": "auto_detect"
+            }
+        ]
+
+    return {
+        "status": "ok",
+        "mac": clean_mac,
+        "name": dev.custom_name or dev.hostname or clean_mac,
+        "ip": getattr(host_info, "ip", dev.ip),
+        "is_physically_isolated": is_isolated,
+        "current_segment": segment,
+        "interface": iface_str,
+        "is_wifi": is_wifi,
+        "steps": steps
+    }
 
 
 @router.post("/api/devices/{mac}/toggle_airplay")

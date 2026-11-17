@@ -16,7 +16,7 @@ def test_sniffer_transparency_status():
 
 def test_camera_preset_enforcement_and_nvr_exception():
     """Camera with isolated policy must permit NVR but alert on unallowed LAN destinations."""
-    tracker = LanTrafficTracker()
+    tracker = LanTrafficTracker(use_rules_engine=False)
 
     cam_mac = "AA:BB:CC:DD:EE:01"
     cam_ip = "192.168.1.50"
@@ -98,7 +98,7 @@ def test_camera_preset_enforcement_and_nvr_exception():
 
 def test_smart_tv_preset_enforcement():
     """Smart TV permits DLNA and web, alerts on unallowed or sensitive services."""
-    tracker = LanTrafficTracker()
+    tracker = LanTrafficTracker(use_rules_engine=False)
 
     tv_mac = "11:22:33:44:55:01"
     tv_ip = "192.168.1.60"
@@ -171,7 +171,7 @@ def test_smart_tv_preset_enforcement():
 
 def test_trusted_preset_and_alert_throttling():
     """Trusted device has full access; repeated alerts are throttled."""
-    tracker = LanTrafficTracker()
+    tracker = LanTrafficTracker(use_rules_engine=False)
 
     pc_mac = "CC:DD:EE:FF:00:11"
     pc_ip = "192.168.1.25"

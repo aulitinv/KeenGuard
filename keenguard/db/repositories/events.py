@@ -21,6 +21,8 @@ class EventRepository(BaseRepository):
                 details = json.loads(r["details_json"])
             except (json.JSONDecodeError, TypeError) as e:
                 logger.debug("Failed to decode event details_json for event %s: %s", r["id"], e)
+        matched_rule_id = r["matched_rule_id"] if "matched_rule_id" in r.keys() else None
+        matched_rule_name = r["matched_rule_name"] if "matched_rule_name" in r.keys() else None
         return SecurityEvent(
             id=r["id"],
             timestamp=r["timestamp"],
@@ -33,7 +35,9 @@ class EventRepository(BaseRepository):
             source_name=r["source_name"],
             description=r["description"],
             details=details,
-            pcap_file=r["pcap_file"]
+            pcap_file=r["pcap_file"],
+            matched_rule_id=matched_rule_id,
+            matched_rule_name=matched_rule_name
         )
 
     async def record_event(self, event: SecurityEvent) -> int:
@@ -58,15 +62,17 @@ class EventRepository(BaseRepository):
             cursor = await conn.execute("""
                 INSERT INTO events (
                     timestamp, event_type, severity, target_mac, target_ip,
-                    source_mac, source_ip, source_name, description, details_json, pcap_file
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_mac, source_ip, source_name, description, details_json, pcap_file,
+                    matched_rule_id, matched_rule_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event.timestamp, event.event_type, event.severity,
                 valid_target_mac,
                 event.target_ip,
                 source_mac,
                 event.source_ip,
-                event.source_name, event.description, details_str, event.pcap_file
+                event.source_name, event.description, details_str, event.pcap_file,
+                event.matched_rule_id, event.matched_rule_name
             ))
             await conn.commit()
             return cursor.lastrowid

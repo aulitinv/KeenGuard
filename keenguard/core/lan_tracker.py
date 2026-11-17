@@ -66,8 +66,15 @@ def _matches_service_rule(rule_str: str, port: Optional[int]) -> bool:
 class LanTrafficTracker:
     """Tracks intra-network (LAN) traffic, ping requests/replies, and ARP activity."""
 
-    def __init__(self, max_history: int = 1000):
+    def __init__(
+        self,
+        max_history: int = 1000,
+        rule_matcher: Optional[Any] = None,
+        use_rules_engine: bool = True
+    ):
         self.max_history = max_history
+        self._custom_rule_matcher = rule_matcher
+        self._use_rules_engine = use_rules_engine
         self._lock = threading.Lock()
         self.events: deque = deque(maxlen=max_history)
         self._pkt_counter = 0
@@ -144,7 +151,50 @@ class LanTrafficTracker:
         src_dev = self._get_device_info(src_mac, src_ip, devices_map)
         dst_dev = self._get_device_info(dst_mac, dst_ip, devices_map)
 
-        # Identify policy preset for source device
+        matched_rule_id = None
+        matched_rule_name = None
+        hardware_wan_block = False
+        record_pcap_seconds = 0
+        apply_preset_id = None
+        notify_telegram = True
+        telegram_mode = "digest"
+        violation_type = None
+        severity = None
+        description = None
+
+        # 0. Check Rules Engine first (First-Match Win, if enabled)
+        rule_eval = None
+        if self._use_rules_engine:
+            matcher = self._custom_rule_matcher
+            if matcher is None:
+                from keenguard.core.rules.matcher import rule_matcher as default_matcher
+                matcher = default_matcher
+
+            rule_eval = matcher.evaluate_flow(
+                src_mac=src_mac or src_dev.get("mac"),
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                port=port,
+                protocol=protocol,
+                bytes_count=bytes_count,
+                devices_map=devices_map
+            )
+            if rule_eval.matched:
+                matched_rule_id = rule_eval.rule_id
+                matched_rule_name = rule_eval.rule_name
+                hardware_wan_block = rule_eval.hardware_wan_block
+                record_pcap_seconds = rule_eval.record_pcap_seconds
+                apply_preset_id = rule_eval.apply_preset_id
+                notify_telegram = rule_eval.notify_telegram
+                telegram_mode = rule_eval.telegram_mode
+                if rule_eval.action_mode == "pass":
+                    return None  # Whitelisted by security rule
+                elif rule_eval.action_mode == "alert":
+                    violation_type = "rule_alert"
+                    severity = rule_eval.severity.upper() if hasattr(rule_eval, "severity") else Severity.CRITICAL.value
+                    description = f"[{rule_eval.rule_name}] Сетевое правило зафиксировало подозрительное соединение: {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip}):{port or ''}"
+
+        # Identify policy preset for source device if not matched by custom rule
         preset_id = src_dev.get("preset_id")
         preset = None
         if preset_id and preset_id in self.presets_cache:
@@ -202,57 +252,54 @@ class LanTrafficTracker:
         is_infra_port = port in (53, 67, 68, 123)
         is_multicast_dst = dst_ip in MULTICAST_NAMES or dst_ip.endswith(".255") or dst_ip.startswith("224.") or dst_ip == "255.255.255.255"
 
-        violation_type = None
-        severity = None
-        description = None
-
-        # 1. Blocked services check
-        if port is not None and any(_matches_service_rule(r, port) for r in blocked_services):
-            violation_type = "blocked_service"
-            severity = Severity.CRITICAL.value
-            description = f"Попытка доступа к запрещенному сервису {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
-
-        # 2. Alert services check
-        elif port is not None and any(_matches_service_rule(r, port) for r in alert_services):
-            violation_type = "alert_service"
-            severity = Severity.WARNING.value
-            description = f"Подозрительная активность на порту {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
-
-        # 3. LAN-to-LAN isolation check
-        elif lan_to_lan_policy == "isolated":
-            # Exceptions: NVR for cameras, infra to router, permitted discovery
-            designated_nvr = src_dev.get("designated_nvr_ip")
-            if designated_nvr and dst_ip == designated_nvr:
-                pass  # Legitimate NVR communication
-            elif is_router_dst and is_infra_port:
-                pass  # Essential DHCP/DNS/NTP to router
-            elif is_multicast_dst and port in (5353, 1900):
-                pass  # Discovery
-            else:
-                violation_type = "lan_isolation_breach"
+        if violation_type is None:
+            # 1. Blocked services check
+            if port is not None and any(_matches_service_rule(r, port) for r in blocked_services):
+                violation_type = "blocked_service"
                 severity = Severity.CRITICAL.value
-                description = f"Нарушение изоляции LAN: {src_dev['name']} ({src_ip}) пытается связаться с {dst_dev['name']} ({dst_ip}):{port or ''} при политике 'isolated'"
+                description = f"Попытка доступа к запрещенному сервису {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
 
-        # 4. Restricted policy check
-        elif lan_to_lan_policy == "restricted" and port is not None:
-            is_allowed = False
-            if "*" in allowed_services or any(_matches_service_rule(r, port) for r in allowed_services):
-                is_allowed = True
-            elif port in custom_allowed:
-                is_allowed = True
-            elif is_router_dst and is_infra_port:
-                is_allowed = True
-            elif is_multicast_dst and port in (5353, 1900):
-                is_allowed = True
-            elif is_streaming_service(port, protocol or "TCP")[0] and src_dev.get("profile") in ("smart_tv", "trusted", "unassigned"):
-                is_allowed = True
-            elif bytes_count > 10240 and port >= 1024 and port not in (445, 139, 22, 23, 3389, 5555):
-                is_allowed = True
-
-            if not is_allowed:
-                violation_type = "unallowed_service"
+            # 2. Alert services check
+            elif port is not None and any(_matches_service_rule(r, port) for r in alert_services):
+                violation_type = "alert_service"
                 severity = Severity.WARNING.value
-                description = f"Неразрешенный локальный сервис {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
+                description = f"Подозрительная активность на порту {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
+
+            # 3. LAN-to-LAN isolation check
+            elif lan_to_lan_policy == "isolated":
+                # Exceptions: NVR for cameras, infra to router, permitted discovery
+                designated_nvr = src_dev.get("designated_nvr_ip")
+                if designated_nvr and dst_ip == designated_nvr:
+                    pass  # Legitimate NVR communication
+                elif is_router_dst and is_infra_port:
+                    pass  # Essential DHCP/DNS/NTP to router
+                elif is_multicast_dst and port in (5353, 1900):
+                    pass  # Discovery
+                else:
+                    violation_type = "lan_isolation_breach"
+                    severity = Severity.CRITICAL.value
+                    description = f"Нарушение изоляции LAN: {src_dev['name']} ({src_ip}) пытается связаться с {dst_dev['name']} ({dst_ip}):{port or ''} при политике 'isolated'"
+
+            # 4. Restricted policy check
+            elif lan_to_lan_policy == "restricted" and port is not None:
+                is_allowed = False
+                if "*" in allowed_services or any(_matches_service_rule(r, port) for r in allowed_services):
+                    is_allowed = True
+                elif port in custom_allowed:
+                    is_allowed = True
+                elif is_router_dst and is_infra_port:
+                    is_allowed = True
+                elif is_multicast_dst and port in (5353, 1900):
+                    is_allowed = True
+                elif is_streaming_service(port, protocol or "TCP")[0] and src_dev.get("profile") in ("smart_tv", "trusted", "unassigned"):
+                    is_allowed = True
+                elif bytes_count > 10240 and port >= 1024 and port not in (445, 139, 22, 23, 3389, 5555):
+                    is_allowed = True
+
+                if not is_allowed:
+                    violation_type = "unallowed_service"
+                    severity = Severity.WARNING.value
+                    description = f"Неразрешенный локальный сервис {port} ({protocol or 'TCP'}): {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip})"
 
         if not violation_type:
             return None
@@ -284,15 +331,31 @@ class LanTrafficTracker:
             "target_name": dst_dev.get("name"),
             "port": port,
             "protocol": protocol,
+            "bytes_count": bytes_count,
             "violation_type": violation_type,
             "preset_id": preset_id,
+            "matched_rule_id": matched_rule_id,
+            "matched_rule_name": matched_rule_name,
+            "hardware_wan_block": hardware_wan_block,
+            "record_pcap_seconds": record_pcap_seconds,
+            "apply_preset_id": apply_preset_id,
+            "notify_telegram": notify_telegram,
+            "telegram_mode": telegram_mode,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "details": {
                 "preset_id": preset_id,
                 "policy": lan_to_lan_policy,
                 "port": port,
                 "protocol": protocol,
+                "bytes_count": bytes_count,
                 "violation_type": violation_type,
+                "matched_rule_id": matched_rule_id,
+                "matched_rule_name": matched_rule_name,
+                "hardware_wan_block": hardware_wan_block,
+                "record_pcap_seconds": record_pcap_seconds,
+                "apply_preset_id": apply_preset_id,
+                "notify_telegram": notify_telegram,
+                "telegram_mode": telegram_mode,
             }
         }
 
@@ -689,8 +752,8 @@ class LanTrafficTracker:
 
     def integrate_router_conntrack(self, conntrack_entries: List[Dict[str, Any]], devices_map: Optional[Dict[str, Any]] = None):
         """
-        Integrates router-level connections (from Keenetic show ip nat / hotspot)
-        so that 100% of internal one-to-one unicast communications are tracked.
+        Integrates router-level connections (cross-segment routed flows, gateway endpoints and port forwardings).
+        Note: pure intra-segment L2 unicast frames are switched in hardware and do not enter router conntrack.
         """
         if not conntrack_entries:
             return 0

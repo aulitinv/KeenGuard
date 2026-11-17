@@ -24,6 +24,7 @@ class BackgroundScheduler:
         self._last_digest_day: int | None = None
         self._last_audit_day: int | None = None
         self._last_cleanup_day: int | None = None
+        self._last_cleanup_timestamp: float = time.time()  # Initialize to startup time
         self._tv_night_status: Dict[str, Dict[str, Any]] = {}
 
     @property
@@ -70,9 +71,13 @@ class BackgroundScheduler:
                         except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                             logger.error("Error running scheduled audit: %s", e)
 
-                # 3. Daily DB & Storage Cleanup (04:00)
-                if current_hour == 4 and self._last_cleanup_day != current_day:
+                # 3. Daily DB & Storage Cleanup (04:00 or >= 24h interval)
+                now_epoch = time.time()
+                is_scheduled_time = (current_hour == 4 and self._last_cleanup_day != current_day)
+                is_interval_due = (now_epoch - self._last_cleanup_timestamp >= 86400)
+                if is_scheduled_time or is_interval_due:
                     self._last_cleanup_day = current_day
+                    self._last_cleanup_timestamp = now_epoch
                     try:
                         deleted = await db.cleanup_old_traffic(days=7)
                         if deleted > 0:
@@ -102,6 +107,12 @@ class BackgroundScheduler:
                     await self._check_night_mode_transitions(now)
                 except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
                     logger.error("Error checking night mode transitions: %s", e)
+
+                # 5. Expire temporary security rules
+                try:
+                    await self._check_temporary_rules_expiration()
+                except Exception as e:
+                    logger.debug("Error checking temporary rules expiration: %s", e)
 
             except asyncio.CancelledError:
                 break
@@ -294,5 +305,30 @@ class BackgroundScheduler:
                 # Reset night state for following night
                 state["in_night_mode"] = False
                 state["entered_night_mode_tonight"] = False
+
+    async def _check_temporary_rules_expiration(self):
+        """Disables temporary security rules whose temporary_until time has elapsed."""
+        try:
+            rules = await db.get_rules()
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for r in rules:
+                if r.enabled and r.temporary_until and r.temporary_until < now_iso:
+                    logger.info("Temporary rule '%s' (%s) expired at %s; disabling.", r.name, r.id, r.temporary_until)
+                    await db.toggle_rule(r.id, enabled=False)
+                    from keenguard.core.rules.matcher import rule_matcher
+                    refreshed = await db.get_rules()
+                    rule_matcher.load_rules(refreshed)
+                    try:
+                        from keenguard.web.ws import ws_manager
+                        await ws_manager.broadcast({
+                            "type": "rules_updated",
+                            "action": "expired",
+                            "rule_id": r.id,
+                            "enabled": False
+                        })
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug("Failed checking temporary rules expiration: %s", e)
 
 scheduler = BackgroundScheduler()

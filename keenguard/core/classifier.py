@@ -447,8 +447,8 @@ class DeviceClassifier:
                 "wan_needed": True,
                 "weather_dependent": False,
                 "impact_wan_block": "Отключит онлайн-кинотеатры (Кинопоиск, YouTube, Netflix).",
-                "impact_lan_isolate": "Асимметричный пропуск: прием AirPlay/DLNA (порт 8200 Keenetic) разрешен, доступ ТВ к ПК заблокирован.",
-                "recommendation": "Разрешить WAN, настроить асимметричный медиа-пропуск (AirPlay/DLNA) и ночной аудит сна."
+                "impact_lan_isolate": "Медиа-профиль: прием AirPlay/DLNA разрешен, поведенческий мониторинг выявляет попытки доступа ТВ к портам ПК/NAS.",
+                "recommendation": "Разрешить WAN, включить медиа-профиль (AirPlay/DLNA) и ночной аудит сна. Для аппаратной L2-изоляции от ПК переключите в Гостевой Wi-Fi."
             }
 
         # 5. Air Quality Monitors & Weather Stations (Qingping, ClearGrass, etc.)

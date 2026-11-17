@@ -91,6 +91,30 @@
         </div>
     </header>
 
+    <!-- Global Active DPI Capture Countdown Banner -->
+    <div id="global-active-dpi-banner" class="hidden bg-gradient-to-r from-rose-950/95 via-purple-950/90 to-surface-950 border-b border-rose-500/40 px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-3 shadow-xl shadow-rose-950/30 z-30 transition-all duration-300">
+        <div class="flex items-center space-x-3">
+            <span class="relative flex h-2.5 w-2.5 shrink-0">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+            </span>
+            <div class="flex items-center space-x-2 flex-wrap">
+                <span class="font-bold text-rose-200">🔴 Идет глубокий DPI-захват пакетов сетевой картой:</span>
+                <span id="global-dpi-target-text" class="text-white font-mono bg-rose-950/60 px-2 py-0.5 rounded border border-rose-500/30">Вся сеть</span>
+            </div>
+        </div>
+        <div class="flex items-center space-x-4">
+            <span class="text-rose-200 text-xs flex items-center space-x-1.5" id="global-dpi-timer-text">
+                <i data-lucide="timer" class="w-3.5 h-3.5 text-rose-400"></i>
+                <span>Осталось: <b class="font-mono text-white text-sm">--:--</b></span>
+            </span>
+            <button type="button" onclick="switchTab('audits')" class="px-2.5 py-1 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 border border-rose-400/40 text-xs font-semibold transition cursor-pointer flex items-center space-x-1">
+                <span>К сессии</span>
+                <i data-lucide="arrow-right" class="w-3 h-3"></i>
+            </button>
+        </div>
+    </div>
+
     <!-- App Body: Collapsible Left Sidebar + Main Content -->
     <div class="flex-1 flex overflow-hidden min-h-0 relative">
         <!-- Backdrop overlay for mobile / tablet drawer -->
@@ -159,6 +183,13 @@
                     </span>
                     <span class="tab-label truncate flex-1">Безопасность</span>
                     <span id="security-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden">0</span>
+                </button>
+                <button onclick="switchTab('rules')" id="tab-rules" data-tooltip="Правила и фильтры" title="Правила & Фильтры (Rules Engine)" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
+                    <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
+                        <i data-lucide="sliders-horizontal" class="w-4 h-4 text-indigo-400"></i>
+                    </span>
+                    <span class="tab-label truncate flex-1">Правила & Фильтры</span>
+                    <span id="rules-count-badge" class="ml-1.5 px-1.5 py-0.2 rounded-full text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">0</span>
                 </button>
                 <button onclick="switchTab('alerts')" id="tab-alerts" data-tooltip="Инциденты & UPnP" title="Инциденты & UPnP" class="tab-btn flex items-center space-x-3 px-3 py-2 rounded-xl text-sm font-medium transition w-full text-left">
                     <span class="tab-icon flex items-center justify-center w-5 h-5 shrink-0">
@@ -1149,7 +1180,7 @@
                     <i data-lucide="info" class="w-4 h-4 text-cyan-400 shrink-0 mt-0.5"></i>
                     <div>
                         <span class="text-slate-200 font-medium">Физический уровень мониторинга:</span>
-                        KeenGuard объединяет данные локального перехватчика эфира (ICMP эхо, широковещательный ARP, мультикаст mDNS/SSDP) и аппаратной таблицы соединений роутера Keenetic (conntrack), обеспечивая полную видимость всех взаимодействий от одного к одному.
+                        Мониторинг широковещательного эфира LAN (ARP-разведка, мультикаст mDNS/SSDP, ICMP пинги) и трафика к шлюзу. Прямой L2-трафик между устройствами в одной подсети обрабатывается чипом свитча в обход CPU; для контроля межхостовых сессий требуется сегментация сети (VLAN / изолированный сегмент) или запуск аудита устройства.
                     </div>
                 </div>
             </div>
@@ -1656,6 +1687,15 @@
                     </div>
                 </div>
 
+                <!-- Standby Reality Notice (AGENTS.md) -->
+                <div class="mt-4 p-3 bg-surface-950/80 rounded-xl border border-slate-800/80 flex items-start space-x-2.5 text-xs text-slate-400">
+                    <i data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5"></i>
+                    <div>
+                        <span class="text-slate-200 font-medium">Физика дежурного режима (Standby / Quick Start+):</span>
+                        При выключении с пульта экран Smart TV гаснет, но процессор и Wi-Fi модуль остаются под напряжением в режиме ожидания. Периодические сетевые пакеты в 3 часа ночи (NTP, cloud keep-alive) — это штатное поведение дежурного режима, а не взлом. Система разделяет дежурные пакеты (🟢 Standby), команды включения (🟡 Wake Trigger) и аномалии (🔴 Anomaly).
+                    </div>
+                </div>
+
                 <!-- TV Quick Controls -->
                 <div class="mt-6 pt-6 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-4" id="tv-quick-controls">
                     <!-- Loaded dynamically if Smart TV found -->
@@ -1665,25 +1705,36 @@
             <!-- Smart TV Brand DNS Sinkhole Presets Card -->
             <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-6">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div class="space-y-1">
+                    <div class="space-y-1.5">
                         <div class="flex items-center space-x-2">
                             <i data-lucide="shield-alert" class="w-5 h-5 text-indigo-400"></i>
-                            <h3 class="text-base font-bold text-slate-100">Аппаратные пресеты блокировки Smart TV (0.0.0.0 DNS Sinkhole)</h3>
+                            <h3 class="text-base font-bold text-slate-100">Блокировка телеметрии и трекеров Smart TV (DNS Sinkhole)</h3>
                             <span id="tv-sinkholes-total-badge" class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">0 активных правил</span>
                         </div>
                         <p class="text-xs text-slate-400 max-w-3xl">
-                            Блокировка трекеров, фоновой аналитики и системных баннеров на уровне встроенного DNS-сервера Keenetic (<code class="text-indigo-300">ip host 0.0.0.0</code>). Запросы блокируются аппаратно без выхода в интернет.
+                            Блокировка трекеров, фоновой аналитики и системных баннеров на уровне встроенного DNS-сервера Keenetic (<code class="text-indigo-300">ip host 0.0.0.0</code>).
                         </p>
+                        <div class="p-2.5 rounded-xl bg-surface-950 border border-slate-800 text-[11px] text-slate-400 space-y-1 max-w-3xl">
+                            <p class="text-amber-300 font-medium flex items-center space-x-1.5">
+                                <i data-lucide="info" class="w-3.5 h-3.5 shrink-0"></i>
+                                <span>Границы возможностей DNS-фильтра:</span>
+                            </p>
+                            <p class="leading-relaxed">
+                                • Блокирует сбор телеметрии, слежку вендора и баннеры в системном меню ТВ (Tizen/webOS/Android TV).<br>
+                                • <b>Не блокирует видеорекламу</b> внутри YouTube, Кинопоиска или Иви, так как реклама и видеопоток транслируются с одних и тех же CDN-серверов.<br>
+                                • Если ТВ использует зашитые DNS (Google 8.8.8.8) в обход роутера, включите в Keenetic функцию «Перехватывать DNS-запросы клиентов» (Strict DNS).
+                            </p>
+                        </div>
                     </div>
                     <!-- Global Actions -->
                     <div class="flex flex-wrap items-center gap-2.5">
-                        <button type="button" onclick="blockSelectedTvBrandPreset(true)" id="btn-block-safe-tv-brand-preset" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm" title="Заблокировать рекламу и слежку без риска для работы ТВ и приложений">
+                        <button type="button" onclick="blockSelectedTvBrandPreset(true)" id="btn-block-safe-tv-brand-preset" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm" title="Заблокировать сбор аналитики и слежку без риска для работы приложений">
                             <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                            <span id="btn-block-safe-tv-brand-label">🟢 Заблокировать без риска (рекомендуется)</span>
+                            <span id="btn-block-safe-tv-brand-label">🟢 Заблокировать трекеры без риска</span>
                         </button>
                         <button type="button" onclick="blockSelectedTvBrandPreset(false)" id="btn-block-tv-brand-preset" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center space-x-1.5 border border-slate-700" title="Заблокировать все домены трекеров бренда (максимальная приватность)">
                             <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i>
-                            <span id="btn-block-tv-brand-label">⛔ Блокировать ВСЕ</span>
+                            <span id="btn-block-tv-brand-label">⛔ Заблокировать ВСЕ</span>
                         </button>
                         <button type="button" onclick="unblockSelectedTvBrandPreset()" id="btn-unblock-tv-brand-preset" class="px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center space-x-1.5 border border-slate-700" title="Снять все правила блокировки для этого бренда">
                             <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
@@ -1813,6 +1864,202 @@
                 <div id="all-events-list" class="space-y-3">
                     <!-- Populated by JS -->
                 </div>
+            </div>
+        </section>
+
+        <!-- TAB: RULES & FILTERS ENGINE -->
+        <section id="view-rules" class="hidden space-y-6">
+            <!-- Header Banner -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100 flex items-center space-x-2">
+                        <i data-lucide="sliders-horizontal" class="w-5 h-5 text-indigo-400"></i>
+                        <span>Движок правил и фильтров безопасности</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">First-Match Win</span>
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        Прозрачный контроль сетевых потоков: приоритизация по зонам (Ядро 🔒 / Пул ↕️ / Пресеты 🛡️), гибкие инверсии (КРОМЕ) и реактивный аудит.
+                    </p>
+                </div>
+                <div class="flex items-center space-x-2 flex-wrap">
+                    <button onclick="openRuleSimModal()" class="px-3 py-1.5 text-xs rounded-xl bg-surface-900 border border-slate-700 text-slate-300 hover:text-white flex items-center space-x-1.5 transition cursor-pointer">
+                        <i data-lucide="flask-conical" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span>Симулятор потока</span>
+                    </button>
+                    <button onclick="openRuleModal()" class="px-3.5 py-1.5 text-xs rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white flex items-center space-x-1.5 transition shadow-md shadow-indigo-600/30 font-medium cursor-pointer">
+                        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                        <span>Добавить правило</span>
+                    </button>
+                    <button onclick="loadRules()" class="px-3 py-1.5 text-xs rounded-xl bg-surface-900 border border-slate-700 text-slate-300 hover:text-white flex items-center space-x-1.5 transition cursor-pointer" title="Перезагрузить правила">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary Metric Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Всего правил</span>
+                        <div class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                            <i data-lucide="list-ordered" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline space-x-2">
+                        <span id="rules-stat-total" class="text-2xl font-bold text-white">0</span>
+                        <span class="text-xs text-slate-500">в цепочке</span>
+                    </div>
+                    <div class="mt-1 text-[11px] text-slate-500">Системные + пользовательские</div>
+                </div>
+
+                <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Активных правил</span>
+                        <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline space-x-2">
+                        <span id="rules-stat-active" class="text-2xl font-bold text-emerald-400">0</span>
+                        <span id="rules-stat-active-pct" class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">100%</span>
+                    </div>
+                    <div class="mt-1 text-[11px] text-slate-500">Обрабатывают входящий и LAN трафик</div>
+                </div>
+
+                <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Срабатываний (24ч)</span>
+                        <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline space-x-2">
+                        <span id="rules-stat-hits24" class="text-2xl font-bold text-white">0</span>
+                        <span class="text-xs text-slate-500">событий</span>
+                    </div>
+                    <div class="mt-1 text-[11px] text-slate-500">Всего за всё время: <span id="rules-stat-hits-total" class="font-medium text-slate-300">0</span></div>
+                </div>
+
+                <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400">Состояние цепочки</span>
+                        <div class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                            <i data-lucide="shield" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline space-x-2">
+                        <span id="rules-stat-status" class="text-sm font-bold text-emerald-400 flex items-center space-x-1.5">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span>Синхронизировано</span>
+                        </span>
+                    </div>
+                    <div id="rules-stat-status-sub" class="mt-1 text-[11px] text-slate-500">Конфликтов не обнаружено</div>
+                </div>
+            </div>
+
+            <!-- Zone Hierarchy Hint Banner -->
+            <div class="p-3.5 rounded-2xl bg-surface-900/80 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                <div class="flex items-center space-x-3 text-slate-300">
+                    <div class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 shrink-0">
+                        <i data-lucide="info" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <span class="font-semibold text-white">Иерархия выполнения (First-Match Win):</span>
+                        <span class="text-slate-400 ml-1">
+                            Пакет проверяется сверху вниз. Первое совпавшее правило определяет действие (Pass / Alert). Перетаскивайте строки ↕️ мышью для изменения приоритета.
+                        </span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3 shrink-0 text-[11px]">
+                    <span class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center space-x-1">
+                        <i data-lucide="lock" class="w-3 h-3 text-amber-400"></i>
+                        <span>Зона 1: Ядро (1-10)</span>
+                    </span>
+                    <span class="px-2 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 flex items-center space-x-1">
+                        <i data-lucide="arrow-up-down" class="w-3 h-3 text-indigo-400"></i>
+                        <span>Зона 2: Пул (11-998)</span>
+                    </span>
+                    <span class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 flex items-center space-x-1">
+                        <i data-lucide="shield" class="w-3 h-3 text-slate-400"></i>
+                        <span>Зона 3: Fallback (999)</span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Filters & Search Toolbar -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div class="relative flex-1 max-w-md">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" id="rules-search-input" oninput="filterRulesTable()" placeholder="Поиск по названию, порту, протоколу, описанию..." class="w-full pl-9 pr-4 py-2 bg-surface-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition">
+                </div>
+                <div class="flex items-center space-x-2">
+                    <select id="rules-category-filter" onchange="filterRulesTable()" class="bg-surface-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500">
+                        <option value="all">Все категории</option>
+                        <option value="core">🔒 Системное ядро</option>
+                        <option value="media">🎬 Медиа (TV/DLNA)</option>
+                        <option value="perimeter">🛡️ Периметр и камеры</option>
+                        <option value="iot">🔌 IoT автоматизация</option>
+                        <option value="custom">⚙️ Пользовательские</option>
+                    </select>
+                    <select id="rules-mode-filter" onchange="filterRulesTable()" class="bg-surface-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500">
+                        <option value="all">Все действия</option>
+                        <option value="pass">🟢 Разрешить (Pass)</option>
+                        <option value="alert">🔴 Инцидент (Alert)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Rules Table -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl overflow-hidden shadow-sm">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse" id="rules-table">
+                        <thead>
+                            <tr class="border-b border-slate-800 bg-slate-900/50 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                <th class="py-3 px-3 w-10 text-center"></th>
+                                <th class="py-3 px-3 w-16 text-center">№</th>
+                                <th class="py-3 px-4 min-w-[200px]">Правило</th>
+                                <th class="py-3 px-4 min-w-[220px]">Условия (ЕСЛИ)</th>
+                                <th class="py-3 px-4 min-w-[170px]">Реакция (ТО)</th>
+                                <th class="py-3 px-4 w-36 text-center">Срабатывания</th>
+                                <th class="py-3 px-3 w-20 text-center">Статус</th>
+                                <th class="py-3 px-4 w-28 text-right">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rules-table-body" class="divide-y divide-slate-800/60 text-xs text-slate-300">
+                            <!-- Injected by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty State -->
+                <div id="rules-empty-state" class="hidden p-12 text-center">
+                    <div class="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto mb-3">
+                        <i data-lucide="sliders-horizontal" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-sm font-semibold text-white">Правила не найдены</h3>
+                    <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">По заданным критериям поиска или фильтрации нет правил в цепочке.</p>
+                </div>
+            </div>
+
+            <!-- Catch-All Zone 3 Card -->
+            <div class="p-4 rounded-2xl bg-slate-900/40 border border-slate-800/60 flex items-center justify-between text-xs">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 rounded-xl bg-slate-800 text-slate-400">
+                        <i data-lucide="shield" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-slate-300 flex items-center space-x-1.5">
+                            <span>Зона 3: Default Catch-All (Политики профилей)</span>
+                            <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-800 text-slate-400">order_index: 999</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 mt-0.5">
+                            Если ни одно из правил выше не совпало, применяется стандартная изоляция LAN и фильтрация профиля устройства (Smart TV, Camera, IoT, Trusted).
+                        </p>
+                    </div>
+                </div>
+                <button onclick="switchTab('settings')" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs shrink-0 cursor-pointer">
+                    Настроить пресеты
+                </button>
             </div>
         </section>
 
@@ -2922,6 +3169,74 @@
                                 <i data-lucide="check" class="w-3.5 h-3.5"></i>
                                 <span>Сохранить подключение</span>
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- CARD: SNIFFER ENGINE & CPU PROFILE -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="border-b border-slate-800/60 pb-3">
+                            <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                <i data-lucide="cpu" class="w-5 h-5 text-indigo-400"></i>
+                                <span>Движок сетевого перехвата (Sniffer Engine & DPI)</span>
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Определяет режим сбора трафика, глубину инспекции пакетов и нагрузку на CPU роутера и хоста</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Option 1: Passive Conntrack -->
+                            <label class="p-4 rounded-xl border border-slate-800 bg-surface-950/60 hover:border-indigo-500/50 cursor-pointer transition flex flex-col justify-between space-y-3 relative group">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-center space-x-2.5">
+                                        <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                            <i data-lucide="zap" class="w-4 h-4"></i>
+                                        </div>
+                                        <div>
+                                            <div class="font-bold text-xs text-slate-200">Пассивный Conntrack (0% CPU)</div>
+                                            <div class="text-[10px] text-emerald-400 font-semibold">Рекомендуется по умолчанию</div>
+                                        </div>
+                                    </div>
+                                    <input type="radio" name="cfg-sniffer-mode" id="cfg-sniffer-passive" value="conntrack_passive" class="w-4 h-4 text-indigo-600 mt-1">
+                                </div>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    Служба считывает аппаратные NAT/Conntrack сессии через API роутера без загрузки процессора. Глубокий DPI-захват пакетов Scapy запускается только по запросу во время диагностических аудитов.
+                                </p>
+                                <div class="text-[10px] text-slate-500 flex items-center space-x-1">
+                                    <i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>
+                                    <span>Безопасно для постоянной работы 24/7</span>
+                                </div>
+                            </label>
+
+                            <!-- Option 2: Continuous Active Promiscuous -->
+                            <label class="p-4 rounded-xl border border-slate-800 bg-surface-950/60 hover:border-indigo-500/50 cursor-pointer transition flex flex-col justify-between space-y-3 relative group">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-center space-x-2.5">
+                                        <div class="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                            <i data-lucide="radio" class="w-4 h-4"></i>
+                                        </div>
+                                        <div>
+                                            <div class="font-bold text-xs text-slate-200">Непрерывный Promiscuous (DPI)</div>
+                                            <div class="text-[10px] text-amber-400 font-semibold">Повышенная нагрузка на CPU</div>
+                                        </div>
+                                    </div>
+                                    <input type="radio" name="cfg-sniffer-mode" id="cfg-sniffer-active" value="promiscuous_active" class="w-4 h-4 text-indigo-600 mt-1">
+                                </div>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    Служба непрерывно слушает L2-эфир сетевой карты (требует драйвер Npcap/libpcap). Захватывает broadcast/multicast и трафик хоста. Не заменяет аппаратное зеркалирование портов коммутатора роутера.
+                                </p>
+                                <div class="text-[10px] text-slate-500 flex items-center space-x-1">
+                                    <i data-lucide="alert-triangle" class="w-3 h-3 text-amber-400"></i>
+                                    <span>Рекомендуется для лабораторных тестов</span>
+                                </div>
+                            </label>
+                        </div>
+
+                        <!-- Technical Realism Disclosure Notice -->
+                        <div class="p-3 rounded-xl bg-surface-950 border border-slate-800/80 text-[11px] text-slate-400 space-y-1">
+                            <div class="font-semibold text-slate-300 flex items-center space-x-1.5">
+                                <i data-lucide="info" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>Технический реализм L2-коммутации:</span>
+                            </div>
+                            <p>В коммутаторе роутера (Bridge0) пакеты между двумя Ethernet-клиентами или клиентами одного Wi-Fi диапазона передаются на чипе свитча и не попадают на процессор или сетевой интерфейс KeenGuard. Для 100% перехвата межклиентского L2-трафика изолируйте устройства по разным сегментам или настройте SPAN/Port Mirroring.</p>
                         </div>
                     </div>
                 </div>
@@ -4211,6 +4526,13 @@
                         <div id="modal-mac-rotation-body" class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
                             <!-- Populated dynamically via app.js -->
                         </div>
+                        <div id="modal-mac-rotation-actions" class="hidden pt-1.5 border-t border-amber-800/30 flex items-center justify-between">
+                            <span class="text-[10px] text-amber-200/80">Синхронизация профиля и блокировок:</span>
+                            <button type="button" id="btn-sync-group-policy" onclick="applyGroupPolicy()" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[10px] font-medium transition flex items-center space-x-1 cursor-pointer">
+                                <i data-lucide="shield-check" class="w-3 h-3 text-amber-300"></i>
+                                <span>Применить политику ко всем адресам устройства</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -4259,6 +4581,15 @@
                                 <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">Bridge0</span>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Linked MACs WAN Toggle Sync Box -->
+                    <div id="modal-wan-linked-box" class="hidden p-2 rounded-xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
+                            <span class="text-[11px] text-indigo-200">Применить WAN-блокировку ко всем <b id="modal-wan-linked-count">2</b> связанным MAC телефона:</span>
+                        </div>
+                        <input type="checkbox" id="modal-wan-apply-to-linked" class="w-4 h-4 rounded text-indigo-600">
                     </div>
 
                     <!-- Auto-Quarantine Override -->
@@ -4565,6 +4896,51 @@
                     </button>
                 </div>
                 <button onclick="closeDeviceModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Physical LAN Isolation Wizard -->
+    <div id="isolation-wizard-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
+                        <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">Мастер физической изоляции (L2/L3)</h3>
+                        <p class="text-xs text-slate-400" id="iso-wizard-device-subtitle">Устройство в сети</p>
+                    </div>
+                </div>
+                <button onclick="closeIsolationWizardModal()" class="text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Engineering Context Notice -->
+            <div class="p-3.5 bg-surface-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
+                <div class="flex items-center space-x-2 text-amber-400 font-semibold">
+                    <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+                    <span>Почему нельзя изолировать кнопкой в один клик?</span>
+                </div>
+                <p class="text-[11px] text-slate-400 leading-relaxed">
+                    Внутри одного сегмента домашней сети (<code class="text-indigo-300">Bridge0</code> / 192.168.1.0/24) пакеты между устройствами передаются напрямую через чип свитча или по радиоканалу Wi-Fi в обход файрвола роутера. Чтобы изоляция стала 100% реальной, устройство нужно аппаратно отделить на роутере.
+                </p>
+            </div>
+
+            <!-- Steps Container -->
+            <div id="iso-wizard-steps-container" class="space-y-3">
+                <!-- Dynamically populated steps -->
+            </div>
+
+            <!-- Actions Footer -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+                <a href="http://192.168.1.1" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1.5">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    <span>Открыть панель Keenetic</span>
+                </a>
+                <button onclick="closeIsolationWizardModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition">Понятно</button>
             </div>
         </div>
     </div>
@@ -6347,6 +6723,437 @@
                     <span>Очистить все правила с роутера</span>
                 </button>
                 <button type="button" onclick="closeDnsActiveRulesModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sticky Floating Draft Bar for Rules Reordering -->
+    <div id="rules-draft-bar" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-surface-900/95 border border-indigo-500/50 shadow-2xl rounded-2xl px-6 py-3 flex items-center space-x-4 backdrop-blur-md hidden animate-in slide-in-from-bottom-5">
+        <div class="flex items-center space-x-2 text-xs text-amber-300 font-medium">
+            <i data-lucide="alert-circle" class="w-4 h-4 text-amber-400 animate-pulse"></i>
+            <span>Есть несохраненные изменения порядка правил</span>
+        </div>
+        <div class="h-4 w-px bg-slate-700"></div>
+        <div class="flex items-center space-x-2">
+            <button onclick="discardRuleChanges()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition cursor-pointer">Сбросить</button>
+            <button onclick="saveRuleOrder(false)" id="btn-save-rule-order" class="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 flex items-center space-x-1.5 transition cursor-pointer">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                <span>Сохранить изменения</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal: Rule Builder (ЕСЛИ -> ТО) -->
+    <div id="rule-modal" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
+                        <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="rule-modal-title" class="font-bold text-base text-white">Настройка правила безопасности</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Гибкий фильтр: условия сопоставления трафика и реакция системы</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRuleModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <form id="rule-builder-form" onsubmit="submitRuleForm(event)" class="space-y-4 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <input type="hidden" id="rule-form-id" value="">
+                <input type="hidden" id="rule-form-order" value="0">
+
+                <!-- Basic Rule Info -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-300">Название правила *</label>
+                        <input type="text" id="rule-form-name" required placeholder="Например: Разрешить Plex на Smart TV" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-300">Категория</label>
+                        <select id="rule-form-category" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                            <option value="custom">Пользовательское (Custom)</option>
+                            <option value="media">Медиа & Стриминг (Media)</option>
+                            <option value="perimeter">Периметр & Безопасность (Perimeter)</option>
+                            <option value="iot">Умный дом & IoT (IoT)</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2 space-y-1">
+                        <label class="text-xs font-medium text-slate-300">Описание / Примечания</label>
+                        <input type="text" id="rule-form-desc" placeholder="Краткое назначение правила и контекст" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <!-- SECTION 1: ЕСЛИ (УСЛОВИЯ СОПОСТАВЛЕНИЯ) -->
+                <div class="bg-slate-900/60 border border-indigo-500/20 rounded-2xl p-4 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div class="flex items-center space-x-2 text-xs font-bold text-indigo-400 uppercase tracking-wider">
+                            <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+                            <span>ЕСЛИ (Условия сопоставления трафика)</span>
+                        </div>
+                    </div>
+
+                    <!-- Source (Источник) -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-xs font-semibold text-slate-200">1. Источник (Устройства и Профили)</label>
+                            <label class="flex items-center space-x-2 text-xs text-amber-400 cursor-pointer">
+                                <input type="checkbox" id="rule-form-src-invert" class="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0">
+                                <span class="font-medium">Инвертировать: Все устройства КРОМЕ выбранных</span>
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="smart_tv" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Smart TV</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="camera" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Камеры</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="iot" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">IoT устройства</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="trusted" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Доверенные</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="unassigned" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Без профиля</span>
+                            </label>
+                        </div>
+                        <input type="text" id="rule-form-src-macs" placeholder="Конкретные MAC-адреса через запятую (опционально, e.g. AA:BB:CC:11:22:33)" class="w-full px-3 py-1.5 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+                    </div>
+
+                    <!-- Destination & Ports -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">2. Направление потока</label>
+                            <select id="rule-form-direction" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="any">Любое направление (Any)</option>
+                                <option value="lan_to_lan">Локальная сеть (LAN -> LAN)</option>
+                                <option value="lan_to_wan">Выход в Интернет (LAN -> WAN)</option>
+                                <option value="lan_to_router">Служебный к роутеру (LAN -> Router)</option>
+                            </select>
+                            <p class="text-[10px] text-slate-400 leading-tight">LAN ➔ LAN применяется к межсегментному трафику (L3) и сессиям аудита. Внутри одной подсети L2-пакеты коммутируются свитчем в обход шлюза.</p>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="flex items-center justify-between">
+                                <label class="text-xs font-semibold text-slate-200">3. Порты назначения</label>
+                                <label class="flex items-center space-x-1.5 text-xs text-amber-400 cursor-pointer">
+                                    <input type="checkbox" id="rule-form-dst-invert-ports" class="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0">
+                                    <span class="text-[11px] font-medium">КРОМЕ указанных</span>
+                                </label>
+                            </div>
+                            <input type="text" id="rule-form-ports" placeholder="Порты через запятую или диапазон (e.g. 8080, 8096, 50000-50005)" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Protocols & Targets -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Протоколы</label>
+                            <div class="flex items-center space-x-4 pt-1 text-xs">
+                                <label class="flex items-center space-x-1.5 cursor-pointer">
+                                    <input type="checkbox" name="rule-protocol" value="TCP" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0">
+                                    <span>TCP</span>
+                                </label>
+                                <label class="flex items-center space-x-1.5 cursor-pointer">
+                                    <input type="checkbox" name="rule-protocol" value="UDP" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0">
+                                    <span>UDP</span>
+                                </label>
+                                <label class="flex items-center space-x-1.5 cursor-pointer">
+                                    <input type="checkbox" name="rule-protocol" value="ICMP" class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0">
+                                    <span>ICMP</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Целевые IP / подсети (опционально)</label>
+                            <input type="text" id="rule-form-targets" placeholder="e.g. 192.168.1.100, 10.0.0.0/24" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Context & Volume -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-slate-800/60">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Оператор объема данных</label>
+                            <select id="rule-form-vol-op" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="">Без ограничения объема</option>
+                                <option value=">">Больше чем (&gt;)</option>
+                                <option value="<">Меньше чем (&lt;)</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Порог объема (КБ)</label>
+                            <input type="number" id="rule-form-vol-val" min="0" value="0" placeholder="0" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Временное окно</label>
+                            <select id="rule-form-time-window" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="always">Всегда (24/7)</option>
+                                <option value="night_only">Только ночью (00:00 - 07:00)</option>
+                                <option value="day_only">Только днем (07:00 - 00:00)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 2: ТО (РЕАКЦИЯ И ДЕЙСТВИЕ) -->
+                <div class="bg-slate-900/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div class="flex items-center space-x-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                            <span>ТО (Реакция системы при совпадении)</span>
+                        </div>
+                    </div>
+
+                    <!-- Action Mode & Severity -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label class="text-xs font-semibold text-slate-200">Действие правила *</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <label id="label-action-pass" class="flex items-center space-x-2 p-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 cursor-pointer font-medium text-xs">
+                                    <input type="radio" name="rule-action-mode" value="pass" checked onchange="onRuleActionModeChange()" class="text-emerald-500 focus:ring-0">
+                                    <span>Разрешить (Pass)</span>
+                                </label>
+                                <label id="label-action-alert" class="flex items-center space-x-2 p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 cursor-pointer font-medium text-xs hover:border-slate-600">
+                                    <input type="radio" name="rule-action-mode" value="alert" onchange="onRuleActionModeChange()" class="text-rose-500 focus:ring-0">
+                                    <span>Инцидент (Alert)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="rule-severity-container" class="space-y-1 opacity-50 pointer-events-none transition">
+                            <label class="text-xs font-semibold text-slate-200">Уровень опасности инцидента</label>
+                            <select id="rule-form-severity" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="INFO">Информационный (INFO)</option>
+                                <option value="WARNING" selected>Предупреждение (WARNING)</option>
+                                <option value="CRITICAL">Критический (CRITICAL)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Reactive Measures (for Alert mode) -->
+                    <div id="rule-reactive-measures" class="space-y-2.5 pt-2 border-t border-slate-800/60 opacity-50 pointer-events-none transition">
+                        <label class="text-xs font-semibold text-slate-200">Реактивные меры и автоматизация</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer">
+                                <div class="flex items-center space-x-2">
+                                    <input type="checkbox" id="rule-form-tg-notify" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                    <span>Уведомление в Telegram</span>
+                                </div>
+                                <select id="rule-form-tg-mode" class="px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-300">
+                                    <option value="digest">В дайджесте</option>
+                                    <option value="immediate">Срочно</option>
+                                </select>
+                            </label>
+
+                            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer">
+                                <div class="flex items-center space-x-2">
+                                    <i data-lucide="file-video" class="w-3.5 h-3.5 text-cyan-400"></i>
+                                    <span>Захват PCAP дампа</span>
+                                </div>
+                                <select id="rule-form-pcap-sec" class="px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-300">
+                                    <option value="0">Отключено</option>
+                                    <option value="15">15 секунд</option>
+                                    <option value="30">30 секунд</option>
+                                    <option value="60">60 секунд</option>
+                                </select>
+                            </label>
+
+                            <label class="flex items-center space-x-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" id="rule-form-wan-block" class="rounded bg-slate-700 border-slate-600 text-rose-500 focus:ring-0">
+                                <span class="text-rose-300 font-medium">Блокировать WAN на роутере</span>
+                            </label>
+
+                            <div class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
+                                <span class="text-slate-400 shrink-0">Пресет:</span>
+                                <select id="rule-form-apply-preset" class="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-300">
+                                    <option value="">Не менять пресет</option>
+                                    <option value="preset_camera">Камера (Изоляция)</option>
+                                    <option value="preset_iot">IoT (Строгий)</option>
+                                    <option value="preset_smart_tv">Smart TV</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Modal Footer -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <button type="button" onclick="closeRuleModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Отмена
+                </button>
+                <button type="button" onclick="document.getElementById('rule-builder-form').requestSubmit()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl font-medium shadow-lg shadow-indigo-600/30 transition flex items-center space-x-1.5 cursor-pointer">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>Сохранить правило</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Soft Validation Conflict Warning -->
+    <div id="rule-conflict-modal" class="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-amber-500/50 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center space-x-3 border-b border-slate-800 pb-3 shrink-0">
+                <div class="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-white">Обнаружен конфликт порядка правил</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Валидатор зафиксировал перекрытие (shadowing) или логический конфликт</p>
+                </div>
+            </div>
+
+            <div class="space-y-3 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <p class="text-xs text-slate-300">
+                    Принцип <strong class="text-white">First-Match Win</strong> означает, что верхнее правило сработает первым. Нижестоящее разрешающее правило может никогда не выполниться:
+                </p>
+                <div id="rule-conflict-issues-list" class="space-y-2">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <button type="button" onclick="closeRuleConflictModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Вернуться к редактированию
+                </button>
+                <button type="button" onclick="saveRuleOrder(true)" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-xl font-medium shadow-lg shadow-amber-600/30 transition flex items-center space-x-1.5 cursor-pointer">
+                    <i data-lucide="alert-octagon" class="w-4 h-4"></i>
+                    <span>Сохранить принудительно</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Hit Telemetry History Drawer -->
+    <div id="rule-hits-drawer" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
+                        <i data-lucide="activity" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="rule-hits-modal-name" class="font-bold text-base text-white">История срабатываний</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Всего: <span id="rule-hits-modal-total" class="font-semibold text-white">0</span> | За 24ч: <span id="rule-hits-modal-24h" class="font-semibold text-cyan-400">0</span>
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRuleHitsDrawer()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-[11px] font-semibold text-slate-400 uppercase">
+                            <th class="py-2 px-2">Время</th>
+                            <th class="py-2 px-2">Источник</th>
+                            <th class="py-2 px-2">Назначение</th>
+                            <th class="py-2 px-2">Порт / Протокол</th>
+                            <th class="py-2 px-2 text-right">Объем</th>
+                            <th class="py-2 px-2 text-center">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rule-hits-modal-body" class="divide-y divide-slate-800/60 text-slate-300">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+                <div id="rule-hits-modal-empty" class="hidden py-8 text-center text-xs text-slate-500">
+                    История срабатываний для этого правила пока пуста.
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex justify-end shrink-0">
+                <button type="button" onclick="closeRuleHitsDrawer()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Traffic Flow Simulator -->
+    <div id="rule-sim-modal" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
+                        <i data-lucide="flask-conical" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">Симулятор сетевого потока (Dry-Run)</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Тестирование прохождения пакета через цепочку правил без записи в БД</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRuleSimModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">IP источника *</label>
+                        <input type="text" id="sim-src-ip" value="192.168.1.150" placeholder="192.168.1.150" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">IP назначения *</label>
+                        <input type="text" id="sim-dst-ip" value="192.168.1.200" placeholder="192.168.1.200" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Порт назначения *</label>
+                        <input type="number" id="sim-port" value="8096" placeholder="8096" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Протокол</label>
+                        <select id="sim-proto" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                            <option value="TCP">TCP</option>
+                            <option value="UDP">UDP</option>
+                            <option value="ICMP">ICMP</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Объем данных (байт)</label>
+                        <input type="number" id="sim-bytes" value="50000" placeholder="50000" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Время суток</label>
+                        <select id="sim-time" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                            <option value="now">Текущее время</option>
+                            <option value="day">День (14:00)</option>
+                            <option value="night">Ночь (03:00)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button type="button" onclick="runRuleSimulation()" class="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-cyan-600/30 transition flex items-center justify-center space-x-1.5 cursor-pointer">
+                        <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                        <span>Проверить через цепочку правил</span>
+                    </button>
+                </div>
+
+                <!-- Result Box -->
+                <div id="sim-result-box" class="hidden p-4 rounded-xl border transition">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex justify-end shrink-0">
+                <button type="button" onclick="closeRuleSimModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
                     Закрыть
                 </button>
             </div>

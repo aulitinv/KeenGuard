@@ -11,6 +11,7 @@ from keenguard.web.routes.settings import router as settings_router
 from keenguard.web.routes.export import router as export_router
 from keenguard.web.routes.auth import router as auth_router
 from keenguard.web.routes.topology import router as topology_router
+from keenguard.web.routes.rules import router as rules_router
 
 all_routers: List[APIRouter] = [
     auth_router,
@@ -22,6 +23,7 @@ all_routers: List[APIRouter] = [
     settings_router,
     export_router,
     topology_router,
+    rules_router,
 ]
 
 __all__ = [
@@ -35,4 +37,5 @@ __all__ = [
     "settings_router",
     "export_router",
     "topology_router",
+    "rules_router",
 ]

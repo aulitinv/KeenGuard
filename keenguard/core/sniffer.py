@@ -553,7 +553,7 @@ class NetworkSniffer:
                     "filter": bpf,
                     "prn": self._process_packet,
                     "store": 0,
-                    "stop_filter": lambda _: not self.running
+                    "stop_filter": lambda _: (not self.running) or (getattr(settings, "sniffer_mode", "") != "promiscuous_active")
                 }
                 if interface:
                     sniff_kwargs["iface"] = interface
@@ -563,6 +563,46 @@ class NetworkSniffer:
 
         self._thread = threading.Thread(target=_sniff_worker, daemon=True)
         self._thread.start()
+
+    def set_mode(self, mode: str, interface: Optional[str] = None):
+        """Switches runtime sniffer mode between 'conntrack_passive' and 'promiscuous_active'."""
+        if mode not in ("conntrack_passive", "promiscuous_active"):
+            raise ValueError(f"Invalid sniffer mode: {mode}")
+        old_mode = getattr(settings, "sniffer_mode", "conntrack_passive")
+        settings.sniffer_mode = mode
+        logger.info("Sniffer mode changed from '%s' to '%s'", old_mode, mode)
+
+        if mode == "promiscuous_active":
+            if self.running and (not self._thread or not self._thread.is_alive()):
+                def _sniff_worker():
+                    from scapy.all import sniff
+                    logger.info("Starting network sniffer thread (promiscuous_active, interface=%s)...", interface or "default")
+                    try:
+                        bpf = (
+                            "icmp or arp or "
+                            "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683 or "
+                            "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
+                            "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or "
+                            "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
+                            "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
+                            "port 6667 or port 6668 or port 8443 or port 9999))"
+                        )
+                        sniff_kwargs = {
+                            "filter": bpf,
+                            "prn": self._process_packet,
+                            "store": 0,
+                            "stop_filter": lambda _: (not self.running) or (getattr(settings, "sniffer_mode", "") != "promiscuous_active")
+                        }
+                        if interface:
+                            sniff_kwargs["iface"] = interface
+                        sniff(**sniff_kwargs)
+                    except Exception as e:
+                        logger.warning("Scapy live sniffing encountered an issue: %s. Passive fallback active.", e)
+
+                self._thread = threading.Thread(target=_sniff_worker, daemon=True)
+                self._thread.start()
+        elif mode == "conntrack_passive":
+            logger.info("Passive conntrack mode active; continuous promiscuous sniffing thread will terminate if active.")
 
     def start_on_demand_capture(self, interface: Optional[str] = None, duration_seconds: int = 60) -> threading.Thread:
         """Launches a transient, time-limited raw packet capture for audit or forensics sessions.
@@ -639,3 +679,8 @@ class NetworkSniffer:
         }
 
 sniffer = NetworkSniffer()
+
+
+def get_sniffer() -> NetworkSniffer:
+    """Returns the singleton NetworkSniffer instance."""
+    return sniffer

@@ -21,6 +21,8 @@ from keenguard.db.repositories import (
     LanRepository,
     BlackholeRepository,
     StatsRepository,
+    RulesRepository,
+    BUILTIN_SECURITY_RULES,
 )
 
 logger = logging.getLogger("keenguard.db")
@@ -37,6 +39,7 @@ class Database(
     LanRepository,
     BlackholeRepository,
     StatsRepository,
+    RulesRepository,
     BaseRepository,
 ):
     """Composite asynchronous SQLite database for KeenGuard."""
@@ -161,9 +164,91 @@ class Database(
                     source_name TEXT,
                     description TEXT,
                     details_json TEXT,
-                    pcap_file TEXT
+                    pcap_file TEXT,
+                    matched_rule_id TEXT,
+                    matched_rule_name TEXT
                 )
             """)
+
+            for col_def in [
+                "matched_rule_id TEXT",
+                "matched_rule_name TEXT",
+            ]:
+                try:
+                    await conn.execute(f"ALTER TABLE events ADD COLUMN {col_def}")
+                except aiosqlite.OperationalError:
+                    pass
+                except Exception as e:
+                    logger.debug("Events column migration note: %s", e)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS security_rules (
+                    id TEXT PRIMARY KEY,
+                    order_index INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    enabled INTEGER DEFAULT 1,
+                    is_builtin INTEGER DEFAULT 0,
+                    category TEXT DEFAULT 'general',
+                    temporary_until TEXT,
+                    source_json TEXT NOT NULL,
+                    destination_json TEXT NOT NULL,
+                    context_json TEXT NOT NULL,
+                    reaction_json TEXT NOT NULL,
+                    hits_total INTEGER DEFAULT 0,
+                    hits_24h INTEGER DEFAULT 0,
+                    last_hit_at TEXT,
+                    last_hit_summary TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_security_rules_order ON security_rules(order_index);")
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS security_rule_hits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    rule_id TEXT REFERENCES security_rules(id) ON DELETE CASCADE,
+                    timestamp TEXT NOT NULL,
+                    src_ip TEXT,
+                    src_mac TEXT,
+                    dst_ip TEXT,
+                    port INTEGER,
+                    protocol TEXT,
+                    bytes_count INTEGER DEFAULT 0,
+                    action_taken TEXT,
+                    summary TEXT
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_rule_hits_rule_time ON security_rule_hits(rule_id, timestamp DESC);")
+
+            # Seed default security rules if table is empty
+            cursor = await conn.execute("SELECT COUNT(*) FROM security_rules")
+            cnt_rules = await cursor.fetchone()
+            if not cnt_rules or cnt_rules[0] == 0:
+                for r in BUILTIN_SECURITY_RULES:
+                    await conn.execute("""
+                        INSERT OR IGNORE INTO security_rules (
+                            id, order_index, name, description, enabled, is_builtin, category,
+                            temporary_until, source_json, destination_json, context_json,
+                            reaction_json, hits_total, hits_24h, last_hit_at, last_hit_summary,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                    """, (
+                        r["id"],
+                        r["order_index"],
+                        r["name"],
+                        r.get("description", ""),
+                        1 if r.get("enabled", True) else 0,
+                        1 if r.get("is_builtin", False) else 0,
+                        r.get("category", "general"),
+                        r.get("temporary_until"),
+                        json.dumps(r.get("source", {}), ensure_ascii=False),
+                        json.dumps(r.get("destination", {}), ensure_ascii=False),
+                        json.dumps(r.get("context", {}), ensure_ascii=False),
+                        json.dumps(r.get("reaction", {}), ensure_ascii=False),
+                        0, 0, None, None
+                    ))
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (

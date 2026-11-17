@@ -28,7 +28,7 @@ from keenguard.core.lan_tracker import lan_tracker
 from keenguard.core.notifier import notifier
 from keenguard.core.profiles import profile_manager
 from keenguard.core.scheduler import scheduler
-from keenguard.db.models import DeviceRecord, SecurityEvent
+from keenguard.db.models import DeviceRecord, SecurityEvent, RuleHitRecord
 from keenguard.web.state import (
     get_db,
     get_keenetic_client,
@@ -584,6 +584,42 @@ async def _process_lan_violation(violation_dict: Dict[str, Any]):
     db = get_db()
     ev = SecurityEvent(**violation_dict)
     await db.record_event(ev)
+
+    matched_rule_id = violation_dict.get("matched_rule_id")
+    if matched_rule_id:
+        hit = RuleHitRecord(
+            rule_id=matched_rule_id,
+            src_ip=violation_dict.get("source_ip"),
+            src_mac=violation_dict.get("source_mac"),
+            dst_ip=violation_dict.get("target_ip"),
+            port=violation_dict.get("port"),
+            protocol=violation_dict.get("protocol") or "TCP",
+            bytes_count=violation_dict.get("bytes_count", 0),
+            action_taken="alert",
+            summary=violation_dict.get("description", "")
+        )
+        create_tracked_task(db.record_rule_hit(matched_rule_id, hit))
+
+        # Automated Hardware WAN block reaction
+        if violation_dict.get("hardware_wan_block") and violation_dict.get("source_mac"):
+            src_m = violation_dict["source_mac"]
+            logger.warning("Automated rule reaction: blocking WAN access for %s", src_m)
+            create_tracked_task(profile_manager.toggle_wan(src_m, block=True))
+
+        # Automated policy preset update reaction
+        apply_preset = violation_dict.get("apply_preset_id")
+        if apply_preset and violation_dict.get("source_mac"):
+            src_m = violation_dict["source_mac"]
+            logger.info("Automated rule reaction: setting preset %s for %s", apply_preset, src_m)
+            create_tracked_task(db.update_device_policy(src_m, preset_id=apply_preset))
+
+        # Forensic PCAP capture reaction
+        pcap_secs = violation_dict.get("record_pcap_seconds", 0)
+        if pcap_secs > 0:
+            sniffer = get_sniffer()
+            if sniffer:
+                create_tracked_task(asyncio.to_thread(sniffer.start_on_demand_capture, duration_seconds=pcap_secs))
+
     if ev.severity in ("critical", "warning"):
         create_tracked_task(notifier.send_alert(ev))
     await ws_manager.broadcast({"type": "sniffer_event", "event": violation_dict})
@@ -597,16 +633,24 @@ lan_tracker.register_violation_callback(_handle_lan_violation)
 
 
 def _backup_production_database():
-    """Creates a safety snapshot of the SQLite database on startup for instant recovery."""
+    """Creates an atomic online safety snapshot of the SQLite database on startup for instant recovery."""
+    import sqlite3
     try:
         prod_db = Path(settings.db_path)
         if prod_db.exists() and prod_db.stat().st_size > 0:
             bak_path = prod_db.with_suffix(".db.bak")
             if bak_path.exists():
                 bak1_path = prod_db.with_suffix(".db.bak1")
-                shutil.copy2(bak_path, bak1_path)
-            shutil.copy2(prod_db, bak_path)
+                try:
+                    shutil.copy2(bak_path, bak1_path)
+                except Exception:
+                    pass
+            with sqlite3.connect(str(prod_db), timeout=10.0) as src_conn:
+                with sqlite3.connect(str(bak_path)) as dst_conn:
+                    src_conn.backup(dst_conn)
             logger.info("Automatic startup database snapshot created: %s", bak_path)
+    except Exception as e:
+        logger.warning("Could not create startup DB snapshot: %s", e)
     except Exception as e:
         logger.warning("Could not create startup DB snapshot: %s", e)
 
@@ -624,6 +668,11 @@ async def lifespan(app: FastAPI):
 
     await db.init_db()
     await domain_analyzer.load_custom_rules_and_signatures()
+
+    # Load active security rules into memory matcher
+    from keenguard.core.rules.matcher import rule_matcher
+    active_rules = await db.get_rules()
+    rule_matcher.load_rules(active_rules)
 
     # 1. Synchronize all settings via reactive ConfigService (SQLite > .env > Pydantic defaults)
     from keenguard.core.config_service import config_service

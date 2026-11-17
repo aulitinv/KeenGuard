@@ -207,5 +207,15 @@ def is_streaming_service(dport: int, proto: str = "TCP") -> tuple[bool, Optional
             return True, "MiniDLNA / Keenetic Media Server"
         return True, "SSDP Event Notification / DLNA"
 
+    # Jellyfin & Emby Media Server
+    if dport_num in (8096, 8920):
+        if dport_num == 8096:
+            return True, "Jellyfin/Emby Media Server (HTTP)"
+        return True, "Jellyfin/Emby Media Server (HTTPS)"
+
+    # Plex Media Server
+    if dport_num == 32400:
+        return True, "Plex Media Server"
+
     return False, None
 

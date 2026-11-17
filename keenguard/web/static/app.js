@@ -530,7 +530,12 @@ function initModalDismissHandlers() {
         'device-setup-wizard-modal',
         'custom-preset-modal',
         'dns-preset-modal',
-        'dns-active-rules-modal'
+        'dns-active-rules-modal',
+        'isolation-wizard-modal',
+        'rule-modal',
+        'rule-conflict-modal',
+        'rule-hits-drawer',
+        'rule-sim-modal'
     ];
 
     modalIds.forEach(id => {
@@ -576,6 +581,11 @@ function closeAnyModal(id) {
     else if (id === 'custom-preset-modal') closeCustomPresetModal();
     else if (id === 'dns-preset-modal') closeDnsPresetModal();
     else if (id === 'dns-active-rules-modal') closeDnsActiveRulesModal();
+    else if (id === 'isolation-wizard-modal') closeIsolationWizardModal();
+    else if (id === 'rule-modal') closeRuleModal();
+    else if (id === 'rule-conflict-modal') closeRuleConflictModal();
+    else if (id === 'rule-hits-drawer') closeRuleHitsModal();
+    else if (id === 'rule-sim-modal') closeRuleSimModal();
 }
 
 // WebSocket Connection
@@ -613,7 +623,12 @@ function connectWebSocket() {
             } else if (data.type === 'dns_sinkhole_updated' || data.type === 'dns_preset_applied' || data.type === 'dns_all_unblocked' || data.type === 'dns_provider_synced' || data.type === 'dns_provider_config_saved' || data.type === 'dns_query_deleted' || data.type === 'dns_queries_cleared') {
                 if (activeTab === 'tv_forensics') loadTvBrandPresets();
                 if (activeTab === 'dns' && typeof loadDnsQueries === 'function') loadDnsQueries();
-                if (typeof loadDnsProviderStatus === 'function') loadDnsProviderStatus();
+            } else if (data.type === 'rules_updated') {
+                if (typeof loadRules === 'function' && activeTab === 'rules' && !hasUnsavedRuleChanges) {
+                    loadRules();
+                } else if (typeof updateRulesBadgeOnly === 'function') {
+                    updateRulesBadgeOnly();
+                }
             } else if (data.type === 'error' && data.auth_required) {
                 showLoginModal();
                 return;
@@ -1319,6 +1334,15 @@ function initSidebarState() {
 
 // Navigation
 async function switchTab(tabId) {
+    if (activeTab === 'rules' && tabId !== 'rules' && typeof hasUnsavedRuleChanges !== 'undefined' && hasUnsavedRuleChanges) {
+        if (!confirm('У вас есть несохраненные изменения порядка правил. Покинуть вкладку без сохранения?')) {
+            return;
+        }
+        if (typeof discardRuleChanges === 'function') {
+            discardRuleChanges();
+        }
+    }
+
     activeTab = tabId;
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`tab-${tabId}`).classList.add('active');
@@ -1337,6 +1361,7 @@ async function switchTab(tabId) {
     }
 
     if (tabId === 'devices') loadDevices();
+    else if (tabId === 'rules') loadRules();
     else if (tabId === 'security') loadSecurity();
     else if (tabId === 'smarthome') loadSmartHome();
     else if (tabId === 'lan') {
@@ -1413,6 +1438,12 @@ async function refreshAllData() {
         loadPacketInspectorLive();
     } else if (activeTab === 'security') {
         loadSecurity();
+    } else if (activeTab === 'rules') {
+        if (typeof loadRules === 'function' && !hasUnsavedRuleChanges) loadRules();
+    }
+
+    if (typeof updateRulesBadgeOnly === 'function') {
+        updateRulesBadgeOnly();
     }
 }
 
@@ -2054,6 +2085,7 @@ function switchDeviceModalTab(tab) {
     if (window.lucide) lucide.createIcons();
 }
 window.switchDeviceModalTab = switchDeviceModalTab;
+window.openDeviceModal = openDeviceModal;
 
 // Device Detail Modal
 async function openDeviceModal(mac) {
@@ -2202,6 +2234,24 @@ async function openDeviceModal(mac) {
             }
         }
 
+        // MAC Group actions & Linked WAN toggle box
+        const rotActions = document.getElementById('modal-mac-rotation-actions');
+        const wanLinkedBox = document.getElementById('modal-wan-linked-box');
+        const wanLinkedCount = document.getElementById('modal-wan-linked-count');
+        const wanApplyLinked = document.getElementById('modal-wan-apply-to-linked');
+
+        if (d.rotation_group && d.rotation_group.alias_count > 1) {
+            if (rotActions) rotActions.classList.remove('hidden');
+            if (wanLinkedBox) {
+                wanLinkedBox.classList.remove('hidden');
+                if (wanLinkedCount) wanLinkedCount.textContent = String(d.rotation_group.alias_count);
+                if (wanApplyLinked) wanApplyLinked.checked = false;
+            }
+        } else {
+            if (rotActions) rotActions.classList.add('hidden');
+            if (wanLinkedBox) wanLinkedBox.classList.add('hidden');
+        }
+
         // 3. Tab 2: Security & Policies
         const profSelect = document.getElementById('modal-profile-select');
         if (profSelect) profSelect.value = d.profile || 'unassigned';
@@ -2239,14 +2289,19 @@ async function openDeviceModal(mac) {
 
         if (lanBadge) {
             if (isGuest) {
-                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">🔒 Изолирован (Гостевая сеть)</span>';
+                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">🔒 Изолирован (Гостевая сеть / VLAN)</span>';
                 if (lanSub) lanSub.textContent = "Аппаратная изоляция: L2-доступ к другим клиентам заблокирован роутером.";
-            } else if (risk.risk_level === 'high') {
-                lanBadge.innerHTML = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30" title="L2-трафик идет в обход файрвола">⚠️ В Bridge0 (L2 риск)</span>';
-                if (lanSub) lanSub.textContent = risk.recommendation || "L2-трафик между клиентами идет в обход файрвола роутера. Перенесите в Гостевую сеть Keenetic.";
             } else {
-                lanBadge.innerHTML = `<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">🔓 Сегмент: ${escapeHtml(seg)}</span>`;
-                if (lanSub) lanSub.textContent = risk.recommendation || "В основном мосте Home (Bridge0).";
+                lanBadge.innerHTML = `
+                    <div class="flex flex-col items-end gap-1">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30 whitespace-nowrap">⚠️ В Bridge0 (L2 доступ)</span>
+                        <button type="button" onclick="openIsolationWizard('${d.mac}')" class="px-2 py-0.5 rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-[10px] font-medium border border-indigo-500/30 transition flex items-center space-x-1 whitespace-nowrap cursor-pointer">
+                            <i data-lucide="help-circle" class="w-3 h-3"></i>
+                            <span>Как изолировать?</span>
+                        </button>
+                    </div>
+                `;
+                if (lanSub) lanSub.textContent = "L2-трафик идет в обход файрвола роутера. Для реальной изоляции требуется перенос в Гостевую сеть или отдельный сегмент.";
             }
         }
 
@@ -2455,12 +2510,31 @@ async function applyModalProfile() {
 
 async function toggleModalWan(val) {
     if (!currentDeviceMac) return;
+    const applyLinked = Boolean(document.getElementById('modal-wan-apply-to-linked')?.checked);
     await fetch(`/api/devices/${currentDeviceMac}/toggle_wan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: val })
+        body: JSON.stringify({ enabled: val, apply_to_linked: applyLinked })
     });
     loadDevices();
+}
+
+async function applyGroupPolicy() {
+    if (!currentDeviceMac) return;
+    try {
+        const res = await fetch(`/api/devices/${currentDeviceMac}/apply_policy_to_group`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+            showToast(`Политика безопасности применена ко всем адресам устройства (${data.count} обновлено)`);
+            await loadDevices();
+        } else {
+            showToast(data.message || 'Ошибка применения политики', true);
+        }
+    } catch (e) {
+        showToast(`Ошибка синхронизации группы: ${e.message}`, true);
+    }
 }
 
 
@@ -2476,22 +2550,30 @@ async function toggleModalAirplay(val) {
 
 async function toggleModalDlna(val) {
     if (!currentDeviceMac) return;
-    await fetch(`/api/devices/${currentDeviceMac}/toggle_dlna`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: val })
-    });
-    loadDevices();
+    try {
+        await fetch(`/api/devices/${currentDeviceMac}/toggle_dlna`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: val })
+        });
+        loadDevices();
+    } catch (e) {
+        console.error('Failed to toggle DLNA:', e);
+    }
 }
 
 async function toggleModalNight(val) {
     if (!currentDeviceMac) return;
-    await fetch(`/api/devices/${currentDeviceMac}/toggle_night`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: val })
-    });
-    loadDevices();
+    try {
+        await fetch(`/api/devices/${currentDeviceMac}/toggle_night`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: val })
+        });
+        loadDevices();
+    } catch (e) {
+        console.error('Failed to toggle Night Mode:', e);
+    }
 }
 
 // Smart TV Forensics
@@ -2901,21 +2983,29 @@ async function toggleTvAirplay(mac, val) {
 }
 
 async function toggleTvDlna(mac, val) {
-    await fetch(`/api/devices/${mac}/toggle_dlna`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: val })
-    });
-    loadDevices();
+    try {
+        await fetch(`/api/devices/${mac}/toggle_dlna`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: val })
+        });
+        loadDevices();
+    } catch (e) {
+        console.error('Failed to toggle TV DLNA:', e);
+    }
 }
 
 async function toggleTvNight(mac, val) {
-    await fetch(`/api/devices/${mac}/toggle_night`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: val })
-    });
-    loadDevices();
+    try {
+        await fetch(`/api/devices/${mac}/toggle_night`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: val })
+        });
+        loadDevices();
+    } catch (e) {
+        console.error('Failed to toggle TV Night Mode:', e);
+    }
 }
 
 // UPnP and Alerts
@@ -3391,6 +3481,10 @@ async function checkDeviceAuditState(mac) {
             document.getElementById('modal-audit-result').classList.add('hidden');
             updateAuditProgressUI(status);
 
+            if (auditTimerInterval) {
+                clearInterval(auditTimerInterval);
+                auditTimerInterval = null;
+            }
             auditTimerInterval = setInterval(async () => {
                 if (!currentDeviceMac) {
                     clearInterval(auditTimerInterval);
@@ -3771,6 +3865,16 @@ async function loadSettings() {
         if (nightStartEl && s.night_mode_start_hour !== undefined) nightStartEl.value = s.night_mode_start_hour;
         const nightEndEl = document.getElementById('cfg-night-end');
         if (nightEndEl && s.night_mode_end_hour !== undefined) nightEndEl.value = s.night_mode_end_hour;
+
+        // Sniffer Engine Mode
+        const snifferMode = s.sniffer_mode || 'conntrack_passive';
+        const passRadio = document.getElementById('cfg-sniffer-passive');
+        const actRadio = document.getElementById('cfg-sniffer-active');
+        if (snifferMode === 'promiscuous_active') {
+            if (actRadio) actRadio.checked = true;
+        } else {
+            if (passRadio) passRadio.checked = true;
+        }
 
         const autoBlockWanEl = document.getElementById('cfg-night-auto-block-wan');
         if (autoBlockWanEl) autoBlockWanEl.checked = Boolean(s.night_mode_auto_block_wan);
@@ -4153,7 +4257,8 @@ async function saveSettings(e) {
         iot_payload_max_storage_gb: document.getElementById('cfg-iot-storage-max-gb') ? parseFloat(document.getElementById('cfg-iot-storage-max-gb').value || '1.0') : undefined,
         iot_payload_retention_days: document.getElementById('cfg-iot-retention-days') ? parseInt(document.getElementById('cfg-iot-retention-days').value || '7', 10) : undefined,
         web_host: document.getElementById('cfg-web-host-any')?.checked ? '0.0.0.0' : '127.0.0.1',
-        web_auth_exempt_localhost: document.getElementById('cfg-web-auth-exempt-localhost') ? Boolean(document.getElementById('cfg-web-auth-exempt-localhost').checked) : true
+        web_auth_exempt_localhost: document.getElementById('cfg-web-auth-exempt-localhost') ? Boolean(document.getElementById('cfg-web-auth-exempt-localhost').checked) : true,
+        sniffer_mode: document.querySelector('input[name="cfg-sniffer-mode"]:checked')?.value || 'conntrack_passive'
     };
 
     const res = await fetch('/api/settings', {
@@ -4179,7 +4284,8 @@ async function saveSettings(e) {
 // Granular Settings Handlers
 async function saveRouterSettings() {
     const payload = {
-        router_type: currentRouterPlatform
+        router_type: currentRouterPlatform,
+        sniffer_mode: document.querySelector('input[name="cfg-sniffer-mode"]:checked')?.value || 'conntrack_passive'
     };
 
     if (currentRouterPlatform === 'openwrt') {
@@ -7097,7 +7203,15 @@ async function executeClearDns() {
 
 // Data Export
 function exportData(type, format) {
-    window.location.href = `/api/export/${type}?format=${format}`;
+    const link = document.createElement('a');
+    link.href = `/api/export/${type}?format=${format}`;
+    link.download = `${type}_export.${format}`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+        if (link && link.parentNode) link.parentNode.removeChild(link);
+    }, 150);
 }
 
 // Security Digest Modal
@@ -7437,12 +7551,81 @@ async function toggleSmartHomeLan(mac, isolate) {
             body: JSON.stringify({ enabled: isolate })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.needs_physical_segmentation) {
+            showToast(data.message, 'warning');
+            openIsolationWizard(mac);
+        } else if (data.message) {
+            showToast(data.message, 'info');
+        }
         await loadSmartHome();
     } catch (e) {
         console.error('Error toggling LAN for smart home device', e);
-        alert(`Ошибка переключения LAN: ${e.message}`);
+        showToast(`Ошибка переключения LAN: ${e.message}`, 'error');
     }
 }
+
+async function openIsolationWizard(mac) {
+    if (!mac) return;
+    const modal = document.getElementById('isolation-wizard-modal');
+    const container = document.getElementById('iso-wizard-steps-container');
+    const subtitle = document.getElementById('iso-wizard-device-subtitle');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+    if (container) {
+        container.innerHTML = '<div class="py-6 text-center text-slate-500 italic text-xs">Загрузка информации об устройстве и топологии...</div>';
+    }
+
+    try {
+        const res = await fetch(`/api/devices/${encodeURIComponent(mac)}/isolation_guide`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (subtitle) {
+            subtitle.textContent = `${data.name || data.mac} (${data.ip || 'Без IP'}) — ${data.is_wifi ? 'Wi-Fi узел' : 'Кабельный узел'}`;
+        }
+
+        if (container) {
+            if (data.is_physically_isolated) {
+                container.innerHTML = `
+                    <div class="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-200 space-y-2">
+                        <div class="flex items-center space-x-2 font-bold text-emerald-400">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i>
+                            <span>Устройство уже аппаратно изолировано!</span>
+                        </div>
+                        <p class="text-slate-300 text-[11px]">
+                            Устройство находится в изолированном сегменте <b>${escapeHtml(data.current_segment)}</b>. Прямой L2-доступ к основной домашней сети заблокирован роутером.
+                        </p>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = (data.steps || []).map((step, idx) => `
+                    <div class="p-3.5 rounded-xl bg-surface-950 border border-slate-800 space-y-1.5">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-xs font-bold font-mono">${idx + 1}</span>
+                            <span class="text-xs font-semibold text-white">${escapeHtml(step.title)}</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 pl-7 leading-relaxed">${escapeHtml(step.desc)}</p>
+                    </div>
+                `).join('');
+            }
+            if (window.lucide) lucide.createIcons();
+        }
+    } catch (e) {
+        console.error('Error loading isolation guide:', e);
+        if (container) {
+            container.innerHTML = `<div class="p-4 text-center text-rose-400 text-xs">Не удалось загрузить рекомендации: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+}
+
+function closeIsolationWizardModal() {
+    const modal = document.getElementById('isolation-wizard-modal');
+    if (modal) modal.classList.add('hidden');
+}
+window.openIsolationWizard = openIsolationWizard;
+window.closeIsolationWizardModal = closeIsolationWizardModal;
 
 function openSmartHomeHubModal() {
     if (window.currentSmarthomeHubMac) {
@@ -8328,6 +8511,34 @@ async function loadActiveAudits() {
                 navBadge.classList.remove('hidden');
             } else {
                 navBadge.classList.add('hidden');
+            }
+        }
+
+        // Global Active DPI Capture Banner
+        const dpiBanner = document.getElementById('global-active-dpi-banner');
+        const dpiTarget = document.getElementById('global-dpi-target-text');
+        const dpiTimer = document.getElementById('global-dpi-timer-text');
+        if (dpiBanner) {
+            if (activeList.length > 0) {
+                const s = activeList[0];
+                dpiBanner.classList.remove('hidden');
+                if (dpiTarget) {
+                    const targetName = (s.is_network || s.mac === 'NETWORK') ? 'Вся сеть (Все устройства)' : (s.hostname ? `${s.hostname} (${s.mac})` : (s.mac || 'Устройство'));
+                    dpiTarget.textContent = targetName;
+                }
+                if (dpiTimer) {
+                    if (s.duration_seconds > 0) {
+                        const remaining = Math.max(0, s.duration_seconds - (s.elapsed_seconds || 0));
+                        const m = Math.floor(remaining / 60);
+                        const sec = String(remaining % 60).padStart(2, '0');
+                        dpiTimer.innerHTML = `<i data-lucide="timer" class="w-3.5 h-3.5 text-rose-400"></i><span>Осталось: <b class="font-mono text-white text-sm">${m}:${sec}</b></span>`;
+                    } else {
+                        dpiTimer.innerHTML = `<i data-lucide="timer" class="w-3.5 h-3.5 text-amber-400"></i><span class="text-amber-300 font-medium">Бессрочный (ручной)</span>`;
+                    }
+                    if (window.lucide) lucide.createIcons();
+                }
+            } else {
+                dpiBanner.classList.add('hidden');
             }
         }
 
@@ -9958,13 +10169,16 @@ async function loadLanTopology() {
             const srcLabel = formatDeviceIdentifier(srcIp, srcMac, mode, srcName);
             const dstLabel = formatDeviceIdentifier(dstIp, dstMac, mode, dstName);
 
+            const srcClickable = srcMac ? `<button onclick="openDeviceModal('${escapeHtml(srcMac)}')" class="text-cyan-400 hover:text-cyan-300 hover:underline truncate max-w-[130px] text-left transition font-semibold" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</button>` : `<span class="text-cyan-400 truncate max-w-[130px]" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</span>`;
+            const dstClickable = dstMac ? `<button onclick="openDeviceModal('${escapeHtml(dstMac)}')" class="text-indigo-400 hover:text-indigo-300 hover:underline truncate max-w-[130px] text-left transition font-semibold" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</button>` : `<span class="text-indigo-400 truncate max-w-[130px]" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</span>`;
+
             return `
                 <div class="bg-surface-950 border border-slate-800 rounded-xl p-3.5 space-y-2 hover:border-cyan-500/40 transition shadow-sm">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-1.5 font-mono text-xs font-semibold text-slate-200">
-                            <span class="text-cyan-400 truncate max-w-[130px]" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</span>
+                            ${srcClickable}
                             <span class="text-slate-500">⇄</span>
-                            <span class="text-indigo-400 truncate max-w-[130px]" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</span>
+                            ${dstClickable}
                         </div>
                         <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 font-semibold">${packets} пак.</span>
                     </div>
@@ -12728,6 +12942,7 @@ function applyTopologyFilterAndRender(preservePositions = true) {
         }
     });
 
+    buildTopologyDomElements();
     runTopologySimulation();
 }
 
@@ -12777,7 +12992,7 @@ function runTopologySimulation() {
 
     function step() {
         if (iterations <= 0 && !draggedNode) {
-            renderTopologyElements();
+            updateTopologyPositions();
             return;
         }
 
@@ -12843,7 +13058,8 @@ function runTopologySimulation() {
             }
         });
 
-        renderTopologyElements();
+        // Fast attribute mutation - ZERO DOM recreation or innerHTML destruction!
+        updateTopologyPositions();
         iterations--;
 
         if (iterations > 0 || draggedNode) {
@@ -12855,72 +13071,32 @@ function runTopologySimulation() {
     topologyAnimFrame = requestAnimationFrame(step);
 }
 
-function renderTopologyElements() {
+function buildTopologyDomElements() {
     const boundariesGroup = document.getElementById('topology-boundaries');
     const linksGroup = document.getElementById('topology-links');
     const nodesGroup = document.getElementById('topology-nodes');
     if (!linksGroup || !nodesGroup) return;
 
     if (boundariesGroup) {
-        let b0Svg = '';
-        const b0Nodes = topologyNodes.filter(n => n.id === 'segment_Bridge0' || n.segment_id === 'segment_Bridge0' || ['ap_wifi_24', 'ap_wifi_5', 'ap_lan'].includes(n.id));
-        if (b0Nodes.length > 0) {
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-            b0Nodes.forEach(n => {
-                if (n.x < minX) minX = n.x;
-                if (n.x > maxX) maxX = n.x;
-                if (n.y < minY) minY = n.y;
-                if (n.y > maxY) maxY = n.y;
-            });
-            const pad = 36;
-            const w = Math.max((maxX - minX) + pad * 2, 280);
-            const h = (maxY - minY) + pad * 2;
-            const x = minX - pad;
-            const y = minY - pad;
-            b0Svg = `
-                <g class="topology-boundary-group" pointer-events="none">
-                    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="20" ry="20" fill="rgba(16, 185, 129, 0.03)" stroke="rgba(16, 185, 129, 0.3)" stroke-dasharray="6,4" stroke-width="1.5" />
-                    <rect x="${x}" y="${y}" width="265" height="22" rx="6" ry="6" fill="#064e3b" opacity="0.9" stroke="rgba(16, 185, 129, 0.5)" stroke-width="1" />
-                    <text x="${x + 10}" y="${y + 15}" fill="#34d399" font-size="10" font-weight="700" font-family="system-ui, sans-serif">
-                        Bridge0: Домашний сегмент (L2 общий домен)
-                    </text>
-                </g>
-            `;
-        }
-
-        let b1Svg = '';
-        const b1Nodes = topologyNodes.filter(n => n.id === 'segment_Bridge1' || n.segment_id === 'segment_Bridge1' || n.id === 'ap_guest');
-        if (b1Nodes.length > 0) {
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-            b1Nodes.forEach(n => {
-                if (n.x < minX) minX = n.x;
-                if (n.x > maxX) maxX = n.x;
-                if (n.y < minY) minY = n.y;
-                if (n.y > maxY) maxY = n.y;
-            });
-            const pad = 36;
-            const w = Math.max((maxX - minX) + pad * 2, 280);
-            const h = (maxY - minY) + pad * 2;
-            const x = minX - pad;
-            const y = minY - pad;
-            b1Svg = `
-                <g class="topology-boundary-group" pointer-events="none">
-                    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="20" ry="20" fill="rgba(245, 158, 11, 0.03)" stroke="rgba(245, 158, 11, 0.3)" stroke-dasharray="6,4" stroke-width="1.5" />
-                    <rect x="${x}" y="${y}" width="275" height="22" rx="6" ry="6" fill="#78350f" opacity="0.9" stroke="rgba(245, 158, 11, 0.5)" stroke-width="1" />
-                    <text x="${x + 10}" y="${y + 15}" fill="#fbbf24" font-size="10" font-weight="700" font-family="system-ui, sans-serif">
-                        Bridge1: Гостевой сегмент (L2/L3 изоляция)
-                    </text>
-                </g>
-            `;
-        }
-
-        boundariesGroup.innerHTML = b0Svg + b1Svg;
+        boundariesGroup.innerHTML = `
+            <g id="topo-boundary-b0" class="topology-boundary-group" pointer-events="none" style="display: none;">
+                <rect class="b-box" rx="20" ry="20" fill="rgba(16, 185, 129, 0.03)" stroke="rgba(16, 185, 129, 0.3)" stroke-dasharray="6,4" stroke-width="1.5" />
+                <rect class="b-header" rx="6" ry="6" fill="#064e3b" opacity="0.9" stroke="rgba(16, 185, 129, 0.5)" stroke-width="1" width="265" height="22" />
+                <text class="b-title" fill="#34d399" font-size="10" font-weight="700" font-family="system-ui, sans-serif">
+                    Bridge0: Домашний сегмент (L2 общий домен)
+                </text>
+            </g>
+            <g id="topo-boundary-b1" class="topology-boundary-group" pointer-events="none" style="display: none;">
+                <rect class="b-box" rx="20" ry="20" fill="rgba(245, 158, 11, 0.03)" stroke="rgba(245, 158, 11, 0.3)" stroke-dasharray="6,4" stroke-width="1.5" />
+                <rect class="b-header" rx="6" ry="6" fill="#78350f" opacity="0.9" stroke="rgba(245, 158, 11, 0.5)" stroke-width="1" width="275" height="22" />
+                <text class="b-title" fill="#fbbf24" font-size="10" font-weight="700" font-family="system-ui, sans-serif">
+                    Bridge1: Гостевой сегмент (L2/L3 изоляция)
+                </text>
+            </g>
+        `;
     }
 
-    linksGroup.innerHTML = topologyLinks.map(l => {
-        const s = l.sourceNode;
-        const t = l.targetNode;
-
+    linksGroup.innerHTML = topologyLinks.map((l, idx) => {
         let strokeColor = '#334155';
         let strokeWidth = '1.5';
         let strokeDash = '';
@@ -12951,7 +13127,7 @@ function renderTopologyElements() {
             }
         }
 
-        return `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" ${strokeDash} opacity="0.75" />`;
+        return `<line id="topo-link-${idx}" stroke="${strokeColor}" stroke-width="${strokeWidth}" ${strokeDash} opacity="0.75" />`;
     }).join('');
 
     nodesGroup.innerHTML = topologyNodes.map(n => {
@@ -13014,18 +13190,103 @@ function renderTopologyElements() {
         }
 
         const shortLabel = (n.label || '').length > 14 ? (n.label || '').substring(0, 12) + '…' : (n.label || '');
-        const cursor = n.type === 'device' ? 'cursor-pointer' : 'cursor-grab';
+        const cursor = 'cursor-pointer';
 
         return `
-            <g class="topology-node-group ${cursor}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+            <g id="topo-node-${n.id}" class="topology-node-group ${cursor}" data-id="${n.id}" data-mac="${escapeHtml(n.mac || '')}" data-type="${escapeHtml(n.type || '')}" transform="translate(${n.x},${n.y})" style="cursor: pointer;">
+                <circle r="${r + 14}" fill="transparent" class="topology-hit-circle" style="cursor: pointer;" />
                 <circle r="${r + 4}" fill="${stroke}" opacity="0.15" />
                 <circle r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-                <text y="${r + 14}" text-anchor="middle" font-size="10" font-weight="600" fill="${labelColor}" font-family="system-ui, sans-serif" style="text-shadow: 0 1px 3px rgba(0,0,0,0.9); pointer-events: none;">
+                <text y="${r + 14}" text-anchor="middle" font-size="10" font-weight="600" fill="${labelColor}" font-family="system-ui, sans-serif" style="text-shadow: 0 1px 3px rgba(0,0,0,0.9); cursor: pointer; user-select: none;">
                     ${escapeHtml(shortLabel)}
                 </text>
             </g>
         `;
     }).join('');
+
+    updateTopologyPositions();
+}
+
+function updateTopologyPositions() {
+    // 1. Update Boundaries
+    const b0Nodes = topologyNodes.filter(n => n.id === 'segment_Bridge0' || n.segment_id === 'segment_Bridge0' || ['ap_wifi_24', 'ap_wifi_5', 'ap_lan'].includes(n.id));
+    const b0El = document.getElementById('topo-boundary-b0');
+    if (b0El) {
+        if (b0Nodes.length > 0) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            b0Nodes.forEach(n => {
+                if (n.x < minX) minX = n.x;
+                if (n.x > maxX) maxX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.y > maxY) maxY = n.y;
+            });
+            const pad = 36;
+            const w = Math.max((maxX - minX) + pad * 2, 280);
+            const h = (maxY - minY) + pad * 2;
+            const x = minX - pad;
+            const y = minY - pad;
+            b0El.style.display = '';
+            const box = b0El.querySelector('.b-box');
+            if (box) { box.setAttribute('x', x); box.setAttribute('y', y); box.setAttribute('width', w); box.setAttribute('height', h); }
+            const header = b0El.querySelector('.b-header');
+            if (header) { header.setAttribute('x', x); header.setAttribute('y', y); }
+            const text = b0El.querySelector('.b-title');
+            if (text) { text.setAttribute('x', x + 10); text.setAttribute('y', y + 15); }
+        } else {
+            b0El.style.display = 'none';
+        }
+    }
+
+    const b1Nodes = topologyNodes.filter(n => n.id === 'segment_Bridge1' || n.segment_id === 'segment_Bridge1' || n.id === 'ap_guest');
+    const b1El = document.getElementById('topo-boundary-b1');
+    if (b1El) {
+        if (b1Nodes.length > 0) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            b1Nodes.forEach(n => {
+                if (n.x < minX) minX = n.x;
+                if (n.x > maxX) maxX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.y > maxY) maxY = n.y;
+            });
+            const pad = 36;
+            const w = Math.max((maxX - minX) + pad * 2, 280);
+            const h = (maxY - minY) + pad * 2;
+            const x = minX - pad;
+            const y = minY - pad;
+            b1El.style.display = '';
+            const box = b1El.querySelector('.b-box');
+            if (box) { box.setAttribute('x', x); box.setAttribute('y', y); box.setAttribute('width', w); box.setAttribute('height', h); }
+            const header = b1El.querySelector('.b-header');
+            if (header) { header.setAttribute('x', x); header.setAttribute('y', y); }
+            const text = b1El.querySelector('.b-title');
+            if (text) { text.setAttribute('x', x + 10); text.setAttribute('y', y + 15); }
+        } else {
+            b1El.style.display = 'none';
+        }
+    }
+
+    // 2. Update Links positions
+    topologyLinks.forEach((l, idx) => {
+        const line = document.getElementById(`topo-link-${idx}`);
+        if (line && l.sourceNode && l.targetNode) {
+            line.setAttribute('x1', l.sourceNode.x);
+            line.setAttribute('y1', l.sourceNode.y);
+            line.setAttribute('x2', l.targetNode.x);
+            line.setAttribute('y2', l.targetNode.y);
+        }
+    });
+
+    // 3. Update Nodes positions (via transform="translate(x, y)")
+    topologyNodes.forEach(n => {
+        const el = document.getElementById(`topo-node-${n.id}`);
+        if (el) {
+            el.setAttribute('transform', `translate(${n.x},${n.y})`);
+        }
+    });
+}
+
+function renderTopologyElements() {
+    buildTopologyDomElements();
 }
 
 function setupTopologyInteraction(svg) {
@@ -13034,17 +13295,52 @@ function setupTopologyInteraction(svg) {
 
     const tooltip = document.getElementById('topology-tooltip');
 
+    let dragCandidate = null;
+    let isDraggingNode = false;
+    let hasJustDragged = false;
+    let lastHandledNodeClickTime = 0;
+
+    function handleTopologyNodeClick(n) {
+        if (!n) return;
+        const now = Date.now();
+        if (now - lastHandledNodeClickTime < 350) return;
+        lastHandledNodeClickTime = now;
+
+        if (tooltip) tooltip.classList.add('hidden');
+
+        if (n.type === 'device' && n.mac) {
+            openDeviceModal(n.mac);
+        } else if (n.type === 'router' || n.id === 'node_router') {
+            switchTab('settings');
+            showToast('Параметры роутера Keenetic в разделе «Настройки»', 'info');
+        } else if (n.type === 'dns' || n.id === 'node_dns') {
+            switchTab('dns');
+            showToast('DNS трансляция: запросы и фильтрация', 'info');
+        } else if (n.type === 'segment' || n.id?.startsWith('segment_')) {
+            const segName = n.id === 'segment_Bridge1' 
+                ? 'Гостевой сегмент (Bridge1): аппаратная L2 и L3 изоляция включена на роутере.' 
+                : 'Домашний сегмент (Bridge0): общий L2 домен (L2 трафик идет напрямую в обход Keenetic).';
+            showToast(segName, 'info');
+        } else if (n.type === 'wan' || n.id === 'node_internet') {
+            showToast(`Внешний WAN интерфейс: ${n.label || 'Интернет'}`, 'info');
+        } else if (n.type === 'access_point' || n.id?.startsWith('ap_')) {
+            showToast(`Точка подключения: ${n.label || n.id}`, 'info');
+        }
+    }
+
     svg.addEventListener('mousedown', e => {
         const targetNodeEl = e.target.closest('.topology-node-group');
         if (targetNodeEl) {
             const nodeId = targetNodeEl.getAttribute('data-id');
             const node = topologyNodes.find(n => n.id === nodeId);
             if (node) {
-                draggedNode = node;
-                draggedNode.fixed = true;
-                draggedNode.vx = 0;
-                draggedNode.vy = 0;
-                runTopologySimulation();
+                // Do not immediately recreate DOM elements or drag; record as candidate
+                dragCandidate = {
+                    node: node,
+                    startX: e.clientX,
+                    startY: e.clientY
+                };
+                isDraggingNode = false;
                 return;
             }
         }
@@ -13054,13 +13350,26 @@ function setupTopologyInteraction(svg) {
     });
 
     window.addEventListener('mousemove', e => {
-        if (draggedNode) {
+        // Only initiate physics drag if mouse actually moved beyond threshold
+        if (dragCandidate && !isDraggingNode) {
+            const dist = Math.hypot(e.clientX - dragCandidate.startX, e.clientY - dragCandidate.startY);
+            if (dist > 5) {
+                isDraggingNode = true;
+                draggedNode = dragCandidate.node;
+                draggedNode.fixed = true;
+                draggedNode.vx = 0;
+                draggedNode.vy = 0;
+                runTopologySimulation();
+            }
+        }
+
+        if (draggedNode && isDraggingNode) {
             const rect = svg.getBoundingClientRect();
             draggedNode.x = (e.clientX - rect.left - topologyTransform.x) / topologyTransform.scale;
             draggedNode.y = (e.clientY - rect.top - topologyTransform.y) / topologyTransform.scale;
             draggedNode.vx = 0;
             draggedNode.vy = 0;
-            renderTopologyElements();
+            updateTopologyPositions();
             return;
         }
 
@@ -13086,6 +13395,15 @@ function setupTopologyInteraction(svg) {
                 const segName = n.segment_id === 'segment_Bridge1' ? 'Гостевой (Bridge1 - Изолирован)' : 'Домашний (Bridge0 - Общий L2)';
                 const ipMac = n.ip ? `${n.ip} • ${n.mac || ''}` : (n.details?.interface || '');
 
+                let actionHint = '';
+                if (n.type === 'device' && n.mac) {
+                    actionHint = '<div class="text-[9px] text-cyan-400 mt-1 italic">Нажмите для перехода в настройки устройства</div>';
+                } else if (n.type === 'router' || n.id === 'node_router') {
+                    actionHint = '<div class="text-[9px] text-cyan-400 mt-1 italic">Нажмите для перехода в настройки роутера</div>';
+                } else if (n.type === 'dns' || n.id === 'node_dns') {
+                    actionHint = '<div class="text-[9px] text-cyan-400 mt-1 italic">Нажмите для перехода к DNS-запросам</div>';
+                }
+
                 tooltip.innerHTML = `
                     <div class="font-bold text-white text-xs flex items-center justify-between gap-2 border-b border-slate-800 pb-1">
                         <span>${escapeHtml(n.label || '')}</span>
@@ -13094,7 +13412,7 @@ function setupTopologyInteraction(svg) {
                     <div class="text-[11px] text-slate-400 font-mono">${escapeHtml(ipMac)}</div>
                     ${n.type === 'device' ? `<div class="text-[10px] text-slate-500">Сегмент: <span class="text-slate-300">${segName}</span></div>` : ''}
                     ${n.vendor ? `<div class="text-[10px] text-slate-500">Вендор: <span class="text-slate-300">${escapeHtml(n.vendor)}</span></div>` : ''}
-                    ${n.type === 'device' ? `<div class="text-[9px] text-cyan-400 mt-1 italic">Нажмите для перехода в настройки устройства</div>` : ''}
+                    ${actionHint}
                 `;
 
                 const rect = svg.getBoundingClientRect();
@@ -13109,6 +13427,19 @@ function setupTopologyInteraction(svg) {
     });
 
     window.addEventListener('mouseup', () => {
+        if (dragCandidate && !isDraggingNode) {
+            const clickedNode = dragCandidate.node;
+            dragCandidate = null;
+            handleTopologyNodeClick(clickedNode);
+        }
+
+        if (isDraggingNode) {
+            hasJustDragged = true;
+            setTimeout(() => { hasJustDragged = false; }, 200);
+        }
+
+        dragCandidate = null;
+        isDraggingNode = false;
         isPanningTopology = false;
         if (draggedNode) {
             draggedNode.fixed = true;
@@ -13118,6 +13449,45 @@ function setupTopologyInteraction(svg) {
         }
     });
 
+    // Touch event handling for mobile / tablet screens
+    let touchCandidate = null;
+    let isDraggingTouch = false;
+
+    svg.addEventListener('touchstart', e => {
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const targetNodeEl = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.topology-node-group');
+            if (targetNodeEl) {
+                const nodeId = targetNodeEl.getAttribute('data-id');
+                const node = topologyNodes.find(n => n.id === nodeId);
+                if (node) {
+                    touchCandidate = { node, startX: touch.clientX, startY: touch.clientY };
+                    isDraggingTouch = false;
+                }
+            }
+        }
+    }, { passive: true });
+
+    svg.addEventListener('touchmove', e => {
+        if (touchCandidate && e.touches.length === 1) {
+            const touch = e.touches[0];
+            const dist = Math.hypot(touch.clientX - touchCandidate.startX, touch.clientY - touchCandidate.startY);
+            if (dist > 8) {
+                isDraggingTouch = true;
+            }
+        }
+    }, { passive: true });
+
+    svg.addEventListener('touchend', () => {
+        if (touchCandidate && !isDraggingTouch) {
+            const clickedNode = touchCandidate.node;
+            touchCandidate = null;
+            handleTopologyNodeClick(clickedNode);
+        }
+        touchCandidate = null;
+        isDraggingTouch = false;
+    });
+
     svg.addEventListener('wheel', e => {
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -13125,12 +13495,17 @@ function setupTopologyInteraction(svg) {
     });
 
     svg.addEventListener('click', e => {
+        if (hasJustDragged) {
+            e.stopPropagation();
+            e.preventDefault();
+            return;
+        }
         const targetNodeEl = e.target.closest('.topology-node-group');
         if (targetNodeEl) {
             const nodeId = targetNodeEl.getAttribute('data-id');
             const n = topologyNodes.find(item => item.id === nodeId);
-            if (n && n.type === 'device' && n.mac) {
-                openDeviceModal(n.mac);
+            if (n) {
+                handleTopologyNodeClick(n);
             }
         }
     });
@@ -13413,7 +13788,7 @@ function renderCommandPaletteResults() {
 
     // 1. Match Devices
     if (commandPaletteCategory === 'all' || commandPaletteCategory === 'devices') {
-        const devList = Array.isArray(devices) ? devices : [];
+        const devList = (typeof devicesList !== 'undefined' && Array.isArray(devicesList)) ? devicesList : ((typeof devices !== 'undefined' && Array.isArray(devices)) ? devices : []);
         devList.forEach(dev => {
             const name = (dev.custom_name || dev.hostname || dev.name || '').toLowerCase();
             const ip = (dev.ip || '').toLowerCase();
@@ -13562,6 +13937,22 @@ function startDeviceAuditFromPalette(mac) {
 }
 window.startDeviceAuditFromPalette = startDeviceAuditFromPalette;
 
+function openDeviceAuditModal(mac, ip) {
+    if (!mac) return;
+    switchTab('audits');
+    const select = document.getElementById('audit-launch-device');
+    if (select) {
+        select.value = mac;
+    }
+    const durSelect = document.getElementById('audit-launch-duration');
+    if (durSelect) {
+        durSelect.value = '60'; // 1-minute express audit
+    }
+    startTrafficAuditFromTab();
+    showToast(`Запуск 1-минутного экспресс-аудита для ${ip || mac}...`, 'info');
+}
+window.openDeviceAuditModal = openDeviceAuditModal;
+
 function filterPacketsByDevice(mac) {
     const select = document.getElementById('pkt-device-select');
     if (select) {
@@ -13627,5 +14018,952 @@ document.addEventListener('mousedown', e => {
         closeCommandPalette();
     }
 });
+
+// ============================================================================
+// RULES ENGINE (ДВИЖОК ПРАВИЛ И ФИЛЬТРОВ СЕТЕВОЙ БЕЗОПАСНОСТИ)
+// ============================================================================
+
+let rulesList = [];
+let rulesOriginalSnapshot = [];
+let hasUnsavedRuleChanges = false;
+let draggedRuleIndex = null;
+let currentEditingRuleId = null;
+
+function escapeRuleHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function formatRuleVolume(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return bytes + ' B';
+}
+
+async function loadRules() {
+    try {
+        const res = await fetch('/api/rules');
+        if (!res.ok) {
+            console.error('Failed to load rules:', res.status);
+            return;
+        }
+        rulesList = await res.json();
+        rulesOriginalSnapshot = JSON.parse(JSON.stringify(rulesList));
+        hasUnsavedRuleChanges = false;
+        hideDraftBar();
+
+        updateRulesStats();
+        updateRulesBadgeOnly();
+        renderRulesTable();
+    } catch (e) {
+        console.error('Error in loadRules:', e);
+    }
+}
+
+async function updateRulesBadgeOnly() {
+    try {
+        const badge = document.getElementById('rules-count-badge');
+        if (!badge) return;
+        if (rulesList && rulesList.length > 0) {
+            const active = rulesList.filter(r => r.enabled).length;
+            badge.textContent = `${active}/${rulesList.length}`;
+            return;
+        }
+        const res = await fetch('/api/rules');
+        if (res.ok) {
+            const list = await res.json();
+            const active = list.filter(r => r.enabled).length;
+            badge.textContent = `${active}/${list.length}`;
+        }
+    } catch (e) {
+        console.debug('Could not update rules badge:', e);
+    }
+}
+
+function updateRulesStats() {
+    const totalEl = document.getElementById('rules-stat-total');
+    const activeEl = document.getElementById('rules-stat-active');
+    const pctEl = document.getElementById('rules-stat-active-pct');
+    const hits24El = document.getElementById('rules-stat-hits24');
+    const hitsTotalEl = document.getElementById('rules-stat-hits-total');
+    const statusEl = document.getElementById('rules-stat-status');
+    const statusSubEl = document.getElementById('rules-stat-status-sub');
+
+    const total = rulesList.length;
+    const active = rulesList.filter(r => r.enabled).length;
+    const hits24 = rulesList.reduce((sum, r) => sum + (r.telemetry?.hits_24h || 0), 0);
+    const hitsTotal = rulesList.reduce((sum, r) => sum + (r.telemetry?.hits_total || 0), 0);
+
+    if (totalEl) totalEl.textContent = total;
+    if (activeEl) activeEl.textContent = active;
+    if (pctEl) pctEl.textContent = total > 0 ? `${Math.round((active / total) * 100)}%` : '0%';
+    if (hits24El) hits24El.textContent = hits24.toLocaleString();
+    if (hitsTotalEl) hitsTotalEl.textContent = hitsTotal.toLocaleString();
+
+    if (statusEl && statusSubEl) {
+        if (hasUnsavedRuleChanges) {
+            statusEl.className = 'text-sm font-bold text-amber-400 flex items-center space-x-1.5';
+            statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span><span>Не сохранено</span>';
+            statusSubEl.textContent = 'Есть локальные изменения порядка правил';
+        } else {
+            statusEl.className = 'text-sm font-bold text-emerald-400 flex items-center space-x-1.5';
+            statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Синхронизировано</span>';
+            statusSubEl.textContent = 'Конфликтов не обнаружено';
+        }
+    }
+}
+
+function filterRulesTable() {
+    renderRulesTable();
+}
+
+function renderRulesTable() {
+    const tbody = document.getElementById('rules-table-body');
+    const emptyState = document.getElementById('rules-empty-state');
+    if (!tbody) return;
+
+    const query = (document.getElementById('rules-search-input')?.value || '').trim().toLowerCase();
+    const categoryFilter = document.getElementById('rules-category-filter')?.value || 'all';
+    const modeFilter = document.getElementById('rules-mode-filter')?.value || 'all';
+
+    tbody.innerHTML = '';
+
+    const filtered = rulesList.filter(r => {
+        if (categoryFilter !== 'all' && r.category !== categoryFilter) return false;
+        if (modeFilter !== 'all' && r.reaction?.action_mode !== modeFilter) return false;
+        if (query) {
+            const nameMatch = (r.name || '').toLowerCase().includes(query);
+            const descMatch = (r.description || '').toLowerCase().includes(query);
+            const portsMatch = (r.destination?.ports || []).some(p => String(p).includes(query));
+            const targetsMatch = (r.destination?.targets || []).some(t => String(t).toLowerCase().includes(query));
+            const srcProfileMatch = (r.source?.profiles || []).some(p => String(p).toLowerCase().includes(query));
+            if (!nameMatch && !descMatch && !portsMatch && !targetsMatch && !srcProfileMatch) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        if (emptyState) emptyState.classList.remove('hidden');
+        return;
+    }
+    if (emptyState) emptyState.classList.add('hidden');
+
+    filtered.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const isCore = r.category === 'core';
+        const isAlert = r.reaction?.action_mode === 'alert';
+
+        tr.className = `group hover:bg-slate-800/40 transition duration-150 select-none ${!r.enabled ? 'opacity-50' : ''}`;
+        tr.dataset.id = r.id;
+        tr.dataset.index = idx;
+
+        if (!isCore) {
+            tr.setAttribute('draggable', 'true');
+            tr.addEventListener('dragstart', (e) => onRuleDragStart(e, idx));
+            tr.addEventListener('dragover', (e) => onRuleDragOver(e, idx));
+            tr.addEventListener('dragleave', onRuleDragLeave);
+            tr.addEventListener('drop', (e) => onRuleDrop(e, idx));
+            tr.addEventListener('dragend', onRuleDragEnd);
+        }
+
+        // 1. Drag Handle
+        let dragHandleHtml = '';
+        if (isCore) {
+            dragHandleHtml = `<span class="text-slate-600 cursor-not-allowed flex items-center justify-center p-1" title="Системное ядро зафиксировано"><i data-lucide="lock" class="w-3.5 h-3.5"></i></span>`;
+        } else {
+            dragHandleHtml = `<span class="cursor-grab active:cursor-grabbing text-slate-500 group-hover:text-slate-300 flex items-center justify-center p-1" title="Перетащите для изменения приоритета (HTML5 Drag)"><i data-lucide="grip-vertical" class="w-4 h-4"></i></span>`;
+        }
+
+        // 2. Order Index Badge
+        let orderBadgeHtml = '';
+        if (isCore) {
+            orderBadgeHtml = `<span class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">#${r.order_index}</span>`;
+        } else {
+            orderBadgeHtml = `<span class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">#${r.order_index}</span>`;
+        }
+
+        // 3. Name & Category
+        let catBadge = '';
+        if (r.category === 'core') {
+            catBadge = `<span class="px-1.5 py-0.2 rounded text-[10px] uppercase font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">ЯДРО</span>`;
+        } else if (r.is_builtin) {
+            catBadge = `<span class="px-1.5 py-0.2 rounded text-[10px] uppercase font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">ШАБЛОН</span>`;
+        } else {
+            catBadge = `<span class="px-1.5 py-0.2 rounded text-[10px] uppercase font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">КАСТОМ</span>`;
+        }
+
+        const nameHtml = `
+            <div>
+                <div class="flex items-center space-x-2">
+                    <span class="font-semibold text-slate-200 group-hover:text-white transition">${escapeRuleHtml(r.name)}</span>
+                    ${catBadge}
+                </div>
+                ${r.description ? `<p class="text-[11px] text-slate-400 line-clamp-1 mt-0.5">${escapeRuleHtml(r.description)}</p>` : ''}
+            </div>
+        `;
+
+        // 4. Conditions (ЕСЛИ)
+        let srcPill = '';
+        if (r.source?.invert) {
+            srcPill += `<span class="text-amber-400 font-bold text-[10px] mr-1">КРОМЕ:</span>`;
+        }
+        if (r.source?.profiles && r.source.profiles.length > 0) {
+            srcPill += r.source.profiles.map(p => `<span class="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px] mr-1">${p}</span>`).join('');
+        }
+        if (r.source?.device_macs && r.source.device_macs.length > 0) {
+            srcPill += `<span class="px-1.5 py-0.2 rounded bg-slate-800 text-indigo-300 border border-slate-700 text-[10px] font-mono mr-1">${r.source.device_macs.length} MAC</span>`;
+        }
+        if (!srcPill) srcPill = `<span class="text-slate-500 text-[11px]">Все</span>`;
+
+        let dirPill = '';
+        const dir = r.destination?.direction || 'any';
+        if (dir === 'lan_to_lan') dirPill = `<span class="px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px]">LAN ➔ LAN</span>`;
+        else if (dir === 'lan_to_wan') dirPill = `<span class="px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 text-[10px]">LAN ➔ WAN</span>`;
+        else if (dir === 'lan_to_router') dirPill = `<span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px]">LAN ➔ Router</span>`;
+        else dirPill = `<span class="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[10px]">Любое</span>`;
+
+        let portsPill = '';
+        if (r.destination?.invert_ports) {
+            portsPill += `<span class="text-amber-400 font-bold text-[10px] mr-1">КРОМЕ:</span>`;
+        }
+        if (r.destination?.ports && r.destination.ports.length > 0) {
+            const portsStr = r.destination.ports.slice(0, 4).join(', ') + (r.destination.ports.length > 4 ? ` +${r.destination.ports.length - 4}` : '');
+            portsPill += `<span class="px-1.5 py-0.2 rounded bg-slate-800 text-white font-mono border border-slate-700 text-[10px] mr-1">${portsStr}</span>`;
+        }
+        const protos = (r.destination?.protocols || []).join('/');
+        if (protos) {
+            portsPill += `<span class="text-slate-400 text-[10px]">${protos}</span>`;
+        }
+
+        let ctxPill = '';
+        if (r.context?.volume_operator && r.context?.volume_bytes > 0) {
+            ctxPill += `<span class="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] mr-1">${r.context.volume_operator} ${formatRuleVolume(r.context.volume_bytes)}</span>`;
+        }
+        if (r.context?.time_window === 'night_only') {
+            ctxPill += `<span class="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] mr-1">🌙 Ночь</span>`;
+        } else if (r.context?.time_window === 'day_only') {
+            ctxPill += `<span class="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] mr-1">☀️ День</span>`;
+        }
+
+        const conditionsHtml = `
+            <div class="space-y-1">
+                <div class="flex items-center space-x-1.5 flex-wrap">
+                    <span class="text-slate-400 text-[10px]">Ист:</span>
+                    ${srcPill}
+                    <span class="text-slate-600">|</span>
+                    ${dirPill}
+                </div>
+                <div class="flex items-center space-x-1.5 flex-wrap">
+                    <span class="text-slate-400 text-[10px]">Порт:</span>
+                    ${portsPill || '<span class="text-slate-500 text-[10px]">Любой</span>'}
+                    ${ctxPill ? `<span class="text-slate-600">|</span> ${ctxPill}` : ''}
+                </div>
+            </div>
+        `;
+
+        // 5. Reaction (ТО)
+        let modeBadge = '';
+        if (!isAlert) {
+            modeBadge = `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1 w-fit"><i data-lucide="check" class="w-3 h-3"></i><span>Разрешить</span></span>`;
+        } else {
+            const sevColor = r.reaction?.severity === 'CRITICAL' ? 'rose' : (r.reaction?.severity === 'WARNING' ? 'amber' : 'blue');
+            modeBadge = `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-${sevColor}-500/20 text-${sevColor}-300 border border-${sevColor}-500/30 flex items-center space-x-1 w-fit"><i data-lucide="alert-triangle" class="w-3 h-3"></i><span>Инцидент (${r.reaction?.severity || 'WARN'})</span></span>`;
+        }
+
+        let actionIcons = '';
+        if (r.reaction?.notify_telegram) {
+            actionIcons += `<span title="Уведомление в Telegram (${r.reaction.telegram_mode || 'digest'})" class="p-1 rounded bg-slate-800 text-sky-400 border border-slate-700"><i data-lucide="bell" class="w-3 h-3"></i></span>`;
+        }
+        if (r.reaction?.record_pcap_seconds > 0) {
+            actionIcons += `<span title="Захват PCAP ${r.reaction.record_pcap_seconds}s" class="p-1 rounded bg-slate-800 text-cyan-400 border border-slate-700"><i data-lucide="file-video" class="w-3 h-3"></i></span>`;
+        }
+        if (r.reaction?.hardware_wan_block) {
+            actionIcons += `<span title="Блокировка WAN на роутере" class="p-1 rounded bg-slate-800 text-rose-400 border border-slate-700"><i data-lucide="shield-alert" class="w-3 h-3"></i></span>`;
+        }
+        if (r.reaction?.apply_preset_id) {
+            actionIcons += `<span title="Смена пресета на ${r.reaction.apply_preset_id}" class="p-1 rounded bg-slate-800 text-amber-400 border border-slate-700"><i data-lucide="shield" class="w-3 h-3"></i></span>`;
+        }
+
+        const reactionHtml = `
+            <div class="space-y-1">
+                ${modeBadge}
+                ${actionIcons ? `<div class="flex items-center space-x-1 pt-0.5">${actionIcons}</div>` : ''}
+            </div>
+        `;
+
+        // 6. Hits Telemetry
+        const hitsTotal = r.telemetry?.hits_total || 0;
+        const hits24h = r.telemetry?.hits_24h || 0;
+        const hitsBadge = `
+            <button onclick="openRuleHitsDrawer('${r.id}', '${escapeRuleHtml(r.name)}')" class="px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition flex items-center space-x-1.5 mx-auto cursor-pointer" title="Посмотреть историю срабатываний">
+                <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
+                <span class="font-mono font-semibold">${hitsTotal}</span>
+                <span class="text-[10px] text-slate-400">(+${hits24h})</span>
+            </button>
+        `;
+
+        // 7. Status Toggle
+        const toggleHtml = `
+            <label class="relative inline-flex items-center cursor-pointer justify-center w-full">
+                <input type="checkbox" ${r.enabled ? 'checked' : ''} ${isCore ? 'disabled' : ''} onchange="toggleRule('${r.id}', this.checked)" class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[calc(50%-16px)] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 ${isCore ? 'opacity-40 cursor-not-allowed' : ''}"></div>
+            </label>
+        `;
+
+        // 8. Actions
+        let actionButtons = `
+            <div class="flex items-center justify-end space-x-1">
+        `;
+        if (!isCore) {
+            actionButtons += `
+                <button onclick="moveRuleUp(${idx})" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Переместить выше">
+                    <i data-lucide="chevron-up" class="w-3.5 h-3.5"></i>
+                </button>
+                <button onclick="moveRuleDown(${idx})" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Переместить ниже">
+                    <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+        actionButtons += `
+            <button onclick="openRuleModal('${r.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition cursor-pointer" title="Редактировать правило">
+                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+            </button>
+        `;
+        if (!isCore) {
+            actionButtons += `
+                <button onclick="deleteRule('${r.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer" title="Удалить правило">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+        actionButtons += `</div>`;
+
+        tr.innerHTML = `
+            <td class="py-3 px-3 text-center">${dragHandleHtml}</td>
+            <td class="py-3 px-3 text-center">${orderBadgeHtml}</td>
+            <td class="py-3 px-4">${nameHtml}</td>
+            <td class="py-3 px-4">${conditionsHtml}</td>
+            <td class="py-3 px-4">${reactionHtml}</td>
+            <td class="py-3 px-4 text-center">${hitsBadge}</td>
+            <td class="py-3 px-3 text-center">${toggleHtml}</td>
+            <td class="py-3 px-4 text-right">${actionButtons}</td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+    }
+}
+
+// HTML5 Drag and Drop handlers
+function onRuleDragStart(e, idx) {
+    if (rulesList[idx].category === 'core') {
+        e.preventDefault();
+        return;
+    }
+    draggedRuleIndex = idx;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+    e.currentTarget.classList.add('opacity-40', 'bg-indigo-950/40');
+}
+
+function onRuleDragOver(e, idx) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const targetRule = rulesList[idx];
+    if (targetRule.category === 'core') return;
+    e.currentTarget.classList.add('border-t-2', 'border-indigo-400');
+}
+
+function onRuleDragLeave(e) {
+    e.currentTarget.classList.remove('border-t-2', 'border-indigo-400');
+}
+
+function onRuleDrop(e, targetIdx) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('border-t-2', 'border-indigo-400');
+
+    if (draggedRuleIndex === null || draggedRuleIndex === targetIdx) return;
+    if (rulesList[targetIdx].category === 'core') {
+        showToast('Нельзя размещать правила выше системного ядра Зоны 1', 'warning');
+        return;
+    }
+
+    const moved = rulesList.splice(draggedRuleIndex, 1)[0];
+    rulesList.splice(targetIdx, 0, moved);
+
+    hasUnsavedRuleChanges = true;
+    showDraftBar();
+    updateRulesStats();
+    renderRulesTable();
+}
+
+function onRuleDragEnd(e) {
+    e.currentTarget.classList.remove('opacity-40', 'bg-indigo-950/40', 'border-t-2', 'border-indigo-400');
+    draggedRuleIndex = null;
+}
+
+// Accessible Move Up/Down buttons
+function moveRuleUp(idx) {
+    if (idx <= 0) return;
+    const targetIdx = idx - 1;
+    if (rulesList[targetIdx].category === 'core') {
+        showToast('Правила ядра Зоны 1 должны оставаться первыми', 'warning');
+        return;
+    }
+    const temp = rulesList[idx];
+    rulesList[idx] = rulesList[targetIdx];
+    rulesList[targetIdx] = temp;
+
+    hasUnsavedRuleChanges = true;
+    showDraftBar();
+    updateRulesStats();
+    renderRulesTable();
+}
+
+function moveRuleDown(idx) {
+    if (idx >= rulesList.length - 1) return;
+    const targetIdx = idx + 1;
+    const temp = rulesList[idx];
+    rulesList[idx] = rulesList[targetIdx];
+    rulesList[targetIdx] = temp;
+
+    hasUnsavedRuleChanges = true;
+    showDraftBar();
+    updateRulesStats();
+    renderRulesTable();
+}
+
+// Draft Bar & Reorder persistence
+function showDraftBar() {
+    const bar = document.getElementById('rules-draft-bar');
+    if (bar) bar.classList.remove('hidden');
+}
+
+function hideDraftBar() {
+    const bar = document.getElementById('rules-draft-bar');
+    if (bar) bar.classList.add('hidden');
+}
+
+function discardRuleChanges() {
+    rulesList = JSON.parse(JSON.stringify(rulesOriginalSnapshot));
+    hasUnsavedRuleChanges = false;
+    hideDraftBar();
+    updateRulesStats();
+    renderRulesTable();
+    showToast('Изменения порядка правил отменены', 'info');
+}
+
+async function saveRuleOrder(force = false) {
+    const btn = document.getElementById('btn-save-rule-order');
+    if (btn) btn.disabled = true;
+
+    try {
+        const ordered_ids = rulesList.map(r => r.id);
+        const res = await fetch('/api/rules/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ordered_ids, force })
+        });
+        const data = await res.json();
+
+        if (res.status === 409) {
+            // Linter conflict warning (shadowed rules)
+            openRuleConflictModal(data.issues || []);
+            return;
+        }
+
+        if (!res.ok) {
+            showToast(data.detail || 'Ошибка при сохранении порядка правил', 'error');
+            return;
+        }
+
+        hasUnsavedRuleChanges = false;
+        hideDraftBar();
+        closeRuleConflictModal();
+        showToast('Порядок правил успешно сохранен и применен в памяти!', 'success');
+        await loadRules();
+    } catch (e) {
+        console.error('saveRuleOrder error:', e);
+        showToast('Сетевая ошибка при сохранении порядка правил', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Soft Validation Conflict Modal
+function openRuleConflictModal(issues) {
+    const modal = document.getElementById('rule-conflict-modal');
+    const container = document.getElementById('rule-conflict-issues-list');
+    if (!modal || !container) return;
+
+    container.innerHTML = '';
+    issues.forEach(i => {
+        const div = document.createElement('div');
+        div.className = 'p-3 rounded-xl bg-slate-800/80 border border-amber-500/30 text-xs space-y-1';
+        div.innerHTML = `
+            <div class="flex items-center space-x-1.5 text-amber-300 font-semibold">
+                <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+                <span>${escapeRuleHtml(i.rule_name)}</span>
+            </div>
+            <p class="text-slate-300">${escapeRuleHtml(i.message)}</p>
+            ${i.conflicting_rule_name ? `<p class="text-[11px] text-slate-400">Конфликт с правилом: <strong class="text-slate-200">${escapeRuleHtml(i.conflicting_rule_name)}</strong></p>` : ''}
+        `;
+        container.appendChild(div);
+    });
+
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeRuleConflictModal() {
+    const modal = document.getElementById('rule-conflict-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Rule Builder Modal (ЕСЛИ -> ТО)
+function openRuleModal(ruleId = null) {
+    currentEditingRuleId = ruleId;
+    const modal = document.getElementById('rule-modal');
+    const title = document.getElementById('rule-modal-title');
+    const form = document.getElementById('rule-builder-form');
+    if (!modal || !form) return;
+
+    form.reset();
+
+    if (ruleId) {
+        const rule = rulesList.find(r => r.id === ruleId);
+        if (!rule) return;
+        if (title) title.textContent = `Редактирование правила #${rule.order_index}`;
+
+        document.getElementById('rule-form-id').value = rule.id;
+        document.getElementById('rule-form-order').value = rule.order_index;
+        document.getElementById('rule-form-name').value = rule.name || '';
+        document.getElementById('rule-form-desc').value = rule.description || '';
+        document.getElementById('rule-form-category').value = rule.category || 'custom';
+
+        // Source
+        document.getElementById('rule-form-src-invert').checked = !!rule.source?.invert;
+        const profs = rule.source?.profiles || [];
+        document.querySelectorAll('input[name="rule-src-profile"]').forEach(cb => {
+            cb.checked = profs.includes(cb.value);
+        });
+        document.getElementById('rule-form-src-macs').value = (rule.source?.device_macs || []).join(', ');
+
+        // Destination
+        document.getElementById('rule-form-direction').value = rule.destination?.direction || 'any';
+        document.getElementById('rule-form-dst-invert-ports').checked = !!rule.destination?.invert_ports;
+        document.getElementById('rule-form-ports').value = (rule.destination?.ports || []).join(', ');
+        const protos = rule.destination?.protocols || ['TCP', 'UDP'];
+        document.querySelectorAll('input[name="rule-protocol"]').forEach(cb => {
+            cb.checked = protos.includes(cb.value);
+        });
+        document.getElementById('rule-form-targets').value = (rule.destination?.targets || []).join(', ');
+
+        // Context
+        document.getElementById('rule-form-vol-op').value = rule.context?.volume_operator || '';
+        document.getElementById('rule-form-vol-val').value = Math.round((rule.context?.volume_bytes || 0) / 1024);
+        document.getElementById('rule-form-time-window').value = rule.context?.time_window || 'always';
+
+        // Reaction
+        const isAlert = rule.reaction?.action_mode === 'alert';
+        document.querySelector(`input[name="rule-action-mode"][value="${isAlert ? 'alert' : 'pass'}"]`).checked = true;
+        document.getElementById('rule-form-severity').value = rule.reaction?.severity || 'WARNING';
+
+        document.getElementById('rule-form-tg-notify').checked = !!rule.reaction?.notify_telegram;
+        document.getElementById('rule-form-tg-mode').value = rule.reaction?.telegram_mode || 'digest';
+        document.getElementById('rule-form-pcap-sec').value = rule.reaction?.record_pcap_seconds || 0;
+        document.getElementById('rule-form-wan-block').checked = !!rule.reaction?.hardware_wan_block;
+        document.getElementById('rule-form-apply-preset').value = rule.reaction?.apply_preset_id || '';
+    } else {
+        if (title) title.textContent = 'Создание нового правила безопасности';
+        document.getElementById('rule-form-id').value = '';
+        document.getElementById('rule-form-order').value = 0;
+        document.getElementById('rule-form-category').value = 'custom';
+        document.querySelector('input[name="rule-action-mode"][value="pass"]').checked = true;
+        document.querySelectorAll('input[name="rule-protocol"]').forEach(cb => cb.checked = true);
+    }
+
+    onRuleActionModeChange();
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeRuleModal() {
+    const modal = document.getElementById('rule-modal');
+    if (modal) modal.classList.add('hidden');
+    currentEditingRuleId = null;
+}
+
+function onRuleActionModeChange() {
+    const isAlert = document.querySelector('input[name="rule-action-mode"]:checked')?.value === 'alert';
+    const sevContainer = document.getElementById('rule-severity-container');
+    const measuresContainer = document.getElementById('rule-reactive-measures');
+
+    const passLabel = document.getElementById('label-action-pass');
+    const alertLabel = document.getElementById('label-action-alert');
+
+    if (isAlert) {
+        if (sevContainer) {
+            sevContainer.classList.remove('opacity-50', 'pointer-events-none');
+        }
+        if (measuresContainer) {
+            measuresContainer.classList.remove('opacity-50', 'pointer-events-none');
+        }
+        if (alertLabel) {
+            alertLabel.className = 'flex items-center space-x-2 p-2.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-rose-300 cursor-pointer font-medium text-xs';
+        }
+        if (passLabel) {
+            passLabel.className = 'flex items-center space-x-2 p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 cursor-pointer font-medium text-xs hover:border-slate-600';
+        }
+    } else {
+        if (sevContainer) {
+            sevContainer.classList.add('opacity-50', 'pointer-events-none');
+        }
+        if (measuresContainer) {
+            measuresContainer.classList.add('opacity-50', 'pointer-events-none');
+        }
+        if (passLabel) {
+            passLabel.className = 'flex items-center space-x-2 p-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 cursor-pointer font-medium text-xs';
+        }
+        if (alertLabel) {
+            alertLabel.className = 'flex items-center space-x-2 p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 cursor-pointer font-medium text-xs hover:border-slate-600';
+        }
+    }
+}
+
+async function submitRuleForm(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const ruleId = document.getElementById('rule-form-id').value;
+    const name = document.getElementById('rule-form-name').value.trim();
+    if (!name) {
+        showToast('Пожалуйста, укажите название правила', 'warning');
+        return;
+    }
+
+    const description = document.getElementById('rule-form-desc').value.trim();
+    const category = document.getElementById('rule-form-category').value;
+
+    // Source
+    const srcInvert = document.getElementById('rule-form-src-invert').checked;
+    const selectedProfiles = Array.from(document.querySelectorAll('input[name="rule-src-profile"]:checked')).map(cb => cb.value);
+    const macsRaw = document.getElementById('rule-form-src-macs').value;
+    const deviceMacs = macsRaw ? macsRaw.split(',').map(m => m.trim().toUpperCase()).filter(Boolean) : [];
+
+    // Destination
+    const direction = document.getElementById('rule-form-direction').value;
+    const invertPorts = document.getElementById('rule-form-dst-invert-ports').checked;
+    const portsRaw = document.getElementById('rule-form-ports').value;
+    const ports = [];
+    if (portsRaw) {
+        portsRaw.split(',').forEach(p => {
+            const clean = p.trim();
+            if (clean.includes('-')) {
+                ports.push(clean);
+            } else if (clean && !isNaN(clean)) {
+                ports.push(parseInt(clean, 10));
+            }
+        });
+    }
+    const protocols = Array.from(document.querySelectorAll('input[name="rule-protocol"]:checked')).map(cb => cb.value);
+    const targetsRaw = document.getElementById('rule-form-targets').value;
+    const targets = targetsRaw ? targetsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    // Context
+    const volOp = document.getElementById('rule-form-vol-op').value || null;
+    const volValKb = parseFloat(document.getElementById('rule-form-vol-val').value) || 0;
+    const volumeBytes = volValKb * 1024;
+    const timeWindow = document.getElementById('rule-form-time-window').value;
+
+    // Reaction
+    const actionMode = document.querySelector('input[name="rule-action-mode"]:checked')?.value || 'pass';
+    const severity = document.getElementById('rule-form-severity').value;
+    const notifyTg = document.getElementById('rule-form-tg-notify').checked;
+    const tgMode = document.getElementById('rule-form-tg-mode').value;
+    const pcapSec = parseInt(document.getElementById('rule-form-pcap-sec').value, 10) || 0;
+    const wanBlock = document.getElementById('rule-form-wan-block').checked;
+    const applyPreset = document.getElementById('rule-form-apply-preset').value || null;
+
+    const payload = {
+        name,
+        description,
+        enabled: true,
+        category,
+        source: {
+            invert: srcInvert,
+            device_macs: deviceMacs,
+            profiles: selectedProfiles
+        },
+        destination: {
+            direction,
+            invert_ports: invertPorts,
+            ports,
+            protocols,
+            targets
+        },
+        context: {
+            volume_operator: volOp,
+            volume_bytes: volumeBytes,
+            time_window: timeWindow
+        },
+        reaction: {
+            action_mode: actionMode,
+            severity,
+            notify_telegram: notifyTg,
+            telegram_mode: tgMode,
+            record_pcap_seconds: pcapSec,
+            hardware_wan_block: wanBlock,
+            apply_preset_id: applyPreset
+        }
+    };
+
+    try {
+        let res;
+        if (ruleId) {
+            res = await fetch(`/api/rules/${ruleId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } else {
+            res = await fetch('/api/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || 'Ошибка сохранения правила', 'error');
+            return;
+        }
+
+        closeRuleModal();
+        showToast(ruleId ? 'Правило обновлено!' : 'Правило создано!', 'success');
+        await loadRules();
+    } catch (e) {
+        console.error('submitRuleForm error:', e);
+        showToast('Сетевая ошибка при сохранении правила', 'error');
+    }
+}
+
+async function deleteRule(ruleId) {
+    const rule = rulesList.find(r => r.id === ruleId);
+    if (!rule) return;
+    if (rule.category === 'core') {
+        showToast('Базовые системные правила Зоны 1 нельзя удалять', 'error');
+        return;
+    }
+
+    if (!confirm(`Удалить правило "${rule.name}"? Это действие нельзя отменить.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || 'Не удалось удалить правило', 'error');
+            return;
+        }
+        showToast('Правило удалено', 'success');
+        await loadRules();
+    } catch (e) {
+        console.error('deleteRule error:', e);
+        showToast('Сетевая ошибка при удалении правила', 'error');
+    }
+}
+
+async function toggleRule(ruleId, enabled) {
+    try {
+        const res = await fetch(`/api/rules/${ruleId}/toggle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            showToast(err.detail || 'Не удалось переключить статус правила', 'error');
+            await loadRules();
+            return;
+        }
+        const rule = rulesList.find(r => r.id === ruleId);
+        if (rule) rule.enabled = enabled;
+        updateRulesStats();
+        updateRulesBadgeOnly();
+        renderRulesTable();
+        showToast(`Правило ${enabled ? 'включено' : 'отключено'}`, 'info');
+    } catch (e) {
+        console.error('toggleRule error:', e);
+        await loadRules();
+    }
+}
+
+// Hit Telemetry Drawer
+async function openRuleHitsDrawer(ruleId, ruleName) {
+    const modal = document.getElementById('rule-hits-drawer');
+    const nameEl = document.getElementById('rule-hits-modal-name');
+    const totalEl = document.getElementById('rule-hits-modal-total');
+    const hits24El = document.getElementById('rule-hits-modal-24h');
+    const tbody = document.getElementById('rule-hits-modal-body');
+    const emptyEl = document.getElementById('rule-hits-modal-empty');
+    if (!modal || !tbody) return;
+
+    const rule = rulesList.find(r => r.id === ruleId);
+    if (nameEl) nameEl.textContent = ruleName || ruleId;
+    if (totalEl) totalEl.textContent = rule?.telemetry?.hits_total || 0;
+    if (hits24El) hits24El.textContent = rule?.telemetry?.hits_24h || 0;
+
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">Загрузка истории...</td></tr>';
+    if (emptyEl) emptyEl.classList.add('hidden');
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/rules/${ruleId}/hits?limit=20`);
+        if (!res.ok) throw new Error('Fetch failed');
+        const hits = await res.json();
+
+        tbody.innerHTML = '';
+        if (hits.length === 0) {
+            if (emptyEl) emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        hits.forEach(h => {
+            const tr = document.createElement('tr');
+            const timeStr = h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : '—';
+            const actionBadge = h.action_taken === 'pass'
+                ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">PASS</span>`
+                : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300">ALERT</span>`;
+
+            tr.innerHTML = `
+                <td class="py-2 px-2 text-slate-400 font-mono">${timeStr}</td>
+                <td class="py-2 px-2 text-slate-200 font-mono">${escapeRuleHtml(h.src_ip || '—')}</td>
+                <td class="py-2 px-2 text-slate-200 font-mono">${escapeRuleHtml(h.dst_ip || '—')}</td>
+                <td class="py-2 px-2 text-cyan-300 font-mono">${h.port || '—'} / ${h.protocol || 'TCP'}</td>
+                <td class="py-2 px-2 text-right text-slate-400 font-mono">${formatRuleVolume(h.bytes_count)}</td>
+                <td class="py-2 px-2 text-center">${actionBadge}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-rose-400">Ошибка при загрузке истории</td></tr>';
+    }
+}
+
+function closeRuleHitsDrawer() {
+    const modal = document.getElementById('rule-hits-drawer');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Traffic Flow Simulator Modal
+function openRuleSimModal() {
+    const modal = document.getElementById('rule-sim-modal');
+    const resultBox = document.getElementById('sim-result-box');
+    if (!modal) return;
+    if (resultBox) resultBox.classList.add('hidden');
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeRuleSimModal() {
+    const modal = document.getElementById('rule-sim-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function runRuleSimulation() {
+    const srcIp = document.getElementById('sim-src-ip').value.trim();
+    const dstIp = document.getElementById('sim-dst-ip').value.trim();
+    const port = parseInt(document.getElementById('sim-port').value, 10) || null;
+    const protocol = document.getElementById('sim-proto').value;
+    const bytesCount = parseInt(document.getElementById('sim-bytes').value, 10) || 0;
+    const timeOfDay = document.getElementById('sim-time').value;
+    const resultBox = document.getElementById('sim-result-box');
+
+    if (!srcIp || !dstIp) {
+        showToast('Укажите IP источника и назначения', 'warning');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/rules/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                src_ip: srcIp,
+                dst_ip: dstIp,
+                port,
+                protocol,
+                bytes_count: bytesCount,
+                time_of_day: timeOfDay
+            })
+        });
+
+        if (!res.ok) {
+            showToast('Ошибка при выполнении симуляции', 'error');
+            return;
+        }
+
+        const data = await res.json();
+        if (!resultBox) return;
+
+        resultBox.classList.remove('hidden');
+
+        if (data.matched) {
+            const isAlert = data.action_mode === 'alert';
+            resultBox.className = `p-4 rounded-xl border ${isAlert ? 'bg-rose-950/30 border-rose-500/40 text-rose-200' : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'} space-y-2 text-xs`;
+            resultBox.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-sm text-white flex items-center space-x-1.5">
+                        <i data-lucide="${isAlert ? 'shield-alert' : 'shield-check'}" class="w-4 h-4"></i>
+                        <span>СОВПАДЕНИЕ: ${escapeRuleHtml(data.rule_name)}</span>
+                    </span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase bg-slate-900 border border-slate-700">${data.action_mode.toUpperCase()}</span>
+                </div>
+                <p class="text-slate-300">${escapeRuleHtml(data.description || '')}</p>
+                <div class="flex items-center space-x-2 text-[11px] pt-1">
+                    <span class="text-slate-400">ID правила: <strong class="text-slate-200 font-mono">${data.rule_id}</strong></span>
+                    ${data.severity ? `<span class="text-slate-400">| Уровень: <strong class="text-amber-300">${data.severity}</strong></span>` : ''}
+                </div>
+            `;
+        } else {
+            resultBox.className = 'p-4 rounded-xl border bg-slate-800/80 border-slate-700 text-slate-300 space-y-2 text-xs';
+            resultBox.innerHTML = `
+                <div class="flex items-center space-x-1.5 font-bold text-slate-200">
+                    <i data-lucide="shield" class="w-4 h-4 text-slate-400"></i>
+                    <span>НЕТ ПРЯМОГО СОВПАДЕНИЯ (Зона 3 Fallback)</span>
+                </div>
+                <p class="text-slate-400">Поток не попал ни под одно явное правило Зоны 1 и Зоны 2. Применяется стандартный пресет безопасности и изоляция профиля устройства.</p>
+            `;
+        }
+
+        if (window.lucide) lucide.createIcons();
+    } catch (e) {
+        console.error('runRuleSimulation error:', e);
+        showToast('Ошибка симуляции потока', 'error');
+    }
+}
+
+// Guard against unsaved reordering changes on page reload/close
+window.addEventListener('beforeunload', (e) => {
+    if (typeof hasUnsavedRuleChanges !== 'undefined' && hasUnsavedRuleChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+
 
 

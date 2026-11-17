@@ -268,7 +268,8 @@ def test_audit_session_real_lateral_movement_quarantines():
 
 
 def test_lan_tracker_streaming_exemption():
-    tracker = LanTrafficTracker()
+    # Unit test: verify LanTrafficTracker preset logic strictly in isolation
+    tracker = LanTrafficTracker(use_rules_engine=False)
     devices_map = {
         "11:22:33:44:55:66": {
             "mac": "11:22:33:44:55:66",
@@ -309,7 +310,7 @@ def test_lan_tracker_streaming_exemption():
     )
     assert violation is None
 
-    # RDP (3389) from Smart TV MUST be a blocked violation
+    # RDP (3389) from Smart TV MUST be a blocked violation under preset
     violation = tracker.check_lan_policy_violation(
         src_mac="11:22:33:44:55:66",
         src_ip="192.168.1.55",
@@ -321,3 +322,58 @@ def test_lan_tracker_streaming_exemption():
     )
     assert violation is not None
     assert violation["violation_type"] == "blocked_service"
+
+
+def test_lan_tracker_rules_engine_precedence_over_preset():
+    """
+    Integration test: When Rules Engine is active, high-priority security rules
+    (such as rule_block_mirai_botnet) intercept forbidden ports (RDP 3389)
+    with rule_alert and matched_rule_id, taking precedence over device preset fallback.
+    """
+    from keenguard.core.rules.matcher import RuleMatcher
+    from keenguard.db.models import SecurityRule
+    from keenguard.db.repositories.rules import BUILTIN_SECURITY_RULES
+
+    rules = [SecurityRule(**r) for r in BUILTIN_SECURITY_RULES]
+    matcher = RuleMatcher(rules=rules)
+    tracker = LanTrafficTracker(rule_matcher=matcher, use_rules_engine=True)
+
+    devices_map = {
+        "11:22:33:44:55:66": {
+            "mac": "11:22:33:44:55:66",
+            "ip": "192.168.1.55",
+            "hostname": "LG-webOS-TV",
+            "profile": "smart_tv",
+            "preset_id": "preset_smart_tv"
+        },
+        "AA:BB:CC:DD:EE:FF": {
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "ip": "192.168.1.150",
+            "hostname": "Home-PC",
+            "profile": "trusted"
+        }
+    }
+
+    # AirPlay (7000) allowed by rule_smart_tv_media in Rules Engine
+    v_airplay = tracker.check_lan_policy_violation(
+        src_mac="11:22:33:44:55:66",
+        src_ip="192.168.1.55",
+        dst_ip="192.168.1.150",
+        port=7000,
+        protocol="TCP",
+        devices_map=devices_map
+    )
+    assert v_airplay is None
+
+    # RDP (3389) intercepted with rule_alert by rule_block_mirai_botnet
+    v_rdp = tracker.check_lan_policy_violation(
+        src_mac="11:22:33:44:55:66",
+        src_ip="192.168.1.55",
+        dst_ip="192.168.1.150",
+        port=3389,
+        protocol="TCP",
+        devices_map=devices_map
+    )
+    assert v_rdp is not None
+    assert v_rdp["violation_type"] == "rule_alert"
+    assert v_rdp["matched_rule_id"] == "rule_block_mirai_botnet"

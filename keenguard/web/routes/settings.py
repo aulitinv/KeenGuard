@@ -84,6 +84,7 @@ class SettingsUpdate(BaseModel):
     web_host: Optional[str] = None
     web_auth_enabled: Optional[str] = None
     web_auth_exempt_localhost: Optional[bool] = None
+    sniffer_mode: Optional[str] = None
 
 
 class NetworkAccessUpdateRequest(BaseModel):
@@ -249,6 +250,7 @@ async def get_app_settings():
         "web_auth_enabled": settings.web_auth_enabled,
         "web_auth_exempt_localhost": settings.web_auth_exempt_localhost,
         "has_web_password": bool(settings.web_password_hash or settings.web_password),
+        "sniffer_mode": getattr(settings, "sniffer_mode", "conntrack_passive"),
     }
 
 
@@ -586,6 +588,15 @@ async def save_app_settings(s: SettingsUpdate):
             web_auth_exempt_localhost=settings.web_auth_exempt_localhost,
         )
 
+    # Sniffer Mode & CPU optimization
+    if s.sniffer_mode is not None:
+        smode = s.sniffer_mode.strip()
+        if smode in ("conntrack_passive", "promiscuous_active"):
+            settings.sniffer_mode = smode
+            await db.save_setting("sniffer_mode", smode)
+            if sniffer:
+                sniffer.set_mode(smode)
+
     # Synchronize in-memory reactive config_service cache and notify subscribers
     try:
         from keenguard.core.config_service import config_service
@@ -608,6 +619,41 @@ async def save_app_settings(s: SettingsUpdate):
         return {"status": "ok", "message": "Settings updated", "auth": auth_res}
 
     return {"status": "ok", "message": "Settings updated"}
+
+
+class SnifferModeRequest(BaseModel):
+    sniffer_mode: str
+
+
+@router.get("/api/settings/sniffer_mode")
+async def get_sniffer_mode_endpoint():
+    """Returns current runtime sniffer mode ('conntrack_passive' or 'promiscuous_active') and engine status."""
+    sniffer = get_sniffer()
+    mode = getattr(settings, "sniffer_mode", "conntrack_passive")
+    return {
+        "status": "ok",
+        "sniffer_mode": mode,
+        "sniffer_status": sniffer.get_status() if sniffer else {}
+    }
+
+
+@router.post("/api/settings/sniffer_mode")
+async def set_sniffer_mode_endpoint(req: SnifferModeRequest):
+    """Updates sniffer mode in runtime and database, adapting CPU consumption and raw capture."""
+    smode = req.sniffer_mode.strip()
+    if smode not in ("conntrack_passive", "promiscuous_active"):
+        raise HTTPException(status_code=400, detail="Invalid sniffer mode. Must be 'conntrack_passive' or 'promiscuous_active'.")
+    db = get_db()
+    sniffer = get_sniffer()
+    settings.sniffer_mode = smode
+    await db.save_setting("sniffer_mode", smode)
+    if sniffer:
+        sniffer.set_mode(smode)
+    return {
+        "status": "ok",
+        "sniffer_mode": smode,
+        "sniffer_status": sniffer.get_status() if sniffer else {}
+    }
 
 
 @router.get("/api/settings/new_device_policy")

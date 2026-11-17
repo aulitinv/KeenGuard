@@ -37,6 +37,8 @@ refactoring/
 # Private Local Tests & Diagnostics
 private_tests/
 run_tests.bat
+tests/visual_runs/
+tests/visual_report.html
 
 # IDE & OS files
 .idea/

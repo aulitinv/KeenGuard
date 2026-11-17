@@ -173,10 +173,13 @@ async def clear_events_api(severity: Optional[str] = None, older_than_days: Opti
 
 @router.get("/api/events/pcap/{filename}")
 async def download_pcap(filename: str):
-    file_path = settings.pcap_dir / filename
-    if not file_path.exists():
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid PCAP filename")
+    file_path = (settings.pcap_dir / safe_name).resolve()
+    if not file_path.is_file() or not file_path.is_relative_to(settings.pcap_dir.resolve()):
         raise HTTPException(status_code=404, detail="PCAP dump file not found")
-    return FileResponse(path=str(file_path), filename=filename, media_type="application/vnd.tcpdump.pcap")
+    return FileResponse(path=str(file_path), filename=safe_name, media_type="application/vnd.tcpdump.pcap")
 
 
 # --- Smart Home Overview ---

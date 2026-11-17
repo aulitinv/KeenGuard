@@ -291,6 +291,13 @@ class AuditSession:
         self.http_inspections: List[Dict[str, Any]] = []
         self._hw_capture_active: bool = False
         self._poller_task: Optional[asyncio.Task] = None
+        self._tasks: set = set()
+
+    def _create_task(self, coro):
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
 
     def add_packet(self, pkt: Packet):
         if len(self.packets) < 5000:
@@ -391,7 +398,7 @@ class AuditSession:
                                         reason = f"Подозрительная активность в LAN: обращение к {dst_ip}:{dport} ({service_info.get('name')})"
                                         self.suspicious_reasons.append(reason)
                                         if asyncio.iscoroutinefunction(on_suspicious_callback):
-                                            asyncio.create_task(on_suspicious_callback(self.mac, self.ip, self.hostname or self.mac, reason))
+                                            self._create_task(on_suspicious_callback(self.mac, self.ip, self.hostname or self.mac, reason))
                                         else:
                                             on_suspicious_callback(self.mac, self.ip, self.hostname or self.mac, reason)
 
@@ -465,6 +472,13 @@ class NetworkAuditSession:
         self.total_packets_down = 0
         self.pcap_filename = f"{self.session_id}.pcap"
         self._poller_task: Optional[asyncio.Task] = None
+        self._tasks: set = set()
+
+    def _create_task(self, coro):
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
 
     @property
     def total_flows(self) -> int:
@@ -622,7 +636,7 @@ class NetworkAuditSession:
                                             "timestamp": datetime.now(timezone.utc).isoformat()
                                         })
                                         if asyncio.iscoroutinefunction(on_suspicious_callback):
-                                            asyncio.create_task(on_suspicious_callback(dev_mac, src_ip, dev_name, reason))
+                                            self._create_task(on_suspicious_callback(dev_mac, src_ip, dev_name, reason))
                                         else:
                                             on_suspicious_callback(dev_mac, src_ip, dev_name, reason)
 
