@@ -359,8 +359,11 @@ def start_mock_server(port: int):
     @app.get("/api/status")
     async def status():
         return {
-            "router": {"connected": True, "model": "Keenetic Ultra (KN-1811)", "ip": "192.168.1.1", "version": "4.2.1"},
+            "router": {"connected": True, "model": "Keenetic Ultra (KN-1811)", "ip": "192.168.1.1", "version": "4.2.1", "active_hosts": 3},
             "monitoring": {"active": True},
+            "online_devices": 3,
+            "total_devices": 4,
+            "critical_alerts": 1,
         }
 
     @app.get("/api/devices")
@@ -489,7 +492,7 @@ def start_mock_server(port: int):
             "online_iot": 0,
             "zero_internet_count": 1,
             "cloud_connections": 0,
-            "hub": {"name": "SprutHub (Zigbee/Matter)", "status": "online", "ip": "192.168.1.60"},
+            "hub": {"name": "SprutHub (Zigbee/Matter)", "status": "online", "ip": "192.168.1.60", "mac": "00:11:22:33:44:99", "vendor": "SprutHub"},
         }
 
     @app.post("/api/smarthome/hub/audit")
@@ -511,6 +514,8 @@ def start_mock_server(port: int):
     @app.get("/api/security/wifi")
     async def wifi_security():
         return {
+            "grade": "A-",
+            "score": 88,
             "networks": [
                 {"ssid": "Keenetic-Home-5G", "security": "WPA3-SAE", "status": "secure", "clients": 3},
                 {"ssid": "Keenetic-Guest", "security": "WPA2-PSK", "status": "warning", "clients": 1},
@@ -535,7 +540,11 @@ def start_mock_server(port: int):
             "score": 88,
             "period": "Последние 24 часа",
             "total_devices": 4,
+            "online_devices": 3,
             "active_devices": 3,
+            "critical_count": 1,
+            "warning_count": 1,
+            "info_count": 5,
             "incidents": {"critical": 1, "warning": 1, "info": 5},
             "recommendations": [
                 "Отозван UPnP-проброс порта 554 для камеры Hikvision",
@@ -590,6 +599,7 @@ def start_mock_server(port: int):
                 "protocol": "TCP",
                 "ext_port": 554,
                 "int_port": 554,
+                "int_ip": "192.168.1.80",
                 "client_ip": "192.168.1.80",
                 "description": "Hikvision RTSP Stream",
                 "duration": "01:45:00",
@@ -611,8 +621,49 @@ def start_mock_server(port: int):
             "is_blocked": False,
             "is_static_sinkhole": False,
             "blocked_reason": "",
-            "analysis": {"category": "telemetry", "risk": "warning", "tracker": "Samsung Smart TV ACR Analytics"},
+            "analysis": {
+                "category": "telemetry",
+                "category_name": "Телеметрия",
+                "risk": "warning",
+                "risk_level": "warning",
+                "badge_text": "Внимание",
+                "badge_color": "amber",
+                "vendor": "Samsung Cloud Platform",
+                "description": "Сбор диагностических данных и активности устройства",
+                "keenetic_tip": "Рекомендуется заблокировать для предотвращения передачи профиля активности.",
+            },
             "devices": [{"ip": "192.168.1.10", "name": "Samsung Galaxy S25 Demo"}],
+        }
+
+    @app.get("/api/investigator/incidents")
+    async def get_investigator_incidents():
+        return {
+            "incidents": [
+                {
+                    "type": "event",
+                    "id": "1",
+                    "event_id": 1,
+                    "mac": "aa:bb:cc:dd:ee:ff",
+                    "ip": "192.168.1.80",
+                    "title": "UPnP RTSP 554 проброс камеры Hikvision",
+                    "severity": "critical",
+                    "created_at": "2026-10-06T00:35:10",
+                },
+                {
+                    "type": "audit",
+                    "id": "aud_1",
+                    "mac": "11:22:33:44:55:66",
+                    "ip": "192.168.1.55",
+                    "hostname": "LG OLED 65 Smart TV",
+                    "risk_level": "warning",
+                    "created_at": "2026-10-06T00:30:00",
+                },
+            ],
+            "devices": [
+                {"mac": "02:00:00:11:22:33", "ip": "192.168.1.10", "hostname": "Samsung Galaxy S25 Demo", "vendor": "Samsung Electronics"},
+                {"mac": "11:22:33:44:55:66", "ip": "192.168.1.55", "hostname": "LG OLED 65 Smart TV", "vendor": "LG Electronics"},
+                {"mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.80", "hostname": "Hikvision Outdoor Camera", "vendor": "Hikvision"},
+            ],
         }
 
     @app.get("/api/dns/sinkholes")
@@ -731,7 +782,34 @@ def start_mock_server(port: int):
 
     @app.get("/api/tv/brand_presets")
     async def tv_brand_presets():
-        return {"presets": [{"brand": "LG webOS", "blocked_domains_count": 18}, {"brand": "Samsung Tizen", "blocked_domains_count": 24}]}
+        return {
+            "presets": [
+                {
+                    "id": "tv_lg",
+                    "name": "LG webOS",
+                    "brand": "LG webOS",
+                    "active_count": 0,
+                    "total_count": 18,
+                    "safe_count": 12,
+                    "blocked_domains_count": 18,
+                    "manual_hint": "Меню -> Все настройки -> Общие -> Дополнительные настройки -> Live Plus -> Отключить",
+                    "detected_devices": [{"custom_name": "LG OLED 65 Smart TV", "ip": "192.168.1.55"}],
+                },
+                {
+                    "id": "tv_samsung",
+                    "name": "Samsung Tizen",
+                    "brand": "Samsung Tizen",
+                    "active_count": 0,
+                    "total_count": 24,
+                    "safe_count": 16,
+                    "blocked_domains_count": 24,
+                    "manual_hint": "Меню -> Настройки -> Все настройки -> Условия и политика -> Службы информации о просмотре -> Отключить",
+                    "detected_devices": [],
+                },
+            ],
+            "active_sinkholes_count": 0,
+            "suggested_brand": "tv_lg",
+        }
 
     @app.get("/api/settings")
     async def get_settings():

@@ -1511,7 +1511,7 @@
                             <span id="pkt-total-buffered" class="px-2 py-0.5 rounded-full text-xs bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">Буфер: 0 пакетов</span>
                         </div>
                         <p class="text-xs text-slate-400 max-w-3xl">
-                            Трехпанельный анализ сырых пакетов: список перехватов, дерево уровней модели OSI (Ethernet $\rightarrow$ IP $\rightarrow$ Transport $\rightarrow$ Application) и интерактивный Hex/ASCII дамп с подсветкой байт при наведении.
+                            Трехпанельный анализ сырых пакетов: список перехватов, дерево уровней модели OSI (Ethernet &rarr; IP &rarr; Transport &rarr; Application) и интерактивный Hex/ASCII дамп с подсветкой байт при наведении.
                         </p>
                     </div>
 
@@ -4415,7 +4415,7 @@
 
     <!-- Modal: Device Details -->
     <div id="device-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
-        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
             <!-- Header: Fixed -->
             <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 shrink-0 bg-surface-900/90 backdrop-blur">
                 <div class="flex items-center space-x-3">
@@ -4442,21 +4442,21 @@
             <div class="overflow-y-auto flex-1 p-4 sm:p-5 space-y-3.5 custom-scrollbar text-xs">
                 <!-- Modal Sub-Tabs (4 horizontal tabs) -->
                 <div class="flex border-b border-slate-800 gap-1 pb-1 overflow-x-auto select-none no-scrollbar">
-                    <button id="modal-tab-btn-overview" onclick="switchDeviceModalTab('overview')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition shrink-0">
+                    <button id="modal-tab-btn-overview" onclick="switchDeviceModalTab('overview')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap">
                         <i data-lucide="info" class="w-3.5 h-3.5"></i>
                         <span>Обзор</span>
                     </button>
-                    <button id="modal-tab-btn-policies" onclick="switchDeviceModalTab('policies')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0">
+                    <button id="modal-tab-btn-policies" onclick="switchDeviceModalTab('policies')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap">
                         <i data-lucide="shield" class="w-3.5 h-3.5"></i>
                         <span>Безопасность</span>
                     </button>
-                    <button id="modal-tab-btn-traffic" onclick="switchDeviceModalTab('traffic')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0">
+                    <button id="modal-tab-btn-traffic" onclick="switchDeviceModalTab('traffic')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap">
                         <i data-lucide="activity" class="w-3.5 h-3.5"></i>
                         <span>Трафик & Шейпинг</span>
                     </button>
-                    <button id="modal-tab-btn-special" onclick="switchDeviceModalTab('special')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 relative">
+                    <button id="modal-tab-btn-special" onclick="switchDeviceModalTab('special')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 relative whitespace-nowrap">
                         <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
-                        <span>Специальное</span>
+                        <span>Спец-режимы & Аудит</span>
                         <span id="modal-special-badge" class="w-2 h-2 rounded-full bg-cyan-400 hidden absolute top-1 right-1"></span>
                     </button>
                 </div>
@@ -7207,7 +7207,31 @@
     <!-- Toast Notification Container -->
     <div id="kg-toast-container" class="fixed bottom-5 right-5 z-[9999] flex flex-col space-y-2 pointer-events-none"></div>
 
-    <!-- Application Javascript -->
-    <script src="/static/app.js?v=4.8"></script>
+    <!-- Core Application Framework -->
+    <script src="/static/js/core/state.js?v=5.0"></script>
+    <script src="/static/js/core/utils.js?v=5.0"></script>
+    <script src="/static/js/core/toast.js?v=5.0"></script>
+    <script src="/static/js/core/auth.js?v=5.0"></script>
+    <script src="/static/js/core/websocket.js?v=5.0"></script>
+    <script src="/static/js/core/nav.js?v=5.0"></script>
+
+    <!-- Domain Feature Modules -->
+    <script src="/static/js/modules/dashboard.js?v=5.0"></script>
+    <script src="/static/js/modules/devices.js?v=5.0"></script>
+    <script src="/static/js/modules/tv.js?v=5.0"></script>
+    <script src="/static/js/modules/security.js?v=5.0"></script>
+    <script src="/static/js/modules/settings.js?v=5.0"></script>
+    <script src="/static/js/modules/dns.js?v=5.0"></script>
+    <script src="/static/js/modules/smarthome.js?v=5.0"></script>
+    <script src="/static/js/modules/audits.js?v=5.0"></script>
+    <script src="/static/js/modules/lan.js?v=5.0"></script>
+    <script src="/static/js/modules/packets.js?v=5.0"></script>
+    <script src="/static/js/modules/investigator.js?v=5.0"></script>
+    <script src="/static/js/modules/topology.js?v=5.0"></script>
+    <script src="/static/js/modules/palette.js?v=5.0"></script>
+    <script src="/static/js/modules/rules.js?v=5.0"></script>
+
+    <!-- Application Orchestrator -->
+    <script src="/static/app.js?v=5.0"></script>
 </body>
 </html>
