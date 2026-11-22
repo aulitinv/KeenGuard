@@ -262,6 +262,16 @@ class TelegramNotifier:
                         ext_port = int(m2.group(1))
             if ext_port:
                 keyboard.append([{"text": f"🚫 Закрыть порт {proto.upper()}/{ext_port}", "callback_data": f"del_upnp:{proto}:{ext_port}"}])
+        elif event.event_type == "wifi_deauth_flood":
+            keyboard.append([
+                {"text": "🛡️ Включить PMF Mandatory", "callback_data": "wids:enable_pmf"},
+                {"text": "🔕 Заглушить на 1 час", "callback_data": "wids:silence_deauth:3600"}
+            ])
+        elif event.event_type == "wifi_evil_twin":
+            keyboard.append([
+                {"text": "🔒 Включить WPA3-Only", "callback_data": "wids:enable_wpa3"},
+                {"text": "📡 Сканировать эфир", "callback_data": "wids:rescan"}
+            ])
         elif event.event_type == "camera_leak" and event.target_mac:
             keyboard.append([{"text": "🔍 Запустить аудит (5 мин)", "callback_data": f"audit:{event.target_mac}:300"}])
         elif event.event_type == "new_device" and event.target_mac:

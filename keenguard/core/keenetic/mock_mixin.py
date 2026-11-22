@@ -73,19 +73,32 @@ class KeeneticMockMixin:
             {"domain": "pool.ntp.org", "ip": "194.226.177.202", "ttl": 120}
         ]
 
+    def _mock_set_wifi_pmf(self, mode: str = "required") -> bool:
+        self._mock_wifi_pmf = mode
+        return True
+
+    def _mock_set_wifi_wpa3(self, enable: bool = True) -> bool:
+        self._mock_wifi_wpa3 = enable
+        return True
+
     def _mock_get_wifi_security(self) -> Dict[str, Any]:
+        pmf_mode = getattr(self, "_mock_wifi_pmf", "optional")
+        wpa3_mode = getattr(self, "_mock_wifi_wpa3", False)
+        sec_str = "WPA3-SAE" if wpa3_mode else "WPA3 / WPA2 mixed"
+        score = 100 if pmf_mode == "required" else 80
+        grade = "A+" if pmf_mode == "required" else "B"
         return {
-            "grade": "A+",
-            "score": 100,
+            "grade": grade,
+            "score": score,
             "access_points": [
                 {
                     "interface": "WifiMaster0/AccessPoint0",
                     "ssid": "Keenetic-Home",
                     "band": "2.4 ГГц",
-                    "security": "WPA3 / WPA2 mixed",
-                    "security_type": "wpa3_mixed",
+                    "security": sec_str,
+                    "security_type": "wpa3" if wpa3_mode else "wpa3_mixed",
                     "wps": False,
-                    "pmf": "optional"
+                    "pmf": pmf_mode
                 }
             ],
             "networks": [
@@ -93,18 +106,18 @@ class KeeneticMockMixin:
                     "interface": "WifiMaster0/AccessPoint0",
                     "ssid": "Keenetic-Home",
                     "band": "2.4 ГГц",
-                    "security": "WPA3 / WPA2 mixed",
-                    "security_type": "wpa3_mixed",
+                    "security": sec_str,
+                    "security_type": "wpa3" if wpa3_mode else "wpa3_mixed",
                     "wps": False,
-                    "pmf": "optional"
+                    "pmf": pmf_mode
                 }
             ],
             "wps_enabled": False,
-            "pmf_enabled": True,
+            "pmf_enabled": pmf_mode in ("required", "optional"),
             "guest_network": {"configured": True, "isolated": True},
             "guest_network_enabled": True,
             "guest_isolation_enabled": True,
-            "recommendations": ["Рекомендуется установить PMF в режим 'Обязательно' для защиты от Deauth-атак."]
+            "recommendations": [] if pmf_mode == "required" else ["Рекомендуется установить PMF в режим 'Обязательно' для защиты от Deauth-атак."]
         }
 
     def _mock_check_firmware_updates(self, current_v: str) -> Dict[str, Any]:

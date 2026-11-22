@@ -325,13 +325,27 @@ class WIDSService:
         self.deauth_detector = DeauthFloodDetector()
         self.pmf_auditor = PmfSecurityAuditor()
         self.rogue_detector = RogueApDetector()
+        self.deauth_silenced_until: Optional[datetime] = None
+        self._last_notified: Dict[str, datetime] = {}
+
+    def silence_deauth(self, seconds: int = 3600):
+        """Silences deauth flood alerts for specified duration in seconds."""
+        self.deauth_silenced_until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+        logger.info("Deauth flood alerts silenced until %s", self.deauth_silenced_until.isoformat())
+
+    def is_deauth_silenced(self) -> bool:
+        """Returns True if deauth flood alert silence window is active."""
+        if self.deauth_silenced_until is None:
+            return False
+        return datetime.now(timezone.utc) < self.deauth_silenced_until
 
     async def run_wids_audit(
         self,
         router_backend: Any,
         db: Optional[Any] = None,
         custom_logs: Optional[List[str]] = None,
-        custom_scan: Optional[List[Dict[str, Any]]] = None
+        custom_scan: Optional[List[Dict[str, Any]]] = None,
+        notify: bool = True
     ) -> Dict[str, Any]:
         """Runs full WIDS evaluation: Deauth detection, PMF posture, and Rogue AP scan."""
         # 1. Wi-Fi Security & PMF Audit
@@ -341,12 +355,15 @@ class WIDSService:
 
         # 2. Deauth Flood Analysis
         log_lines: List[str] = []
-        if custom_logs is not None:
-            log_lines = custom_logs
-        elif hasattr(router_backend, "get_system_log"):
-            log_lines = await router_backend.get_system_log(limit=200)
+        if self.is_deauth_silenced():
+            deauth_incidents = []
+        else:
+            if custom_logs is not None:
+                log_lines = custom_logs
+            elif hasattr(router_backend, "get_system_log"):
+                log_lines = await router_backend.get_system_log(limit=200)
 
-        deauth_incidents = self.deauth_detector.analyze_logs(log_lines)
+            deauth_incidents = self.deauth_detector.analyze_logs(log_lines)
 
         # 3. Rogue AP / Evil Twin Detection
         scanned_aps: List[Dict[str, Any]] = []
@@ -357,26 +374,43 @@ class WIDSService:
 
         evil_twin_incidents = self.rogue_detector.detect(scanned_aps, networks)
 
-        # 4. Record detected incidents in DB if requested
+        # 4. Record detected incidents in DB and send notifications
         recorded_ids = []
-        now_iso = datetime.now(timezone.utc).isoformat()
-        if db:
-            for incident in deauth_incidents + evil_twin_incidents:
+        now_dt = datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
+
+        events_to_notify = []
+        for incident in deauth_incidents + evil_twin_incidents:
+            ev = SecurityEvent(
+                timestamp=now_iso,
+                event_type=incident["type"],
+                severity=incident["severity"],
+                target_mac="NETWORK",
+                source_mac=incident.get("bssid"),
+                source_name="WIDS Monitor",
+                description=incident["title"],
+                details=incident
+            )
+            if db:
                 try:
-                    ev = SecurityEvent(
-                        timestamp=now_iso,
-                        event_type=incident["type"],
-                        severity=incident["severity"],
-                        target_mac="NETWORK",
-                        source_mac=incident.get("bssid"),
-                        source_name="WIDS Monitor",
-                        description=incident["title"],
-                        details=incident
-                    )
                     ev_id = await db.record_event(ev)
                     recorded_ids.append(ev_id)
                 except Exception as e:
                     logger.warning("Failed to record WIDS event into DB: %s", e)
+            events_to_notify.append(ev)
+
+        if notify and events_to_notify:
+            try:
+                from keenguard.core.notifier import notifier
+                for ev in events_to_notify:
+                    incident_key = f"{ev.event_type}:{ev.source_mac or 'ALL'}"
+                    last_time = self._last_notified.get(incident_key)
+                    if last_time and (now_dt - last_time).total_seconds() < 900:
+                        continue
+                    self._last_notified[incident_key] = now_dt
+                    await notifier.send_alert(ev)
+            except Exception as ex:
+                logger.debug("Failed to send WIDS Telegram alert: %s", ex)
 
         # 5. Composite WIDS Score
         wids_score = pmf_report["score"]

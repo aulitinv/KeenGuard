@@ -51,6 +51,35 @@ class KeeneticFilteringMixin:
         resp = await self._send_request("POST", "/rci/", json_data=payload)
         return resp is not None and resp.status_code == 200
 
+    async def set_wifi_pmf(self, mode: str = "required") -> bool:
+        """Sets Protected Management Frames (802.11w) on Wi-Fi access points."""
+        logger.info("Setting Wi-Fi PMF mode to '%s'", mode)
+        if getattr(self, "mock_mode", False):
+            return self._mock_set_wifi_pmf(mode)
+
+        payload = [
+            {"interface": {"WifiMaster0/AccessPoint0": {"authentication": {"wpa-psk": {"pmf": mode}}}}},
+            {"interface": {"WifiMaster1/AccessPoint0": {"authentication": {"wpa-psk": {"pmf": mode}}}}},
+            {"system": {"configuration": {"save": {}}}}
+        ]
+        resp = await self._send_request("POST", "/rci/", json_data=payload)
+        return resp is not None and resp.status_code == 200
+
+    async def set_wifi_wpa3(self, enable: bool = True) -> bool:
+        """Enables WPA3-SAE encryption on Wi-Fi access points."""
+        sec_mode = "wpa3" if enable else "wpa2"
+        logger.info("Setting Wi-Fi security mode to '%s'", sec_mode)
+        if getattr(self, "mock_mode", False):
+            return self._mock_set_wifi_wpa3(enable)
+
+        payload = [
+            {"interface": {"WifiMaster0/AccessPoint0": {"authentication": {"wpa-psk": {"security": sec_mode}}}}},
+            {"interface": {"WifiMaster1/AccessPoint0": {"authentication": {"wpa-psk": {"security": sec_mode}}}}},
+            {"system": {"configuration": {"save": {}}}}
+        ]
+        resp = await self._send_request("POST", "/rci/", json_data=payload)
+        return resp is not None and resp.status_code == 200
+
     async def add_dns_sinkholes(self, domains: List[str]) -> Tuple[List[str], List[str]]:
         """
         Batch blocks domains on Keenetic by creating static DNS host entries resolving to 0.0.0.0.

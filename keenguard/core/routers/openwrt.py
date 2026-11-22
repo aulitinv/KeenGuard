@@ -779,6 +779,36 @@ class OpenWrtBackend(BaseRouterBackend):
             "recommendations": recommendations
         }
 
+    async def set_wifi_pmf(self, mode: str = "required") -> bool:
+        """Sets PMF (802.11w) on OpenWrt wireless interfaces."""
+        uci_val = "2" if mode == "required" else ("1" if mode == "optional" else "0")
+        try:
+            await self._call_ubus("uci", "set", {
+                "config": "wireless",
+                "type": "wifi-iface",
+                "values": {"ieee80211w": uci_val}
+            })
+            await self._call_ubus("uci", "commit", {"config": "wireless"})
+            return True
+        except Exception as e:
+            logger.debug("Failed to set OpenWrt PMF via ubus: %s", e)
+            return False
+
+    async def set_wifi_wpa3(self, enable: bool = True) -> bool:
+        """Enables WPA3 on OpenWrt."""
+        enc = "sae" if enable else "psk2"
+        try:
+            await self._call_ubus("uci", "set", {
+                "config": "wireless",
+                "type": "wifi-iface",
+                "values": {"encryption": enc}
+            })
+            await self._call_ubus("uci", "commit", {"config": "wireless"})
+            return True
+        except Exception as e:
+            logger.debug("Failed to set OpenWrt WPA3 via ubus: %s", e)
+            return False
+
     async def get_wan_ip(self) -> Optional[str]:
         """Fetches external WAN IPv4 address from OpenWrt ubus."""
         try:

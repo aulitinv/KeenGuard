@@ -188,6 +188,14 @@ class BaseRouterBackend(ABC):
             "recommendations": []
         }
 
+    async def set_wifi_pmf(self, mode: str = "required") -> bool:
+        """Sets Protected Management Frames (802.11w) mode ('required', 'optional', 'disabled')."""
+        return False
+
+    async def set_wifi_wpa3(self, enable: bool = True) -> bool:
+        """Enables WPA3-SAE encryption on wireless interfaces."""
+        return False
+
     async def check_firmware_updates(self) -> Dict[str, Any]:
         """Checks for router firmware updates."""
         info = await self.get_system_info()

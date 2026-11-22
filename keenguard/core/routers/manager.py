@@ -137,6 +137,12 @@ class RouterManager:
     async def get_wifi_security(self) -> Dict[str, Any]:
         return await self.get_backend().get_wifi_security()
 
+    async def set_wifi_pmf(self, mode: str = "required") -> bool:
+        return await self.get_backend().set_wifi_pmf(mode=mode)
+
+    async def set_wifi_wpa3(self, enable: bool = True) -> bool:
+        return await self.get_backend().set_wifi_wpa3(enable=enable)
+
     async def get_system_log(self, limit: int = 200) -> List[str]:
         return await self.get_backend().get_system_log(limit=limit)
 

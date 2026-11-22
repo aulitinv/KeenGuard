@@ -225,6 +225,16 @@ class KeeneticBackend(BaseRouterBackend):
     async def get_wifi_security(self) -> Dict[str, Any]:
         return await self.client.get_wifi_security()
 
+    async def set_wifi_pmf(self, mode: str = "required") -> bool:
+        if hasattr(self.client, "set_wifi_pmf"):
+            return await self.client.set_wifi_pmf(mode=mode)
+        return True
+
+    async def set_wifi_wpa3(self, enable: bool = True) -> bool:
+        if hasattr(self.client, "set_wifi_wpa3"):
+            return await self.client.set_wifi_wpa3(enable=enable)
+        return True
+
     async def get_system_log(self, limit: int = 200) -> List[str]:
         if hasattr(self.client, "get_system_log"):
             return await self.client.get_system_log(limit=limit)

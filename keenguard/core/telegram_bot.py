@@ -584,6 +584,38 @@ class TelegramBotWorker:
                 port = int(parts[2])
                 await backend.delete_upnp_mapping(proto, port)
                 action_result = f"🚫 Порт UPnP {proto.upper()}/{port} закрыт на роутере"
+            elif data == "wids:enable_pmf":
+                if hasattr(backend, "set_wifi_pmf"):
+                    ok = await backend.set_wifi_pmf("required")
+                    if ok:
+                        action_result = "🛡️ PMF (802.11w) переведён в режим 'Обязательно' (Mandatory). Защита активирована."
+                    else:
+                        action_result = "⚠️ Не удалось включить PMF автоматически. Включите 802.11w в настройках роутера."
+                else:
+                    action_result = "🛡️ Рекомендуется включить 802.11w (PMF: Required) в веб-интерфейсе роутера."
+            elif data.startswith("wids:silence_deauth"):
+                parts = data.split(":")
+                secs = int(parts[2]) if len(parts) > 2 else 3600
+                from keenguard.core.wids import wids_service
+                wids_service.silence_deauth(seconds=secs)
+                action_result = f"🔕 Оповещения Deauth-флуда заглушены на {secs // 3600} ч."
+            elif data == "wids:enable_wpa3":
+                if hasattr(backend, "set_wifi_wpa3"):
+                    ok = await backend.set_wifi_wpa3(True)
+                    if ok:
+                        action_result = "🔒 Режим WPA3-SAE активирован на Wi-Fi интерфейсах роутера."
+                    else:
+                        action_result = "⚠️ Не удалось включить WPA3 автоматически. Включите WPA3-Personal в настройках роутера."
+                else:
+                    action_result = "🔒 Переведите сеть в режим WPA3-Personal (SAE) для защиты от поддельных точек доступа."
+            elif data == "wids:rescan":
+                from keenguard.core.wids import wids_service
+                from keenguard.db.database import db
+                report = await wids_service.run_wids_audit(backend, db=db, notify=False)
+                threats = report.get("threats_count", 0)
+                grade = report.get("grade", "A")
+                score = report.get("score", 100)
+                action_result = f"📡 Сканирование эфира завершено: Оценка {grade} ({score}/100), угроз: {threats}."
             elif data.startswith("audit:"):
                 rest = data.split(":", 1)[1]
                 mac, dur_str = rest.rsplit(":", 1)
