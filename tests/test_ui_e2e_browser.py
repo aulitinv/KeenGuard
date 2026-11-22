@@ -772,8 +772,15 @@ async def test_e2e_topology_jitter_vs_drag(browser_path: str, e2e_server: int):
         await session.eval("switchTab('topology'); true")
         await asyncio.sleep(0.8)
 
-        center = await session.get_element_center('#topo-node-dev_1')
-        assert center is not None
+        center = None
+        for _ in range(10):
+            center = await session.get_element_center('#topo-node-dev_1 .topology-hit-circle')
+            if not center:
+                center = await session.get_element_center('#topo-node-dev_1')
+            if center:
+                break
+            await asyncio.sleep(0.3)
+        assert center is not None, "Failed to resolve coordinates for #topo-node-dev_1"
 
         # 1. Jitter test (2px movement during click -> MUST open modal)
         await session.mouse_move(center["x"], center["y"])
@@ -789,7 +796,9 @@ async def test_e2e_topology_jitter_vs_drag(browser_path: str, e2e_server: int):
         await asyncio.sleep(0.3)
 
         # 2. Deliberate drag test (35px movement -> MUST NOT open modal)
-        center = await session.get_element_center('#topo-node-dev_1')
+        center = await session.get_element_center('#topo-node-dev_1 .topology-hit-circle')
+        if not center:
+            center = await session.get_element_center('#topo-node-dev_1')
         assert center is not None
         await session.mouse_move(center["x"], center["y"])
         await session.mouse_down(center["x"], center["y"])
