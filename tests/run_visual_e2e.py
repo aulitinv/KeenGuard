@@ -517,12 +517,47 @@ def start_mock_server(port: int):
             "grade": "A-",
             "score": 88,
             "networks": [
-                {"ssid": "Keenetic-Home-5G", "security": "WPA3-SAE", "status": "secure", "clients": 3},
-                {"ssid": "Keenetic-Guest", "security": "WPA2-PSK", "status": "warning", "clients": 1},
+                {"ssid": "Keenetic-Home-5G", "security": "WPA3-SAE", "status": "secure", "clients": 3, "pmf": "required"},
+                {"ssid": "Keenetic-Guest", "security": "WPA2-PSK", "status": "warning", "clients": 1, "pmf": "optional"},
             ],
             "wps_active": False,
+            "pmf_enabled": True,
+            "pmf_audit": {
+                "status": "ok",
+                "grade": "A+",
+                "badge": "✓ Mandatory",
+                "summary": "Беспроводные сети защищены обязательным шифрованием кадров управления (PMF).",
+            },
+            "wids": {
+                "score": 95,
+                "grade": "A+",
+                "all_incidents": [],
+                "scanned_aps_count": 5,
+            },
             "recommendations": ["Рекомендуется отключить устаревшие протоколы TKIP"],
         }
+
+    @app.get("/api/security/wids/status")
+    async def wids_status():
+        return {
+            "score": 100,
+            "grade": "A+",
+            "pmf_audit": {
+                "status": "ok",
+                "grade": "A+",
+                "badge": "802.11w Mandatory",
+                "summary": "Все сети защищены PMF.",
+            },
+            "deauth_incidents": [],
+            "evil_twin_incidents": [],
+            "all_incidents": [],
+            "threats_count": 0,
+            "scanned_aps_count": 3,
+        }
+
+    @app.post("/api/security/wids/scan")
+    async def wids_scan():
+        return await wids_status()
 
     @app.get("/api/router/updates")
     async def router_updates():

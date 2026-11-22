@@ -225,6 +225,16 @@ class KeeneticBackend(BaseRouterBackend):
     async def get_wifi_security(self) -> Dict[str, Any]:
         return await self.client.get_wifi_security()
 
+    async def get_system_log(self, limit: int = 200) -> List[str]:
+        if hasattr(self.client, "get_system_log"):
+            return await self.client.get_system_log(limit=limit)
+        return []
+
+    async def get_wlan_scan(self) -> List[Dict[str, Any]]:
+        if hasattr(self.client, "get_wlan_scan"):
+            return await self.client.get_wlan_scan()
+        return []
+
     async def check_firmware_updates(self) -> Dict[str, Any]:
         return await self.client.check_firmware_updates()
 

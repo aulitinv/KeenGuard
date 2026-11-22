@@ -215,7 +215,8 @@ async def test_rci_payload_schema_and_error_handling():
             assert call_args[0][1] == "/rci/"
             payload = call_args[1]["json_data"]
             assert payload[0] == {"ip": {"host": {"domain": "test.adservice.com", "address": "0.0.0.0"}}}
-            assert payload[1] == {"system": {"configuration": {"save": {}}}}
+            assert payload[1] == {"ipv6": {"host": {"domain": "test.adservice.com", "address": "::"}}}
+            assert payload[2] == {"system": {"configuration": {"save": {}}}}
 
         # 2. Router error response mock
         mock_send_err = AsyncMock()
@@ -246,6 +247,7 @@ async def test_rci_payload_schema_and_error_handling():
             assert ok_rm is True
             payload_rm = mock_send_rm.call_args[1]["json_data"]
             assert payload_rm[0] == {"ip": {"host": {"domain": "test.adservice.com", "address": "0.0.0.0", "no": True}}}
-            assert payload_rm[1] == {"system": {"configuration": {"save": {}}}}
+            assert payload_rm[1] == {"ipv6": {"host": {"domain": "test.adservice.com", "address": "::", "no": True}}}
+            assert payload_rm[2] == {"system": {"configuration": {"save": {}}}}
 
 

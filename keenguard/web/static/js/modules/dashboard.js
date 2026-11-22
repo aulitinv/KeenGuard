@@ -292,6 +292,35 @@ async function loadWifiAudit() {
             }
         }
 
+        const pmfStatus = document.getElementById('wifi-pmf-status');
+        if (pmfStatus) {
+            const pmfAudit = data.pmf_audit || data.wids?.pmf_audit;
+            if (pmfAudit) {
+                pmfStatus.textContent = pmfAudit.status === 'ok' ? '✓ Mandatory' : (pmfAudit.status === 'critical' ? '⚠️ Отключен' : '✓ Optional');
+                pmfStatus.className = pmfAudit.status === 'ok'
+                    ? 'text-[11px] font-semibold text-emerald-400'
+                    : (pmfAudit.status === 'critical' ? 'text-[11px] font-semibold text-rose-400' : 'text-[11px] font-semibold text-amber-400');
+            } else if (data.pmf_enabled) {
+                pmfStatus.textContent = '✓ Mandatory';
+                pmfStatus.className = 'text-[11px] font-semibold text-emerald-400';
+            } else {
+                pmfStatus.textContent = '⚠️ Optional';
+                pmfStatus.className = 'text-[11px] font-semibold text-amber-400';
+            }
+        }
+
+        const widsStatus = document.getElementById('wifi-wids-status');
+        if (widsStatus) {
+            const threats = (data.threats && data.threats.length > 0) ? data.threats : (data.wids?.all_incidents || []);
+            if (threats.length > 0) {
+                widsStatus.textContent = `🚨 Угроза (${threats.length})`;
+                widsStatus.className = 'text-[11px] font-semibold text-rose-400 animate-pulse';
+            } else {
+                widsStatus.textContent = '✓ Чистый эфир';
+                widsStatus.className = 'text-[11px] font-semibold text-emerald-400';
+            }
+        }
+
         // 4. Recommendation Box
         const recElem = document.getElementById('wifi-recommendations');
         const recIcon = document.getElementById('wifi-rec-icon');

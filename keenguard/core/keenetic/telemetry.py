@@ -518,3 +518,66 @@ class KeeneticTelemetryMixin:
                 "hardware_enforced": is_isolated,
                 "recommendation": "Рекомендуется проверить сегмент размещения устройства."
             }
+
+    async def get_system_log(self, limit: int = 200) -> List[str]:
+        """Queries recent system log lines from KeeneticOS RCI."""
+        if getattr(self, "mock_mode", False):
+            return self._mock_get_system_log(limit=limit)
+
+        log_query = [{"show": {"log": {}}}]
+        resp = await self._send_request("POST", "/rci/", json_data=log_query)
+        if not resp or resp.status_code != 200:
+            return []
+
+        try:
+            data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                raw_log = data[0].get("show", {}).get("log", {})
+                if isinstance(raw_log, dict):
+                    messages = raw_log.get("message", [])
+                    if isinstance(messages, list):
+                        return [str(m) for m in messages[-limit:]]
+                elif isinstance(raw_log, list):
+                    return [str(m) for m in raw_log[-limit:]]
+        except Exception as e:
+            logger.debug("Error parsing Keenetic system log: %s", e)
+        return []
+
+    async def get_wlan_scan(self) -> List[Dict[str, Any]]:
+        """Queries nearby Wi-Fi access points detected by KeeneticOS site survey."""
+        if getattr(self, "mock_mode", False):
+            return self._mock_get_wlan_scan()
+
+        scan_query = [{"show": {"wlan": {"access-point": {}}}}]
+        resp = await self._send_request("POST", "/rci/", json_data=scan_query)
+        if not resp or resp.status_code != 200:
+            return []
+
+        results = []
+        try:
+            data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                raw_aps = data[0].get("show", {}).get("wlan", {}).get("access-point", {})
+                if isinstance(raw_aps, dict):
+                    for bssid, info in raw_aps.items():
+                        if isinstance(info, dict):
+                            results.append({
+                                "ssid": info.get("ssid", ""),
+                                "bssid": str(bssid).upper(),
+                                "channel": info.get("channel", "Auto"),
+                                "rssi": info.get("rssi", info.get("signal", -80)),
+                                "security": info.get("security", "Unknown")
+                            })
+                elif isinstance(raw_aps, list):
+                    for item in raw_aps:
+                        if isinstance(item, dict):
+                            results.append({
+                                "ssid": item.get("ssid", ""),
+                                "bssid": str(item.get("bssid", "")).upper(),
+                                "channel": item.get("channel", "Auto"),
+                                "rssi": item.get("rssi", item.get("signal", -80)),
+                                "security": item.get("security", "Unknown")
+                            })
+        except Exception as e:
+            logger.debug("Error parsing Keenetic wlan access-point scan: %s", e)
+        return results

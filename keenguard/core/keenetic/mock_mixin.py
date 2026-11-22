@@ -135,6 +135,23 @@ class KeeneticMockMixin:
             {"id": "Guest", "name": "Гостевая сеть", "interface": "Bridge1", "subnet": "192.168.2.0/24", "dhcp": True, "security_level": "isolated"}
         ]
 
+    def _mock_get_system_log(self, limit: int = 200) -> List[str]:
+        return [
+            "Nov 22 17:00:10 ndm: Core::SystemServer: started successfully.",
+            "Nov 22 17:01:23 ndm: Dns::Manager: configured proxy servers: 94.140.14.14, 94.140.15.15.",
+            "Nov 22 17:05:44 ndm: Dhcp::Server: assigned IP address 192.168.1.50 to client 00:11:22:33:44:55.",
+            "Nov 22 17:10:12 wlan0: WifiMaster0: AccessPoint0: client connected: 50:ec:50:3a:b8:91, signal: -52 dBm.",
+            "Nov 22 17:15:30 ndm: Http::Server: RCI request received from 127.0.0.1: show interface.",
+            "Nov 22 17:20:00 ndm: Security::Audit: all segments operating within normal baseline."
+        ]
+
+    def _mock_get_wlan_scan(self) -> List[Dict[str, Any]]:
+        return [
+            {"ssid": "MGTS_GPON_5G_99", "bssid": "E0:D9:E3:44:11:01", "channel": 36, "rssi": -78, "security": "WPA2-PSK"},
+            {"ssid": "Beeline_Home_Wi-Fi", "bssid": "C4:EA:1D:90:33:44", "channel": 6, "rssi": -82, "security": "WPA2-PSK"},
+            {"ssid": "ASUS_RT_AX58U", "bssid": "24:4B:FE:12:88:99", "channel": 1, "rssi": -71, "security": "WPA3-SAE"}
+        ]
+
     # --- Filtering Mocks ---
 
     def _mock_get_upnp_mappings(self) -> List[UPnPMapping]:

@@ -963,3 +963,40 @@ class OpenWrtBackend(BaseRouterBackend):
             return True
         except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError):
             return False
+
+    async def get_system_log(self, limit: int = 200) -> List[str]:
+        """Queries syslog on OpenWrt via logread."""
+        if self.mock_mode:
+            return [
+                "daemon.notice netifd: Network device 'br-lan' link is up",
+                "daemon.info dnsmasq-dhcp[1]: DHCPACK(br-lan) 192.168.1.150 00:11:22:33:44:55",
+                "daemon.info hostapd: wlan0: STA aa:bb:cc:dd:ee:01 IEEE 802.11: associated"
+            ]
+        try:
+            res = await self._call_ubus("file", "exec", {"command": "logread", "params": ["-l", str(limit)]})
+            stdout = res.get("stdout", "")
+            return [l.strip() for l in stdout.splitlines() if l.strip()]
+        except Exception as e:
+            logger.debug("Failed to read OpenWrt system log: %s", e)
+            return []
+
+    async def get_wlan_scan(self) -> List[Dict[str, Any]]:
+        """Queries wireless scan on OpenWrt via iwinfo."""
+        if self.mock_mode:
+            return [
+                {"ssid": "Neighbor-Net", "bssid": "C4:EA:1D:90:33:44", "channel": 6, "rssi": -80, "security": "WPA2"}
+            ]
+        results = []
+        try:
+            res = await self._call_ubus("iwinfo", "scan", {"device": "wlan0"})
+            for ap in res.get("results", []):
+                results.append({
+                    "ssid": ap.get("ssid", ""),
+                    "bssid": ap.get("bssid", "").upper(),
+                    "channel": ap.get("channel", 1),
+                    "rssi": ap.get("signal", -80),
+                    "security": ap.get("encryption", {}).get("description", "Unknown")
+                })
+        except Exception as e:
+            logger.debug("Failed to scan wlan on OpenWrt: %s", e)
+        return results

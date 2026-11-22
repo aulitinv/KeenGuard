@@ -206,6 +206,14 @@ class BaseRouterBackend(ABC):
         """Queries network interface rx_bytes / tx_bytes."""
         return {"rx_bytes": 0, "tx_bytes": 0}
 
+    async def get_system_log(self, limit: int = 200) -> List[str]:
+        """Returns recent system log messages from the router."""
+        return []
+
+    async def get_wlan_scan(self) -> List[Dict[str, Any]]:
+        """Returns surrounding Wi-Fi access points detected by site survey."""
+        return []
+
     async def get_dns_proxy_status(self) -> Dict[str, Any]:
         """Returns router DNS server/proxy status."""
         return {"status": "ok", "mode": "standard"}

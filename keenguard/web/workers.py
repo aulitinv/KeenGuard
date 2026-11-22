@@ -507,6 +507,14 @@ async def _do_keenetic_poll_internal():
     if _poll_counter % 120 == 0:
         create_tracked_task(db.prune_iot_payloads())
 
+    # Periodic WIDS (Wireless Intrusion Detection) check every ~60s
+    if _poll_counter % 12 == 0:
+        try:
+            from keenguard.core.wids import wids_service
+            create_tracked_task(wids_service.run_wids_audit(active_backend, db=db))
+        except Exception as e:
+            logger.debug("Periodic WIDS audit error: %s", e)
+
     await ws_manager.broadcast({"type": "refresh", "device_count": len(hosts)})
 
 

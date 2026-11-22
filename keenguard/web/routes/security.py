@@ -27,6 +27,7 @@ from keenguard.core.keenetic import is_unsafe_ip_for_blackhole
 from keenguard.core.lan_tracker import lan_tracker
 from keenguard.core.profiles import profile_manager
 from keenguard.core.routers import router_manager
+from keenguard.core.wids import wids_service
 from keenguard.web.state import (
     get_db,
     get_sniffer,
@@ -563,7 +564,32 @@ async def apply_security_wizard(req: SecurityWizardApplyRequest):
 @router.get("/api/security/wifi")
 async def get_wifi_audit():
     audit = await router_manager.get_wifi_security()
+    try:
+        backend = router_manager.get_backend()
+        wids_report = await wids_service.run_wids_audit(backend)
+        audit["wids"] = wids_report
+        audit["pmf_audit"] = wids_report.get("pmf_audit", {})
+        if wids_report.get("all_incidents"):
+            audit["threats"] = wids_report.get("all_incidents")
+    except Exception as e:
+        logger.debug("Failed attaching WIDS report to wifi audit: %s", e)
     return audit
+
+
+@router.get("/api/security/wids/status")
+async def get_wids_status():
+    """Returns complete Wireless Intrusion Detection System (WIDS) status."""
+    backend = router_manager.get_backend()
+    db = get_db()
+    return await wids_service.run_wids_audit(backend, db=db)
+
+
+@router.post("/api/security/wids/scan")
+async def trigger_wids_scan():
+    """Triggers an on-demand site survey and deauth flood analysis."""
+    backend = router_manager.get_backend()
+    db = get_db()
+    return await wids_service.run_wids_audit(backend, db=db)
 
 
 # --- Firmware & Router Updates Endpoint ---

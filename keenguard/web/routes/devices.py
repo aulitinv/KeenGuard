@@ -368,45 +368,53 @@ async def get_isolation_guide(mac: str):
     is_wifi = "wifi" in iface_str.lower() or "ra" in iface_str.lower() or "ap" in iface_str.lower() or getattr(dev, "connection_type", "") == "wifi"
 
     steps = []
+    recommended_segment = "Гостевая сеть"
+    if dev.profile == "smart_tv":
+        recommended_segment = "Smart TV & Стриминг"
+    elif dev.profile in ("camera", "nvr"):
+        recommended_segment = "Видеонаблюдение (Без WAN)"
+    elif dev.profile in ("iot", "smart_home_hub"):
+        recommended_segment = "IoT & Умный дом"
+
     if is_isolated:
         steps.append({
-            "title": "Устройство уже изолировано",
-            "desc": f"Устройство находится в изолированном сегменте '{segment}' ({getattr(host_info, 'ip', dev.ip)}). Пакеты к домашней сети фильтруются роутером.",
+            "title": "Устройство уже аппаратно изолировано",
+            "desc": f"Устройство находится в изолированном сегменте '{segment}' ({getattr(host_info, 'ip', dev.ip)}). Прямой L2-трафик к домашней сети заблокирован роутером.",
             "done": True
         })
     elif is_wifi:
         steps = [
             {
-                "title": "Шаг 1: Включите Гостевую сеть в Keenetic",
-                "desc": "Откройте панель роутера (http://192.168.1.1) ➔ «Мои сети и Wi-Fi» ➔ «Гостевая сеть». Убедитесь, что она включена.",
+                "title": f"Шаг 1: Настройте сегмент «{recommended_segment}» в Keenetic",
+                "desc": f"KeeneticOS 4.x/5.x поддерживает до 7 независимых Wi-Fi сетей (Multi-SSID). В веб-панели (http://192.168.1.1) перейдите в «Сетевые правила» ➔ «Сегменты» и выберите или создайте сегмент «{recommended_segment}» с отдельным SSID.",
                 "action": "open_router_wifi"
             },
             {
-                "title": "Шаг 2: Подключите устройство к Гостевой сети",
-                "desc": f"На самом устройстве ({dev.custom_name or dev.hostname or clean_mac}) выберите Гостевую Wi-Fi сеть. Роутер выдаст IP из изолированной подсети (например, 192.168.2.X).",
-                "action": "reconnect_device"
+                "title": "Шаг 2: Включите аппаратную изоляцию клиентов (AirSnitch Hardening)",
+                "desc": "В параметрах точки доступа включите опцию «Изоляция клиентов» (isolate-stations). Это защитит устройство от перехвата трафика и атак других беспроводных клиентов внутри одного сегмента.",
+                "action": "enable_station_isolation"
             },
             {
-                "title": "Шаг 3: Аппаратная изоляция готова",
-                "desc": "В гостевой сети роутер аппаратно блокирует L2-трафик к домашним устройствам. KeenGuard автоматически зафиксирует изоляцию.",
-                "action": "auto_detect"
+                "title": "Шаг 3: Подключите устройство к новому SSID",
+                "desc": f"На устройстве ({dev.custom_name or dev.hostname or clean_mac}) переключитесь на созданную сеть. Роутер назначит IP-адрес из изолированной подсети, а KeenGuard автоматически зафиксирует изоляцию.",
+                "action": "reconnect_device"
             }
         ]
     else:
         steps = [
             {
-                "title": "Шаг 1: Создайте изолированный сегмент в Keenetic",
-                "desc": "В панели Keenetic перейдите в «Сетевые правила» ➔ «Сегменты» ➔ «Добавить сегмент» (например, «Изолированный» или «IoT», подсеть 192.168.2.1/24).",
+                "title": f"Шаг 1: Создайте сегмент «{recommended_segment}» в Keenetic",
+                "desc": f"В панели роутера перейдите в «Сетевые правила» ➔ «Сегменты» ➔ «Добавить сегмент» (подсеть 192.168.2.1/24, уровень безопасности: Изолированный).",
                 "action": "create_segment"
             },
             {
-                "title": "Шаг 2: Перенесите проводной порт в этот сегмент",
-                "desc": "В настройках созданного сегмента отметьте проводной порт роутера, к которому подключено это устройство, и снимите галочку в сегменте «Домашняя сеть».",
+                "title": "Шаг 2: Перенесите кабельный порт в этот сегмент",
+                "desc": "В настройках сегмента отметьте проводной LAN-порт, к которому подключено устройство, и исключите его из сегмента «Домашняя сеть».",
                 "action": "reassign_port"
             },
             {
                 "title": "Шаг 3: Готово",
-                "desc": "Кабельный порт перейдет в отдельный L2-домен (VLAN), и прямой трафик к другим домашним ПК будет заблокирован.",
+                "desc": "Кабельный порт перейдет в отдельный аппаратный VLAN, и прямой L2-доступ к другим домашним компьютерам будет заблокирован.",
                 "action": "auto_detect"
             }
         ]
@@ -418,6 +426,7 @@ async def get_isolation_guide(mac: str):
         "ip": getattr(host_info, "ip", dev.ip),
         "is_physically_isolated": is_isolated,
         "current_segment": segment,
+        "recommended_segment": recommended_segment,
         "interface": iface_str,
         "is_wifi": is_wifi,
         "steps": steps

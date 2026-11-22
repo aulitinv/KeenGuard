@@ -80,7 +80,11 @@ class KeeneticFilteringMixin:
         if getattr(self, "mock_mode", False):
             return self._mock_add_dns_sinkholes(valid_domains)
 
-        payload = [{"ip": {"host": {"domain": d, "address": "0.0.0.0"}}} for d in valid_domains]
+        # Dual-stack (IPv4 0.0.0.0 + IPv6 ::) to eliminate IPv6 DNS bypass
+        payload = []
+        for d in valid_domains:
+            payload.append({"ip": {"host": {"domain": d, "address": "0.0.0.0"}}})
+            payload.append({"ipv6": {"host": {"domain": d, "address": "::"}}})
         payload.append({"system": {"configuration": {"save": {}}}})
 
         succeeded: List[str] = []
@@ -92,21 +96,21 @@ class KeeneticFilteringMixin:
                 data = resp.json()
                 if isinstance(data, list):
                     for idx, d in enumerate(valid_domains):
-                        if idx < len(data):
-                            item = data[idx]
-                            host_res = item.get("ip", {}).get("host", {})
+                        # Each domain has 2 commands (IPv4 and IPv6)
+                        item_v4 = data[idx * 2] if idx * 2 < len(data) else {}
+                        item_v6 = data[idx * 2 + 1] if idx * 2 + 1 < len(data) else {}
+                        has_error = False
+                        for item in (item_v4, item_v6):
+                            host_res = item.get("ip", {}).get("host", {}) or item.get("ipv6", {}).get("host", {})
                             statuses = host_res.get("status", [])
-                            has_error = False
                             if isinstance(statuses, list):
                                 for s in statuses:
                                     if s.get("status") == "error":
                                         has_error = True
                                         logger.warning("Keenetic RCI error adding sinkhole %s: %s", d, s.get("message"))
                                         break
-                            if has_error:
-                                failed.append(d)
-                            else:
-                                succeeded.append(d)
+                        if has_error:
+                            failed.append(d)
                         else:
                             succeeded.append(d)
                 else:
@@ -137,7 +141,11 @@ class KeeneticFilteringMixin:
         if getattr(self, "mock_mode", False):
             return self._mock_remove_dns_sinkholes(clean_domains)
 
-        payload = [{"ip": {"host": {"domain": d, "address": "0.0.0.0", "no": True}}} for d in clean_domains]
+        # Remove both IPv4 (0.0.0.0) and IPv6 (::) hosts
+        payload = []
+        for d in clean_domains:
+            payload.append({"ip": {"host": {"domain": d, "address": "0.0.0.0", "no": True}}})
+            payload.append({"ipv6": {"host": {"domain": d, "address": "::", "no": True}}})
         payload.append({"system": {"configuration": {"save": {}}}})
 
         succeeded: List[str] = []
@@ -199,7 +207,7 @@ class KeeneticFilteringMixin:
                     lines = data[0].get("show", {}).get("running-config", {}).get("message", [])
                     for line in lines:
                         clean_line = line.strip()
-                        if clean_line.startswith("ip host ") and (" 0.0.0.0" in clean_line or " ::" in clean_line):
+                        if (clean_line.startswith("ip host ") or clean_line.startswith("ipv6 host ")) and (" 0.0.0.0" in clean_line or " ::" in clean_line):
                             parts = clean_line.split()
                             if len(parts) >= 4:
                                 sinkholes.add(parts[2].lower())
@@ -235,7 +243,12 @@ class KeeneticFilteringMixin:
         if getattr(self, "mock_mode", False):
             return self._mock_add_ip_blackholes(valid_ips, rejected_ips)
 
-        payload = [{"ip": {"route": {"destination": f"{ip}/32", "reject": True, "comment": "keenguard-blackhole"}}} for ip in valid_ips]
+        payload = []
+        for ip in valid_ips:
+            if ":" in ip:
+                payload.append({"ipv6": {"route": {"destination": f"{ip}/128", "reject": True, "comment": "keenguard-blackhole"}}})
+            else:
+                payload.append({"ip": {"route": {"destination": f"{ip}/32", "reject": True, "comment": "keenguard-blackhole"}}})
         payload.append({"system": {"configuration": {"save": {}}}})
 
         succeeded: List[str] = []
@@ -284,7 +297,12 @@ class KeeneticFilteringMixin:
         if getattr(self, "mock_mode", False):
             return self._mock_remove_ip_blackholes(clean_ips)
 
-        payload = [{"no": {"ip": {"route": {"destination": f"{ip}/32", "reject": True}}}} for ip in clean_ips]
+        payload = []
+        for ip in clean_ips:
+            if ":" in ip:
+                payload.append({"no": {"ipv6": {"route": {"destination": f"{ip}/128", "reject": True}}}})
+            else:
+                payload.append({"no": {"ip": {"route": {"destination": f"{ip}/32", "reject": True}}}})
         payload.append({"system": {"configuration": {"save": {}}}})
 
         succeeded: List[str] = []
@@ -389,12 +407,16 @@ class KeeneticFilteringMixin:
             payload = [
                 {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_tcp", "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
                 {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_udp", "action": "deny", "protocol": "udp", "dst-port": 853}}}},
+                {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_tcp", "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
+                {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_udp", "action": "deny", "protocol": "udp", "dst-port": 853}}}},
                 {"system": {"configuration": {"save": {}}}}
             ]
         else:
             payload = [
                 {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_tcp"}}}}},
                 {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_udp"}}}}},
+                {"no": {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_tcp"}}}}},
+                {"no": {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_udp"}}}}},
                 {"system": {"configuration": {"save": {}}}}
             ]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
@@ -422,10 +444,9 @@ class KeeneticFilteringMixin:
         return await self.add_dns_sinkholes(list(DOH_DOMAINS.keys()))
 
     async def blackhole_public_doh_resolvers(self) -> Tuple[List[str], List[str]]:
-        """Adds static reject IP routes for known Anycast DoH resolvers."""
+        """Adds static reject IP routes for known Anycast DoH resolvers (both IPv4 and IPv6)."""
         from keenguard.core.dns.doh_catalog import PUBLIC_RESOLVER_IPS
-        ipv4_resolvers = [ip for ip in PUBLIC_RESOLVER_IPS.keys() if ":" not in ip]
-        return await self.add_ip_blackholes(ipv4_resolvers)
+        return await self.add_ip_blackholes(list(PUBLIC_RESOLVER_IPS.keys()))
 
     async def has_traffic_shaper_component(self) -> bool:
         """Checks if the 'traffic-shaper' system component is installed in KeeneticOS."""
