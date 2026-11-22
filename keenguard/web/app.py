@@ -58,6 +58,11 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 async def serve_index():
+    try:
+        from keenguard.web.builder import build_index_html
+        build_index_html()
+    except Exception as e:
+        logger.debug("Automatic index.html compilation error: %s", e)
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))

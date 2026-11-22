@@ -890,6 +890,11 @@ def start_mock_server(port: int):
 
     @app.get("/")
     async def index_page():
+        try:
+            from keenguard.web.builder import build_index_html
+            build_index_html()
+        except Exception:
+            pass
         return FileResponse(STATIC_DIR / "index.html")
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static_dir")

@@ -1,0 +1,163 @@
+        <!-- TAB: PACKET INSPECTOR (WIRESHARK-STYLE DEEP INSPECTION) -->
+        <section id="view-packets" class="hidden space-y-6">
+            <!-- Header & Toolbar -->
+            <div class="bg-surface-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="binary" class="w-6 h-6 text-indigo-400"></i>
+                            <h2 class="text-xl font-bold text-slate-100">Инспектор сетевых пакетов (Deep Packet Inspector)</h2>
+                            <span id="pkt-total-buffered" class="px-2 py-0.5 rounded-full text-xs bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">Буфер: 0 пакетов</span>
+                        </div>
+                        <p class="text-xs text-slate-400 max-w-3xl">
+                            Трехпанельный анализ сырых пакетов: список перехватов, дерево уровней модели OSI (Ethernet &rarr; IP &rarr; Transport &rarr; Application) и интерактивный Hex/ASCII дамп с подсветкой байт при наведении.
+                        </p>
+                    </div>
+
+                    <!-- Controls -->
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <button onclick="togglePacketFreeze()" id="pkt-freeze-btn" class="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center space-x-1.5 transition" title="Захват на паузе. Нажмите для включения живого автообновления">
+                            <i data-lucide="play" id="pkt-freeze-icon" class="w-3.5 h-3.5 text-amber-400"></i>
+                            <span id="pkt-freeze-text">Возобновить автообновление</span>
+                        </button>
+                        <button onclick="openPcapSelectorModal()" id="pkt-open-pcap-btn" class="px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center space-x-1.5 transition" title="Открыть дамп .pcap или выбрать из сохраненных записей">
+                            <i data-lucide="file-up" class="w-3.5 h-3.5 text-indigo-400"></i>
+                            <span>Открыть PCAP</span>
+                        </button>
+                        <input type="file" id="pkt-pcap-file-input" accept=".pcap,.pcapng,.cap" onchange="handlePcapFileUpload(this)" class="hidden">
+                        <button onclick="clearPacketInspectorBuffer()" id="pkt-clear-btn" class="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1.5 transition">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            <span>Очистить</span>
+                        </button>
+                        <button onclick="loadPacketInspectorLive(true)" id="pkt-refresh-btn" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition" title="Однократный опрос буфера">
+                            <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+                            <span>Обновить</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filter Bar -->
+                <div class="flex flex-wrap items-center gap-3 pt-2">
+                    <select id="pkt-device-select" onchange="onPacketDeviceSelectChange()" class="bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 min-w-[200px]">
+                        <option value="all">Вся сеть (Все пакеты)</option>
+                    </select>
+
+                    <select id="pkt-protocol-select" onchange="loadPacketInspectorLive(true)" class="bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200">
+                        <option value="all">Все протоколы</option>
+                        <option value="NTP">NTP (Время)</option>
+                        <option value="DNS">DNS / mDNS</option>
+                        <option value="HTTP">HTTP</option>
+                        <option value="MQTT">MQTT</option>
+                        <option value="TLS">TLS / HTTPS (SNI)</option>
+                        <option value="SSDP">SSDP / UPnP</option>
+                        <option value="ICMP">ICMP (Ping)</option>
+                        <option value="ARP">ARP</option>
+                    </select>
+
+                    <div class="flex-1 min-w-[200px] relative">
+                        <input type="text" id="pkt-search-input" oninput="debouncePacketSearch()" placeholder="Поиск по содержимому пакета, IP, тексту..." class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 pl-9 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-3 top-2.5"></i>
+                    </div>
+
+                    <!-- Device display mode toggle -->
+                    <div class="flex items-center bg-surface-950 p-0.5 rounded-lg border border-slate-700 text-[11px]" title="Формат отображения устройств">
+                        <button type="button" onclick="setDeviceDisplayMode('name')" id="pkt-mode-name" class="px-2 py-0.5 rounded-md font-medium transition text-slate-400 hover:text-white" title="Показывать имена устройств">Имя</button>
+                        <button type="button" onclick="setDeviceDisplayMode('ip')" id="pkt-mode-ip" class="px-2 py-0.5 rounded-md font-medium transition text-slate-400 hover:text-white" title="Показывать IP-адреса">IP</button>
+                        <button type="button" onclick="setDeviceDisplayMode('both')" id="pkt-mode-both" class="px-2 py-0.5 rounded-md font-medium transition text-slate-400 hover:text-white" title="Показывать имя и IP-адрес">Имя + IP</button>
+                    </div>
+
+                    <!-- Router & Hub source filters -->
+                    <div class="flex items-center space-x-2">
+                        <label class="flex items-center space-x-1.5 text-xs text-slate-300 cursor-pointer bg-surface-950 px-2.5 py-1.5 rounded-xl border border-slate-700 hover:border-slate-500 transition select-none" title="Скрыть пакеты, отправленные роутером (пакеты к роутеру не скрываются)">
+                            <input type="checkbox" id="pkt-hide-router-src" onchange="togglePktFilterPref('hideRouter', this.checked)" class="w-3.5 h-3.5 rounded text-indigo-500 bg-slate-900 border-slate-700 focus:ring-0">
+                            <span>Скрыть от роутера</span>
+                        </label>
+                        <label class="flex items-center space-x-1.5 text-xs text-slate-300 cursor-pointer bg-surface-950 px-2.5 py-1.5 rounded-xl border border-slate-700 hover:border-slate-500 transition select-none" title="Скрыть пакеты, отправленные хабом умного дома (пакеты к хабу не скрываются)">
+                            <input type="checkbox" id="pkt-hide-hub-src" onchange="togglePktFilterPref('hideHub', this.checked)" class="w-3.5 h-3.5 rounded text-indigo-500 bg-slate-900 border-slate-700 focus:ring-0">
+                            <span>Скрыть от хаба</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Active PCAP File Banner -->
+                <div id="pkt-pcap-banner" class="hidden flex items-center justify-between px-3.5 py-2.5 bg-indigo-950/70 border border-indigo-500/40 rounded-xl mb-3 text-xs text-indigo-200 shadow-sm">
+                    <div class="flex items-center space-x-2.5">
+                        <span class="p-1 rounded-lg bg-indigo-500/20 text-indigo-400">
+                            <i data-lucide="file-archive" class="w-4 h-4"></i>
+                        </span>
+                        <span>Режим анализа дампа: <strong id="pkt-pcap-filename" class="font-mono text-white text-xs">filename.pcap</strong> (<span id="pkt-pcap-count" class="font-mono font-bold text-indigo-300">0</span> пакетов)</span>
+                    </div>
+                    <button onclick="exitPcapMode()" class="px-3 py-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 rounded-lg text-xs font-medium transition flex items-center space-x-1.5">
+                        <i data-lucide="radio" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span>✕ Вернуться к живому эфиру</span>
+                    </button>
+                </div>
+
+                <!-- Top Pane: Packet List (Scrollable) -->
+                <div class="overflow-x-auto rounded-xl border border-slate-800 max-h-72 overflow-y-auto">
+                    <table class="w-full text-left text-xs" id="pkt-table">
+                        <thead class="bg-surface-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800 sticky top-0 z-10">
+                            <tr>
+                                <th class="py-2 px-2.5 w-14">№</th>
+                                <th class="py-2 px-3 w-28">Время</th>
+                                <th class="py-2 px-3">Источник</th>
+                                <th class="py-2 px-3">Назначение</th>
+                                <th class="py-2 px-3 w-24">Протокол</th>
+                                <th class="py-2 px-2.5 w-16 text-right">Длина</th>
+                                <th class="py-2 px-4">Сводка пакета</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pkt-list-body" class="divide-y divide-slate-800/60 font-mono">
+                            <tr>
+                                <td colspan="7" class="py-8 text-center text-slate-500 font-sans">
+                                    Ожидание пакетов в буфере сниффера...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Bottom Split Pane: OSI Layers & Hex Dump -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+                    <!-- Left: OSI Layer Tree -->
+                    <div class="bg-surface-950 rounded-xl border border-slate-800 p-4 space-y-3 flex flex-col">
+                        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="layers" class="w-4 h-4 text-indigo-400"></i>
+                                <span class="text-xs font-bold text-slate-200 uppercase tracking-wider">Дерево протоколов (OSI Layers)</span>
+                            </div>
+                            <span id="pkt-current-id-badge" class="font-mono text-[11px] text-slate-400">Пакет не выбран</span>
+                        </div>
+                        <div id="pkt-layer-tree" class="flex-1 max-h-80 overflow-y-auto space-y-2 text-xs font-mono">
+                            <div class="py-12 text-center text-slate-500 font-sans">
+                                Кликните по пакету в таблице выше, чтобы увидеть разбор структуры полей и заголовков.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Hex & ASCII Viewer -->
+                    <div class="bg-surface-950 rounded-xl border border-slate-800 p-4 space-y-3 flex flex-col">
+                        <div class="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="terminal" class="w-4 h-4 text-cyan-400"></i>
+                                <span class="text-xs font-bold text-slate-200 uppercase tracking-wider">Hex & ASCII Дамп байт</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="copyPacketPayload()" id="pkt-copy-payload-btn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition" title="Скопировать полезные данные">
+                                    Копировать Payload
+                                </button>
+                                <button onclick="copyPacketHex()" id="pkt-copy-hex-btn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 hover:text-white transition" title="Скопировать шестнадцатеричные байты">
+                                    Копировать Hex
+                                </button>
+                            </div>
+                        </div>
+                        <div id="pkt-hex-pane" class="flex-1 max-h-80 overflow-y-auto space-y-0.5 text-xs font-mono select-text">
+                            <div class="py-12 text-center text-slate-500 font-sans">
+                                Выберите пакет для вывода байтового Hex/ASCII дампа.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+

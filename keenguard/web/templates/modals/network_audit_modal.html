@@ -1,0 +1,160 @@
+    <!-- Modal: Network-wide Traffic Audit Report Details (Сводный отчет всей сети) -->
+    <div id="network-audit-detail-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div class="flex items-center space-x-3">
+                    <div id="net-audit-modal-risk-icon" class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                        <i data-lucide="radio" class="w-5 h-5 text-cyan-400"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h3 class="font-bold text-base text-white">Сводный аудит сетевого трафика</h3>
+                            <span id="net-audit-modal-risk-badge" class="px-2.5 py-0.5 rounded text-xs font-bold border">Безопасно</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5 font-mono" id="net-audit-modal-subtitle">Анализ всей сети &bull; 0 хостов</p>
+                    </div>
+                </div>
+                <button onclick="closeNetworkAuditModal()" class="text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                <div class="p-3 bg-surface-950 rounded-xl border border-slate-800">
+                    <div class="text-[10px] text-slate-400">Длительность</div>
+                    <div id="net-audit-modal-duration" class="text-sm font-semibold text-white mt-0.5">5 мин</div>
+                </div>
+                <div class="p-3 bg-surface-950 rounded-xl border border-slate-800">
+                    <div class="text-[10px] text-slate-400">Активных устройств</div>
+                    <div id="net-audit-modal-devices-count" class="text-sm font-semibold text-indigo-400 mt-0.5">0</div>
+                </div>
+                <div class="p-3 bg-surface-950 rounded-xl border border-slate-800">
+                    <div class="text-[10px] text-slate-400">NAT-соединений</div>
+                    <div id="net-audit-modal-flows-count" class="text-sm font-semibold text-purple-400 mt-0.5">0</div>
+                </div>
+                <div class="p-3 bg-surface-950 rounded-xl border border-slate-800">
+                    <div class="text-[10px] text-slate-400">Всего пакетов</div>
+                    <div id="net-audit-modal-packets" class="text-sm font-semibold text-cyan-400 mt-0.5">0</div>
+                </div>
+                <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
+                    <div class="text-[10px] text-slate-400">Объем данных</div>
+                    <div id="net-audit-modal-bytes" class="text-sm font-semibold text-emerald-400 mt-0.5">0 KB</div>
+                </div>
+            </div>
+
+            <!-- Auto-Quarantined Suspicious Devices Banner -->
+            <div id="net-audit-modal-quarantined-section" class="p-3.5 rounded-xl bg-rose-950/30 border border-rose-800/60 space-y-2 hidden">
+                <div class="flex items-center space-x-2 text-rose-300 font-semibold text-xs">
+                    <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i>
+                    <span>🚨 Автоматически изолированные устройства (Active Guard):</span>
+                </div>
+                <div id="net-audit-modal-quarantined-list" class="space-y-1.5 text-xs text-rose-200 font-mono">
+                    <!-- Quarantined items -->
+                </div>
+            </div>
+
+            <!-- Executive Summary & Findings -->
+            <div class="p-4 rounded-xl bg-surface-950 border border-slate-800/80 space-y-2">
+                <span class="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold">Ключевые находки и статус защищенности</span>
+                <ul id="net-audit-modal-findings" class="space-y-1 text-xs text-slate-200">
+                    <!-- Populated dynamically -->
+                </ul>
+            </div>
+
+            <!-- L7 Applications Breakdown Section -->
+            <div id="net-audit-modal-apps-section" class="space-y-2 hidden">
+                <span class="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                    <i data-lucide="layers" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span>Распознанные приложения в сети (L7 App ID):</span>
+                </span>
+                <div id="net-audit-modal-apps-list" class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Section: Lateral Movement (Межузловое взаимодействие внутри сети) -->
+            <div id="net-audit-modal-lateral-section" class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                        <i data-lucide="git-fork" class="w-3.5 h-3.5 text-amber-400"></i>
+                        <span>Внутренние локальные связи (Lateral Movement):</span>
+                    </h4>
+                    <span class="text-[10px] text-slate-500">Запросы между устройствами внутри домашней сети</span>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-800/80 bg-surface-950 max-h-48 overflow-y-auto">
+                    <table class="w-full text-left text-xs font-mono">
+                        <thead class="text-[10px] uppercase text-slate-400 border-b border-slate-800 sticky top-0 bg-surface-950 select-none">
+                            <tr>
+                                <th class="py-2 px-3">Источник (Кто)</th>
+                                <th class="py-2 px-3">Назначение (К кому)</th>
+                                <th class="py-2 px-3">Порт / Служба</th>
+                                <th class="py-2 px-3 text-right">Статус / Риск</th>
+                            </tr>
+                        </thead>
+                        <tbody id="net-audit-modal-lateral-tbody" class="divide-y divide-slate-800/60 font-sans">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Section: Top Active Devices in Network -->
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                        <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span>Активность устройств в сети за время сессии:</span>
+                    </h4>
+                    <span class="text-[10px] text-slate-500">Ранжирование по общему трафику</span>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-800/80 bg-surface-950 max-h-52 overflow-y-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-[10px] uppercase text-slate-400 border-b border-slate-800 sticky top-0 bg-surface-950 select-none">
+                            <tr>
+                                <th class="py-2 px-3">Устройство</th>
+                                <th class="py-2 px-3">Категория</th>
+                                <th class="py-2 px-3 text-center">NAT Потоков</th>
+                                <th class="py-2 px-3 text-right">Трафик</th>
+                                <th class="py-2 px-3 text-right">Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody id="net-audit-modal-devices-tbody" class="divide-y divide-slate-800/60 font-sans">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Section: External Providers & Clouds -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                    <i data-lucide="cloud" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span>Внешние облачные сервисы и провайдеры (GeoIP):</span>
+                </h4>
+                <div id="net-audit-modal-providers-list" class="flex flex-wrap gap-1.5 p-3 bg-surface-950 rounded-xl border border-slate-800">
+                    <!-- Badges -->
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+                <div id="net-audit-modal-pcap-container">
+                    <!-- Download PCAP button populated if exists -->
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button id="btn-investigate-net-audit-modal" onclick="closeNetworkAuditModal(); openInvestigatorForAudit(currentModalNetworkAuditReport?.id || '')" class="px-3 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1.5" title="Открыть этот сводный аудит в мастере расследования">
+                        <i data-lucide="crosshair" class="w-3.5 h-3.5 text-rose-400"></i>
+                        <span>Расследовать инцидент</span>
+                    </button>
+                    <button id="btn-delete-net-audit-modal" onclick="deleteCurrentNetworkAuditReport()" class="px-3 py-2 bg-slate-800 hover:bg-rose-950/50 text-rose-400 hover:text-rose-300 text-xs rounded-xl font-medium transition border border-slate-700 hover:border-rose-800/50 flex items-center space-x-1.5" title="Удалить данный отчет и дамп">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>Удалить</span>
+                    </button>
+                    <button onclick="closeNetworkAuditModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+

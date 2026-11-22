@@ -1,0 +1,1306 @@
+        <!-- TAB: SETTINGS -->
+        <section id="view-settings" class="hidden space-y-6 max-w-4xl">
+            <!-- Settings Header & Breadcrumb Navigation -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-800">
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-xl font-bold text-white flex items-center space-x-2.5">
+                            <i data-lucide="sliders" class="w-6 h-6 text-indigo-400"></i>
+                            <span>Настройки</span>
+                        </h1>
+                        <span class="text-slate-600 font-light">/</span>
+                        <span id="settings-current-subtab-title" class="text-xs font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">Роутер</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1" id="settings-current-subtab-desc">Параметры доступа к роутеру для работы с RCI API</p>
+                </div>
+                <div class="flex items-center space-x-2.5">
+                    <button type="button" onclick="testKeeneticConnection()" class="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-1.5 shadow-sm">
+                        <i data-lucide="wifi" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span>Проверить связь</span>
+                    </button>
+                    <button type="button" onclick="saveSettings(event)" class="px-4 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-lg shadow-indigo-600/20 flex items-center space-x-1.5">
+                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                        <span>Сохранить всё</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Master Form Container to preserve native form submission & ID queries -->
+            <form id="settings-form" onsubmit="saveSettings(event)" class="space-y-6">
+
+                <!-- SUB-PANE 1: ROUTER CONNECTION -->
+                <div id="settings-subpane-router" class="settings-subpane space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="router" class="w-5 h-5 text-indigo-400"></i>
+                                    <span>Подключение к роутеру</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Выберите платформу роутера и параметры доступа для API</p>
+                            </div>
+                            <div class="flex items-center space-x-1.5 bg-surface-950 p-1 rounded-xl border border-slate-800">
+                                <button type="button" onclick="switchRouterPlatform('keenetic')" id="btn-router-plat-keenetic" class="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition">
+                                    Keenetic (RCI)
+                                </button>
+                                <button type="button" onclick="switchRouterPlatform('openwrt')" id="btn-router-plat-openwrt" class="px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
+                                    OpenWrt (ubus)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- KEENETIC CONFIG FORM -->
+                        <div id="router-form-keenetic" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">IP-адрес роутера (шлюз сети)</label>
+                                <input type="text" id="cfg-host" value="192.168.1.1" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Обычно 192.168.1.1. KeenGuard подключается к Keenetic через этот IP.</span>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Логин администратора</label>
+                                    <input type="text" id="cfg-user" value="admin" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">Пароль администратора</label>
+                                        <span id="cfg-password-saved-badge" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Пароль сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block" id="cfg-password-help">Пароль сохраняется в зашифрованном окружении и подключается автоматически.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- OPENWRT CONFIG FORM -->
+                        <div id="router-form-openwrt" class="hidden space-y-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="sm:col-span-2">
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">IP-адрес / Хост OpenWrt</label>
+                                    <input type="text" id="cfg-openwrt-host" value="192.168.1.1" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">IP-адрес или доменное имя роутера с установленным LuCI / ubus.</span>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Порт HTTP(S)</label>
+                                    <input type="number" id="cfg-openwrt-port" value="80" min="1" max="65535" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Стандартно 80 (HTTP) или 443 (HTTPS).</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center space-x-2 py-1">
+                                <input type="checkbox" id="cfg-openwrt-https" class="w-4 h-4 rounded text-indigo-600 bg-surface-950 border-slate-700">
+                                <label for="cfg-openwrt-https" class="text-xs font-medium text-slate-300 cursor-pointer">Использовать HTTPS (защищенное соединение SSL)</label>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Логин (обычно root)</label>
+                                    <input type="text" id="cfg-openwrt-user" value="root" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">Пароль root / ubus</label>
+                                        <span id="cfg-openwrt-password-saved-badge" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Пароль сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-openwrt-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Пароль учетной записи OpenWrt для вызова RPC-методов /ubus.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-3 border-t border-slate-800">
+                            <button type="button" onclick="testRouterConnection()" class="px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-2">
+                                <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
+                                <span id="btn-test-router-text">Проверить связь с роутером</span>
+                            </button>
+                            <button type="button" onclick="saveRouterSettings()" class="px-4 py-2 rounded-xl text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить подключение</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- CARD: SNIFFER ENGINE & CPU PROFILE -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="border-b border-slate-800/60 pb-3">
+                            <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                <i data-lucide="cpu" class="w-5 h-5 text-indigo-400"></i>
+                                <span>Движок сетевого перехвата (Sniffer Engine & DPI)</span>
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Определяет режим сбора трафика, глубину инспекции пакетов и нагрузку на CPU роутера и хоста</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Option 1: Passive Conntrack -->
+                            <label class="p-4 rounded-xl border border-slate-800 bg-surface-950/60 hover:border-indigo-500/50 cursor-pointer transition flex flex-col justify-between space-y-3 relative group">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-center space-x-2.5">
+                                        <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                            <i data-lucide="zap" class="w-4 h-4"></i>
+                                        </div>
+                                        <div>
+                                            <div class="font-bold text-xs text-slate-200">Пассивный Conntrack (0% CPU)</div>
+                                            <div class="text-[10px] text-emerald-400 font-semibold">Рекомендуется по умолчанию</div>
+                                        </div>
+                                    </div>
+                                    <input type="radio" name="cfg-sniffer-mode" id="cfg-sniffer-passive" value="conntrack_passive" class="w-4 h-4 text-indigo-600 mt-1">
+                                </div>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    Служба считывает аппаратные NAT/Conntrack сессии через API роутера без загрузки процессора. Глубокий DPI-захват пакетов Scapy запускается только по запросу во время диагностических аудитов.
+                                </p>
+                                <div class="text-[10px] text-slate-500 flex items-center space-x-1">
+                                    <i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>
+                                    <span>Безопасно для постоянной работы 24/7</span>
+                                </div>
+                            </label>
+
+                            <!-- Option 2: Continuous Active Promiscuous -->
+                            <label class="p-4 rounded-xl border border-slate-800 bg-surface-950/60 hover:border-indigo-500/50 cursor-pointer transition flex flex-col justify-between space-y-3 relative group">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-center space-x-2.5">
+                                        <div class="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                            <i data-lucide="radio" class="w-4 h-4"></i>
+                                        </div>
+                                        <div>
+                                            <div class="font-bold text-xs text-slate-200">Непрерывный Promiscuous (DPI)</div>
+                                            <div class="text-[10px] text-amber-400 font-semibold">Повышенная нагрузка на CPU</div>
+                                        </div>
+                                    </div>
+                                    <input type="radio" name="cfg-sniffer-mode" id="cfg-sniffer-active" value="promiscuous_active" class="w-4 h-4 text-indigo-600 mt-1">
+                                </div>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    Служба непрерывно слушает L2-эфир сетевой карты (требует драйвер Npcap/libpcap). Захватывает broadcast/multicast и трафик хоста. Не заменяет аппаратное зеркалирование портов коммутатора роутера.
+                                </p>
+                                <div class="text-[10px] text-slate-500 flex items-center space-x-1">
+                                    <i data-lucide="alert-triangle" class="w-3 h-3 text-amber-400"></i>
+                                    <span>Рекомендуется для лабораторных тестов</span>
+                                </div>
+                            </label>
+                        </div>
+
+                        <!-- Technical Realism Disclosure Notice -->
+                        <div class="p-3 rounded-xl bg-surface-950 border border-slate-800/80 text-[11px] text-slate-400 space-y-1">
+                            <div class="font-semibold text-slate-300 flex items-center space-x-1.5">
+                                <i data-lucide="info" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>Технический реализм L2-коммутации:</span>
+                            </div>
+                            <p>В коммутаторе роутера (Bridge0) пакеты между двумя Ethernet-клиентами или клиентами одного Wi-Fi диапазона передаются на чипе свитча и не попадают на процессор или сетевой интерфейс KeenGuard. Для 100% перехвата межклиентского L2-трафика изолируйте устройства по разным сегментам или настройте SPAN/Port Mirroring.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 2: NEW DEVICE POLICIES & QUARANTINE -->
+                <div id="settings-subpane-new-devices" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="shield-check" class="w-5 h-5 text-indigo-400"></i>
+                                    <span>Реакция на новые устройства & Карантин</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Дифференцированное поведение роутера при первом подключении хоста</p>
+                            </div>
+                            <div class="flex items-center space-x-1.5 bg-surface-950 p-1 rounded-xl border border-slate-800">
+                                <button type="button" onclick="setNewDevicePolicyMode('category')" id="btn-policy-mode-cat" class="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition">
+                                    По категориям (Умный)
+                                </button>
+                                <button type="button" onclick="setNewDevicePolicyMode('global')" id="btn-policy-mode-global" class="px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition">
+                                    Общий (Простой)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Category-based Policy Matrix Container -->
+                        <div id="new-dev-category-container" class="space-y-3">
+                            <div class="overflow-x-auto rounded-xl border border-slate-800/80 bg-surface-950">
+                                <table class="w-full text-left text-xs">
+                                    <thead class="text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800 bg-surface-900/60">
+                                        <tr>
+                                            <th class="py-2.5 px-3">Категория устройства</th>
+                                            <th class="py-2.5 px-3 text-center">Карантин WAN</th>
+                                            <th class="py-2.5 px-3 text-center">Авто-аудит</th>
+                                            <th class="py-2.5 px-3 text-center">Длительность</th>
+                                            <th class="py-2.5 px-3 text-center">Telegram</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-800/60 text-slate-200">
+                                        <!-- Row 1: Trusted -->
+                                        <tr class="hover:bg-slate-900/40 transition">
+                                            <td class="py-2.5 px-3">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="p-1 rounded bg-emerald-500/10 text-emerald-400">🛡️</span>
+                                                    <div>
+                                                        <div class="font-medium text-slate-200">Доверенные вендоры</div>
+                                                        <div class="text-[10px] text-slate-500">Apple, Intel, Samsung, ПК, Смартфоны</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-trusted-wan" class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-trusted-audit" class="w-4 h-4 rounded text-cyan-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <select id="pol-trusted-dur" class="bg-surface-900 border border-slate-700 text-[11px] rounded px-1.5 py-0.5 text-slate-200">
+                                                    <option value="300" selected>5 мин</option>
+                                                    <option value="900">15 мин</option>
+                                                    <option value="1800">30 мин</option>
+                                                </select>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-trusted-tg" checked class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                        </tr>
+
+                                        <!-- Row 2: IoT & Smart Home -->
+                                        <tr class="hover:bg-slate-900/40 transition">
+                                            <td class="py-2.5 px-3">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="p-1 rounded bg-amber-500/10 text-amber-400">⚡</span>
+                                                    <div>
+                                                        <div class="font-medium text-slate-200">IoT & Умный дом</div>
+                                                        <div class="text-[10px] text-slate-500">Espressif, Tuya, Sonoff, Shelly, Розетки</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-iot-wan" class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-iot-audit" checked class="w-4 h-4 rounded text-cyan-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <select id="pol-iot-dur" class="bg-surface-900 border border-slate-700 text-[11px] rounded px-1.5 py-0.5 text-slate-200">
+                                                    <option value="300">5 мин</option>
+                                                    <option value="900" selected>15 мин</option>
+                                                    <option value="1800">30 мин</option>
+                                                    <option value="3600">60 мин</option>
+                                                </select>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-iot-tg" checked class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                        </tr>
+
+                                        <!-- Row 3: IP Cameras -->
+                                        <tr class="hover:bg-slate-900/40 transition">
+                                            <td class="py-2.5 px-3">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="p-1 rounded bg-rose-500/10 text-rose-400">📹</span>
+                                                    <div>
+                                                        <div class="font-medium text-slate-200">IP-камеры видеонаблюдения</div>
+                                                        <div class="text-[10px] text-slate-500">Dahua, Hikvision, Reolink, RTSP</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-camera-wan" class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-camera-audit" checked class="w-4 h-4 rounded text-cyan-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <select id="pol-camera-dur" class="bg-surface-900 border border-slate-700 text-[11px] rounded px-1.5 py-0.5 text-slate-200">
+                                                    <option value="300">5 мин</option>
+                                                    <option value="900" selected>15 мин</option>
+                                                    <option value="1800">30 мин</option>
+                                                </select>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-camera-tg" checked class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                        </tr>
+
+                                        <!-- Row 4: Randomized MAC (LAA) -->
+                                        <tr class="hover:bg-slate-900/40 transition">
+                                            <td class="py-2.5 px-3">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="p-1 rounded bg-purple-500/10 text-purple-400">🔀</span>
+                                                    <div>
+                                                        <div class="font-medium text-slate-200">Случайные MAC (LAA)</div>
+                                                        <div class="text-[10px] text-slate-500">Сменяемый Wi-Fi адрес (гости, обход правил)</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-random-wan" class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-random-audit" checked class="w-4 h-4 rounded text-cyan-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <select id="pol-random-dur" class="bg-surface-900 border border-slate-700 text-[11px] rounded px-1.5 py-0.5 text-slate-200">
+                                                    <option value="900">15 мин</option>
+                                                    <option value="1800" selected>30 мин</option>
+                                                    <option value="3600">60 мин</option>
+                                                </select>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-random-tg" checked class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                        </tr>
+
+                                        <!-- Row 5: Unknown Devices -->
+                                        <tr class="hover:bg-slate-900/40 transition">
+                                            <td class="py-2.5 px-3">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="p-1 rounded bg-slate-500/10 text-slate-400">❓</span>
+                                                    <div>
+                                                        <div class="font-medium text-slate-200">Неизвестные устройства</div>
+                                                        <div class="text-[10px] text-slate-500">Вендор не распознан по OUI базе</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-unknown-wan" class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-unknown-audit" checked class="w-4 h-4 rounded text-cyan-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <select id="pol-unknown-dur" class="bg-surface-900 border border-slate-700 text-[11px] rounded px-1.5 py-0.5 text-slate-200">
+                                                    <option value="300">5 мин</option>
+                                                    <option value="900" selected>15 мин</option>
+                                                    <option value="1800">30 мин</option>
+                                                </select>
+                                            </td>
+                                            <td class="py-2.5 px-3 text-center">
+                                                <input type="checkbox" id="pol-unknown-tg" checked class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Global Policy Container (Simplified) -->
+                        <div id="new-dev-global-container" class="hidden space-y-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <label class="relative flex flex-col justify-between p-3.5 rounded-xl bg-surface-950 border border-slate-800 hover:border-slate-700 transition cursor-pointer group">
+                                    <div class="flex items-start justify-between">
+                                        <div class="p-2 rounded-lg bg-rose-500/10 text-rose-400 group-hover:bg-rose-500/20 transition">
+                                            <i data-lucide="globe-lock" class="w-4 h-4"></i>
+                                        </div>
+                                        <input type="checkbox" id="cfg-new-dev-quarantine" class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700 focus:ring-rose-500">
+                                    </div>
+                                    <div class="mt-3">
+                                        <div class="text-xs font-semibold text-white">Карантин WAN</div>
+                                        <p class="text-[10px] text-slate-400 mt-0.5">Блокировать доступ в интернет для всех новых</p>
+                                    </div>
+                                </label>
+
+                                <label class="relative flex flex-col justify-between p-3.5 rounded-xl bg-surface-950 border border-slate-800 hover:border-slate-700 transition cursor-pointer group">
+                                    <div class="flex items-start justify-between">
+                                        <div class="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500/20 transition">
+                                            <i data-lucide="scan-search" class="w-4 h-4"></i>
+                                        </div>
+                                        <input type="checkbox" id="cfg-new-dev-audit" class="w-4 h-4 rounded text-cyan-600 bg-surface-900 border-slate-700 focus:ring-cyan-500">
+                                    </div>
+                                    <div class="mt-3">
+                                        <div class="text-xs font-semibold text-white">Авто-аудит потоков</div>
+                                        <p class="text-[10px] text-slate-400 mt-0.5">Запись соединений и захват .PCAP</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-surface-950/60 p-3 rounded-xl border border-slate-800/60">
+                                <div class="flex items-center space-x-2 text-xs text-slate-300">
+                                    <i data-lucide="bell-ring" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+                                    <span>Оповещение в Telegram активно по умолчанию</span>
+                                </div>
+                                <div class="flex items-center space-x-2 w-full sm:w-auto">
+                                    <label class="text-[11px] text-slate-400 shrink-0">Длительность аудита:</label>
+                                    <select id="cfg-new-device-audit-duration" class="bg-surface-900 border border-slate-700 text-xs rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-indigo-500">
+                                        <option value="15">15 минут</option>
+                                        <option value="30">30 минут</option>
+                                        <option value="60" selected>60 минут</option>
+                                        <option value="120">2 часа</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active Guard: Auto-Quarantine Suspicious Device -->
+                        <label class="relative flex items-start justify-between p-3.5 rounded-xl bg-surface-950 border border-slate-800 hover:border-slate-700 transition cursor-pointer group">
+                            <div class="flex items-start space-x-3">
+                                <div class="p-2 rounded-lg bg-rose-500/10 text-rose-400 shrink-0 group-hover:bg-rose-500/20 transition">
+                                    <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-semibold text-white flex items-center space-x-2">
+                                        <span>Автоматический бан/карантин при подозрительном поведении во время аудита</span>
+                                        <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/40">Active Guard</span>
+                                    </div>
+                                    <p class="text-[11px] text-slate-400 mt-0.5">
+                                        Если устройство во время аудита пытается сканировать домашнюю сеть (SMB 445, SSH 22, Telnet 23, RDP 3389), роутер изолирует его доступ в интернет и отправляет тревогу в Telegram.
+                                    </p>
+                                </div>
+                            </div>
+                            <input type="checkbox" id="cfg-audit-auto-quarantine" checked class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700 focus:ring-rose-500 shrink-0 mt-1">
+                        </label>
+
+                        <!-- Additional Policy Controls: Scope & MAC Conflict -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Область действия автокарантина</label>
+                                <select id="cfg-quarantine-scope" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+                                    <option value="iot_camera">Только IoT и камеры (по умолчанию)</option>
+                                    <option value="all_except_trusted">Все устройства, кроме доверенных</option>
+                                    <option value="custom_devices">Только устройства с флагом в карточке</option>
+                                    <option value="disabled">Отключено (только оповещения)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Защита от конфликтов MAC и ARP</label>
+                                <label class="flex items-center justify-between p-2.5 rounded-xl bg-surface-950 border border-slate-700 cursor-pointer mt-0.5">
+                                    <span class="text-xs text-slate-300">Детектировать спуфинг и дубликаты IP/MAC</span>
+                                    <input type="checkbox" id="cfg-mac-conflict-enabled" checked class="w-4 h-4 rounded text-amber-600 bg-surface-900 border-slate-700">
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-3 border-t border-slate-800">
+                            <button type="button" onclick="saveNewDevicePolicySettings()" id="btn-save-new-dev-policy" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить правила для новых устройств</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 3: TELEGRAM & ALERTS -->
+                <div id="settings-subpane-telegram" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="send" class="w-5 h-5 text-cyan-400"></i>
+                                    <span>Telegram & Мониторинг оповещений</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Мгновенные уведомления о событиях безопасности и утечках камер</p>
+                            </div>
+                            <label class="flex items-center cursor-pointer bg-surface-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                                <input type="checkbox" id="cfg-telegram-enabled" class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                <span class="ml-2 text-xs text-slate-200 font-medium">Уведомления активны</span>
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Telegram Bot Token</label>
+                                <input type="text" id="cfg-telegram-token" placeholder="123456789:ABCdefGhIJKlmNoPQRstuVWXyz" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Chat ID</label>
+                                <input type="text" id="cfg-telegram-chat" placeholder="123456789 или -100123456789" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
+                                    <span>Шлюз Telegram API (Cloudflare Worker)</span>
+                                    <span class="text-[10px] text-cyan-400 font-normal">обход блокировок</span>
+                                </label>
+                                <input type="text" id="cfg-telegram-url" placeholder="https://ваш-воркер.workers.dev (или https://api.telegram.org)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
+                                    <span>Прокси (опционально)</span>
+                                    <span class="text-[10px] text-slate-400 font-normal">HTTP / SOCKS5</span>
+                                </label>
+                                <input type="text" id="cfg-telegram-proxy" placeholder="socks5://user:pass@host:port (или пусто)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-950 border border-slate-800">
+                            <span id="tg-test-status" class="text-xs text-slate-400">Нажмите кнопку для отправки тестового сообщения</span>
+                            <button type="button" onclick="testTelegram()" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-1.5">
+                                <i data-lucide="send" class="w-3.5 h-3.5 text-cyan-400"></i>
+                                <span>Отправить тест в Telegram</span>
+                            </button>
+                        </div>
+
+                        <!-- Anti-Spam deduplication -->
+                        <div class="p-3.5 rounded-xl bg-surface-950 border border-slate-800 space-y-1.5">
+                            <label class="block text-xs font-medium text-slate-300">Окно дедупликации оповещений (Anti-Spam)</label>
+                            <div class="relative">
+                                <input type="number" id="cfg-dedup-window" min="10" max="600" value="60" class="w-full bg-surface-900 border border-slate-700 rounded-xl px-3 py-2 pr-12 text-xs text-white font-mono focus:outline-none focus:border-indigo-500">
+                                <span class="absolute right-3.5 top-2 text-xs text-slate-500 font-mono">сек</span>
+                            </div>
+                            <span class="text-[10px] text-slate-500 block">Интервал группировки одинаковых предупреждений для предотвращения спама в чат.</span>
+                        </div>
+
+                        <div class="flex justify-end pt-3 border-t border-slate-800">
+                            <button type="button" onclick="saveTelegramSettings()" class="px-4 py-2 rounded-xl text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить параметры Telegram</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE: IP CAMERAS -->
+                <div id="settings-subpane-cameras" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="video" class="w-5 h-5 text-amber-400"></i>
+                                    <span>IP-камеры & Видеонаблюдение</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Контроль видеопотоков, детекция несанкционированного стриминга и утечек в WAN</p>
+                            </div>
+                            <span class="px-2.5 py-1 rounded-full text-[11px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">RTSP / ONVIF</span>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <label class="flex items-start justify-between p-4 rounded-xl bg-surface-950 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                                    <div class="pr-3">
+                                        <span class="text-xs font-semibold text-slate-200 block">Детекция утечки в интернет (WAN)</span>
+                                        <span class="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Фиксация исходящего видеопотока в интернет и отправка тревоги при превышении порога отдачи.</span>
+                                    </div>
+                                    <input type="checkbox" id="cfg-camera-wan-notify" checked class="w-4 h-4 mt-0.5 rounded text-rose-600 bg-surface-900 border-slate-700">
+                                </label>
+
+                                <label class="flex items-start justify-between p-4 rounded-xl bg-surface-950 border border-slate-800 cursor-pointer hover:border-slate-700 transition">
+                                    <div class="pr-3">
+                                        <span class="text-xs font-semibold text-slate-200 block">Контроль локального стрима (LAN)</span>
+                                        <span class="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Оповещение, если видеопоток камеры запрашивается с других домашних устройств в обход NVR-видеорегистратора.</span>
+                                    </div>
+                                    <input type="checkbox" id="cfg-camera-lan-notify" class="w-4 h-4 mt-0.5 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                </label>
+                            </div>
+
+                            <div class="p-4 rounded-xl bg-surface-950 border border-slate-800 space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <label class="text-xs font-medium text-slate-200">Порог битрейта утечки видеопотока (WAN Upload Threshold)</label>
+                                    <span class="text-[11px] font-mono text-cyan-400">1500 Кбит/с = 1.5 Мбит/с</span>
+                                </div>
+                                <div class="relative">
+                                    <input type="number" id="cfg-camera-upload-threshold" min="100" max="50000" step="100" value="1500" class="w-full bg-surface-900 border border-slate-700 rounded-xl px-3.5 py-2 pr-16 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                                    <span class="absolute right-3.5 top-2 text-xs text-slate-500 font-mono">Кбит/с</span>
+                                </div>
+                                <p class="text-[11px] text-slate-400">Любая передача данных с IP-камеры во внешнюю сеть со скоростью выше указанного порога классифицируется KeenGuard как несанкционированный видеопоток.</p>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-3 border-t border-slate-800">
+                            <button type="button" onclick="saveCameraSettings()" class="px-4 py-2 rounded-xl text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white transition shadow-md shadow-amber-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить параметры камер</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 4: SMART TV & NIGHT MODE -->
+                <div id="settings-subpane-tv-night" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="tv" class="w-5 h-5 text-emerald-400"></i>
+                                    <span>Smart TV & Форензика ночного режима</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Настройки тихих часов, буферов предзаписи и анализа включений</p>
+                            </div>
+                            <span id="cfg-tv-wake-window-badge" class="px-2.5 py-1 rounded-lg text-xs font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">-30с / +30с</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Начало ночного режима</label>
+                                <input type="number" id="cfg-night-start" min="0" max="23" value="0" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Час (например, 0 для 00:00)</span>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Окончание ночного режима</label>
+                                <input type="number" id="cfg-night-end" min="0" max="23" value="7" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Час (например, 7 для 07:00)</span>
+                            </div>
+                        </div>
+
+                        <!-- Smart TV & Night Enforcement Rules -->
+                        <div class="space-y-3 pt-2 border-t border-slate-800/60">
+                            <h3 class="text-xs font-semibold text-slate-200 uppercase tracking-wider">Умный контроль ночного режима и аппаратная блокировка</h3>
+                            
+                            <div class="bg-surface-950 p-3.5 rounded-xl border border-slate-800 flex items-start justify-between space-x-3">
+                                <div class="space-y-0.5">
+                                    <label for="cfg-night-auto-block-wan" class="text-xs font-medium text-slate-200 cursor-pointer">Автоматически блокировать WAN на роутере в ночной период</label>
+                                    <p class="text-[10px] text-slate-400">Аппаратное отключение доступа в интернет в ночные часы для устройств с включённым ночным режимом (защита от фоновой телеметрии и утечек)</p>
+                                </div>
+                                <input type="checkbox" id="cfg-night-auto-block-wan" class="w-4 h-4 mt-1 rounded text-indigo-600 bg-surface-900 border-slate-700 cursor-pointer">
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div class="bg-surface-950 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+                                    <label for="cfg-night-tv-inactivity" class="block text-xs font-medium text-slate-200">Ожидание выключения ТВ перед активацией режима</label>
+                                    <div class="relative">
+                                        <input type="number" id="cfg-night-tv-inactivity" min="1" max="120" value="5" class="w-full bg-surface-900 border border-slate-700 rounded-lg px-3 py-1.5 pr-14 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                        <span class="absolute right-3 top-1.5 text-xs text-slate-500">минут</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400">Если телевизор используется в полночь, режим активируется только после полного отсутствия сетевой активности</p>
+                                </div>
+
+                                <div class="bg-surface-950 p-3.5 rounded-xl border border-slate-800 flex items-start justify-between space-x-3">
+                                    <div class="space-y-0.5">
+                                        <label for="cfg-night-notify-tv-never-slept" class="text-xs font-medium text-slate-200 cursor-pointer">Уведомлять утром, если телевизор ни разу не уснул</label>
+                                        <p class="text-[10px] text-slate-400">При завершении ночного интервала (в 07:00) отправит предупреждение в Telegram, если Smart TV непрерывно работал всю ночь</p>
+                                    </div>
+                                    <input type="checkbox" id="cfg-night-notify-tv-never-slept" checked class="w-4 h-4 mt-1 rounded text-indigo-600 bg-surface-900 border-slate-700 cursor-pointer">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TV Wake Forensics Recording Window -->
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
+                                    <span>Предзапись ДО</span>
+                                    <span class="text-[10px] text-indigo-400 font-mono">Pre-wake</span>
+                                </label>
+                                <div class="relative">
+                                    <input type="number" id="cfg-tv-wake-pre" min="5" max="300" value="30" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="absolute right-3.5 top-2.5 text-xs text-slate-500">сек</span>
+                                </div>
+                                <span class="text-[10px] text-slate-500 mt-1 block">Буфер пакетов ДО пробуждения (WOL, mDNS)</span>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
+                                    <span>Запись ПОСЛЕ</span>
+                                    <span class="text-[10px] text-cyan-400 font-mono">Post-wake</span>
+                                </label>
+                                <div class="relative">
+                                    <input type="number" id="cfg-tv-wake-post" min="0" max="600" value="30" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="absolute right-3.5 top-2.5 text-xs text-slate-500">сек</span>
+                                </div>
+                                <span class="text-[10px] text-slate-500 mt-1 block">Перехват после включения в файл дампа</span>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5 flex items-center justify-between">
+                                    <span>Окно триггера (TTL)</span>
+                                    <span class="text-[10px] text-emerald-400 font-mono">Trigger TTL</span>
+                                </label>
+                                <div class="relative">
+                                    <input type="number" id="cfg-tv-wake-trigger-ttl" min="10" max="600" value="60" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="absolute right-3.5 top-2.5 text-xs text-slate-500">сек</span>
+                                </div>
+                                <span class="text-[10px] text-slate-500 mt-1 block">Макс. давность события WOL / AirPlay для привязки</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1.5">Smart TV: Дневной режим отслеживания</label>
+                            <select id="cfg-tv-day-mode" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+                                <option value="autonomous_only">Только автономные пробуждения (рекомендуется)</option>
+                                <option value="all">Все включения телевизора</option>
+                                <option value="disabled">Отключить дневной анализ</option>
+                            </select>
+                        </div>
+
+                        <div class="flex justify-end pt-3 border-t border-slate-800">
+                            <button type="button" onclick="saveTvNightSettings()" class="px-4 py-2 rounded-xl text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить параметры Smart TV</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 5: SCHEDULES & DIGEST -->
+                <div id="settings-subpane-schedules" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="border-b border-slate-800/60 pb-3">
+                            <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                <i data-lucide="calendar" class="w-5 h-5 text-purple-400"></i>
+                                <span>Регулярные расписания & Дайджест</span>
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Автоматический аудит сети по ночам и сводный дайджест безопасности</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <!-- Daily Digest Card -->
+                            <div class="bg-surface-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                                <div class="flex items-center justify-between border-b border-slate-800/60 pb-2">
+                                    <span class="text-xs font-semibold text-slate-200 flex items-center space-x-1.5">
+                                        <i data-lucide="newspaper" class="w-4 h-4 text-cyan-400"></i>
+                                        <span>Ежедневный дайджест</span>
+                                    </span>
+                                    <input type="checkbox" id="cfg-digest-enabled" class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-slate-400 mb-1">Условие отправки в Telegram:</label>
+                                    <select id="cfg-digest-condition" class="w-full bg-surface-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+                                        <option value="only_on_issues">Только если найдены проблемы или инциденты</option>
+                                        <option value="always">Отправлять всегда (ежедневно)</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center justify-between pt-1">
+                                    <label class="text-xs text-slate-400">Время отправки:</label>
+                                    <div class="flex items-center space-x-1.5">
+                                        <input type="number" id="cfg-digest-hour" min="0" max="23" value="9" class="w-16 bg-surface-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 text-center font-mono">
+                                        <span class="text-xs text-slate-500">:00</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Nightly Audit Card -->
+                            <div class="bg-surface-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                                <div class="flex items-center justify-between border-b border-slate-800/60 pb-2">
+                                    <span class="text-xs font-semibold text-slate-200 flex items-center space-x-1.5">
+                                        <i data-lucide="moon" class="w-4 h-4 text-indigo-400"></i>
+                                        <span>Регулярный ночной автоаудит</span>
+                                    </span>
+                                    <input type="checkbox" id="cfg-scheduled-audit-enabled" class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-slate-400 mb-1">Охват устройств (кого проверять):</label>
+                                    <select id="cfg-scheduled-audit-scope" class="w-full bg-surface-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+                                        <option value="all" selected>🌐 Все устройства в сети (Рекомендуется)</option>
+                                        <option value="iot_only">💡 Только умный дом и камеры (IoT)</option>
+                                        <option value="untrusted">⚠️ Недоверенные и без профиля</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center justify-between pt-1">
+                                    <label class="text-xs text-slate-400">Время запуска:</label>
+                                    <div class="flex items-center space-x-1.5">
+                                        <input type="number" id="cfg-scheduled-audit-hour" min="0" max="23" value="3" class="w-16 bg-surface-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 text-center font-mono">
+                                        <span class="text-xs text-slate-500">:00</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between pt-1">
+                                    <label class="text-xs text-slate-400">Длительность на хост:</label>
+                                    <select id="cfg-scheduled-audit-duration" class="bg-surface-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200">
+                                        <option value="30">30 сек</option>
+                                        <option value="60" selected>60 сек (1 мин)</option>
+                                        <option value="120">2 мин</option>
+                                        <option value="180">3 мин</option>
+                                        <option value="300">5 мин</option>
+                                        <option value="600">10 мин</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-3 border-t border-slate-800">
+                            <button type="button" onclick="saveScheduleSettings()" class="px-4 py-2 rounded-xl text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить расписания</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 6: STORAGE & PCAP -->
+                <div id="settings-subpane-storage" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="hard-drive" class="w-5 h-5 text-amber-400"></i>
+                                    <span>Хранилище полезной нагрузки IoT и PCAP</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Ограничения объема данных в SQLite и автоматическая очистка старых дампов</p>
+                            </div>
+                            <label class="flex items-center cursor-pointer bg-surface-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                                <input type="checkbox" id="cfg-iot-capture-enabled" class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                                <span class="ml-2 text-xs text-slate-200 font-medium">Сбор включен</span>
+                            </label>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Максимальный объем хранилища (ГБ)</label>
+                                <input type="number" id="cfg-iot-storage-max-gb" step="0.1" min="0.1" max="100" value="1.0" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">При превышении удаляются самые старые полезные нагрузки</span>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">Срок хранения данных (дней)</label>
+                                <input type="number" id="cfg-iot-retention-days" min="1" max="365" value="7" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Автоматическое удаление записей старше указанного срока</span>
+                            </div>
+                        </div>
+
+                        <!-- Current Storage Usage -->
+                        <div class="bg-surface-950 p-4 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div class="flex items-center space-x-3">
+                                <div class="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
+                                    <i data-lucide="database" class="w-5 h-5"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-semibold text-slate-200">Текущий объем полезной нагрузки</div>
+                                    <div id="cfg-iot-storage-usage-text" class="text-xs text-slate-400 mt-0.5">Загрузка статистики...</div>
+                                </div>
+                            </div>
+                            <button type="button" onclick="pruneIotPayloadsNow()" id="cfg-iot-storage-prune-btn" class="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-1.5 shrink-0">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-400"></i>
+                                <span>Очистить устаревшие</span>
+                            </button>
+                        </div>
+
+                        <div class="flex justify-end pt-3 border-t border-slate-800">
+                            <button type="button" onclick="saveIotStorageSettings()" id="cfg-iot-storage-save-btn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить параметры хранилища</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 7: LAN PRESETS -->
+                <div id="settings-subpane-presets" class="settings-subpane hidden space-y-4">
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="layers" class="w-5 h-5 text-sky-400"></i>
+                                    <span>Пресеты сетевых политик LAN</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Ролевые профили доступа к локальным службам и портам</p>
+                            </div>
+                            <button type="button" onclick="openCustomPresetModal()" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/20">
+                                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                                <span>Создать пресет</span>
+                            </button>
+                        </div>
+                        <div id="settings-presets-list" class="space-y-2.5">
+                            <div class="py-4 text-center text-slate-500 text-xs">Загрузка пресетов...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 8: DNS SECURITY PROVIDERS -->
+                <div id="settings-subpane-dns-security" class="settings-subpane hidden space-y-6">
+                    <!-- Card: Provider Selector -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5 shadow-sm">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="shield" class="w-5 h-5 text-blue-400"></i>
+                                    <span>Провайдеры DNS-безопасности</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Сбор журналов заблокированных доменов (NextDNS, Control D, AdGuard Home, Pi-hole)</p>
+                            </div>
+                            <span id="dns-provider-status-badge" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                                Отключено
+                            </span>
+                        </div>
+
+                        <!-- Provider Cards Selector -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-2">Выберите активную службу DNS-защиты</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-5 gap-3" id="dns-provider-cards-grid">
+                                <!-- Card: Disabled -->
+                                <button type="button" onclick="selectDnsProviderCard('none')" id="card-dns-prov-none" class="dns-prov-card p-3.5 rounded-xl border-2 border-indigo-500 bg-indigo-500/10 text-left transition cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="circle-slash" class="w-4 h-4 text-slate-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Отключено</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400">Только встроенный фильтр Keenetic</p>
+                                </button>
+                                <!-- Card: NextDNS -->
+                                <button type="button" onclick="selectDnsProviderCard('nextdns')" id="card-dns-prov-nextdns" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="cloud-lightning" class="w-4 h-4 text-blue-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">NextDNS</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Облачный DoH/DoT сервис</p>
+                                </button>
+                                <!-- Card: Control D -->
+                                <button type="button" onclick="selectDnsProviderCard('controld')" id="card-dns-prov-controld" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="globe" class="w-4 h-4 text-cyan-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Control D</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Облачные профили & политики</p>
+                                </button>
+                                <!-- Card: AdGuard Home -->
+                                <button type="button" onclick="selectDnsProviderCard('adguard_home')" id="card-dns-prov-adguard_home" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">AdGuard</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Локальный сервер / LAN</p>
+                                </button>
+                                <!-- Card: Pi-hole -->
+                                <button type="button" onclick="selectDnsProviderCard('pihole')" id="card-dns-prov-pihole" class="dns-prov-card p-3.5 rounded-xl border border-slate-800 bg-surface-950 text-left transition hover:border-slate-700 cursor-pointer">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <i data-lucide="cpu" class="w-4 h-4 text-rose-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Pi-hole</span>
+                                    </div>
+                                    <p class="text-[10px] text-slate-500">Локальный FTL / DNS-сервер</p>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Forms for Providers -->
+                        <!-- NextDNS Form -->
+                        <div id="dns-fields-nextdns" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Profile ID (Идентификатор профиля)</label>
+                                    <input type="text" id="cfg-nextdns-profile-id" placeholder="например: 1234ab" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Указан в URL панели NextDNS: https://my.nextdns.io/{profile_id}</span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">API Key (Ключ доступа к логам)</label>
+                                        <span id="cfg-nextdns-key-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Ключ сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-nextdns-api-key" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Создайте в профиле NextDNS: Account → API Keys</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Control D Form -->
+                        <div id="dns-fields-controld" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Device / Profile ID (Необязательно)</label>
+                                    <input type="text" id="cfg-controld-device-id" placeholder="Оставьте пустым для всех устройств" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Фильтр по конкретному устройству в панели Control D</span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">API Key (Bearer Token)</label>
+                                        <span id="cfg-controld-key-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Токен сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-controld-api-key" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Control D Manage → Account → API Access</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AdGuard Home Form -->
+                        <div id="dns-fields-adguard_home" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1.5">URL сервера AdGuard Home</label>
+                                <input type="text" id="cfg-adguard-url" placeholder="http://192.168.1.1:3000 или http://192.168.1.5:80" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                <span class="text-[10px] text-slate-500 mt-1 block">Сетевой адрес веб-интерфейса AdGuard Home в локальной сети</span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Имя пользователя</label>
+                                    <input type="text" id="cfg-adguard-username" placeholder="admin" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">Пароль</label>
+                                        <span id="cfg-adguard-pass-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Пароль сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-adguard-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pi-hole Form -->
+                        <div id="dns-fields-pihole" class="dns-provider-fields hidden space-y-4 pt-3 border-t border-slate-800/80">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1.5">URL интерфейса Pi-hole</label>
+                                    <input type="text" id="cfg-pihole-url" placeholder="http://192.168.1.5/admin или http://192.168.1.5:80" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Адрес веб-панели Pi-hole v5 или REST API v6</span>
+                                </div>
+                                <div>
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <label class="block text-xs font-medium text-slate-300">API Token / Password</label>
+                                        <span id="cfg-pihole-token-saved" class="hidden text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                                            <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-400"></i>
+                                            <span>Токен сохранен</span>
+                                        </span>
+                                    </div>
+                                    <input type="password" id="cfg-pihole-api-token" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                                    <span class="text-[10px] text-slate-500 mt-1 block">Pi-hole Settings → API / Web password hash</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sync Controls & Connection Test -->
+                        <div class="pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button type="button" onclick="testDnsProviderConnection()" id="btn-test-dns-provider" class="px-4 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-2">
+                                    <i data-lucide="activity" class="w-3.5 h-3.5 text-blue-400"></i>
+                                    <span>Проверить подключение</span>
+                                </button>
+                                <button type="button" onclick="syncDnsProviderNow()" id="btn-sync-dns-provider-now" class="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white transition border border-blue-500/30 flex items-center space-x-2">
+                                    <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+                                    <span>Синхронизировать сейчас</span>
+                                </button>
+                                <button type="button" onclick="saveDnsProviderConfig()" id="btn-save-dns-provider-config" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center space-x-2">
+                                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    <span>Сохранить настройки</span>
+                                </button>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer select-none">
+                                    <input type="checkbox" id="cfg-dns-auto-sync" class="rounded border-slate-700 text-blue-600 focus:ring-blue-500 bg-slate-900 h-4 w-4">
+                                    <span>Автосинхронизация</span>
+                                </label>
+                                <select id="cfg-dns-sync-interval" class="bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                                    <option value="30">Каждые 30 сек</option>
+                                    <option value="60" selected>Каждую 1 мин</option>
+                                    <option value="300">Каждые 5 мин</option>
+                                    <option value="900">Каждые 15 мин</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Live Diagnostics & Sync Status Output Banner -->
+                        <div id="dns-provider-test-result" class="hidden p-3.5 rounded-xl text-xs border"></div>
+                        <div id="dns-provider-sync-meta-card" class="bg-surface-950 border border-slate-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-2 h-2 rounded-full bg-slate-500" id="dns-provider-sync-dot"></div>
+                                <span class="text-slate-400">Статус: <strong id="dns-provider-sync-status-text" class="text-slate-200">Отключено</strong></span>
+                                <span class="text-slate-600">|</span>
+                                <span class="text-slate-400">Последняя синхронизация: <strong id="dns-provider-last-sync-time" class="text-slate-200 font-mono">Никогда</strong></span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400">Всего импортировано блокировок: <strong id="dns-provider-total-synced-count" class="text-blue-400 font-mono">0</strong></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Interactive Network Assistance & Remediation Guides -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-4 shadow-sm">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="help-circle" class="w-5 h-5 text-indigo-400"></i>
+                                    <span>Решение сетевых проблем и обходов фильтрации</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Пошаговые руководства и инженерные рекомендации для роутера Keenetic</p>
+                            </div>
+                        </div>
+
+                        <!-- Accordion 1: DoH / DoT Hardcoded bypass -->
+                        <div class="border border-slate-800 rounded-xl overflow-hidden bg-surface-950">
+                            <button type="button" onclick="toggleDnsHelperAccordion('doh-bypass')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
+                                <div class="flex items-center space-x-3">
+                                    <div class="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
+                                        <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">Как заблокировать обход DoH/DoT на Smart TV и Android (порт 853)</div>
+                                        <div class="text-[11px] text-slate-400">Перехват жестко зашитых DNS 8.8.8.8 и блокировка шифрованных каналов</div>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-down" id="acc-icon-doh-bypass" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+                            </button>
+                            <div id="acc-content-doh-bypass" class="hidden p-4 pt-0 border-t border-slate-800/60 text-xs text-slate-300 space-y-3 font-sans">
+                                <p class="mt-3 text-slate-400">
+                                    Некоторые устройства (китайские ТВ-боксы, Chromecast, умные телевизоры) игнорируют DHCP роутера и шлют запросы напрямую в 8.8.8.8 или через зашифрованный DoT.
+                                </p>
+                                <div class="bg-surface-900 p-3 rounded-lg border border-slate-800 space-y-2 font-mono text-[11px]">
+                                    <div class="text-indigo-400 font-semibold font-sans">Шаг 1. Перенаправление DNS-запросов (порт 53) на Keenetic:</div>
+                                    <div class="text-slate-300 select-all bg-slate-950 px-2 py-1 rounded">ip static tcp 53 192.168.1.1 53 !WAN</div>
+                                    <div class="text-slate-300 select-all bg-slate-950 px-2 py-1 rounded">ip static udp 53 192.168.1.1 53 !WAN</div>
+                                    <div class="text-indigo-400 font-semibold font-sans mt-2">Шаг 2. Аппаратная блокировка DoT (порт 853 TCP):</div>
+                                    <div class="text-slate-300 select-all bg-slate-950 px-2 py-1 rounded">ip firewall rule deny tcp * * 853</div>
+                                </div>
+                                <p class="text-[11px] text-slate-400">
+                                    После выполнения этих правил все обращения клиентов будут принудительно перехвачены встроенным DNS-прокси Keenetic и отправлены в ваш активный профиль безопасности.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Accordion 2: In-stream video ads -->
+                        <div class="border border-slate-800 rounded-xl overflow-hidden bg-surface-950">
+                            <button type="button" onclick="toggleDnsHelperAccordion('video-ads')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
+                                <div class="flex items-center space-x-3">
+                                    <div class="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
+                                        <i data-lucide="video" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">Почему DNS не блокирует рекламу внутри видео (YouTube / RuTube)</div>
+                                        <div class="text-[11px] text-slate-400">Технический реализм: архитектура CDN потокового вещания</div>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-down" id="acc-icon-video-ads" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+                            </button>
+                            <div id="acc-content-video-ads" class="hidden p-4 pt-0 border-t border-slate-800/60 text-xs text-slate-300 space-y-3 font-sans">
+                                <p class="mt-3 text-slate-400">
+                                    Потоковая видеореклама загружается с тех же самых CDN-серверов и хостов, что и сам видеоконтент (например, <code>*.googlevideo.com</code>). Блокировка таких доменов через DNS, AdGuard или NextDNS полностью останавливает воспроизведение роликов.
+                                </p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 font-sans">
+                                    <div class="bg-surface-900 p-3 rounded-lg border border-slate-800">
+                                        <div class="text-emerald-400 font-bold mb-1">Для Android TV / Приставок:</div>
+                                        <p class="text-[11px] text-slate-300">Используйте <strong>SmartTube</strong> — бесплатный открытый плеер со встроенной блокировкой рекламы и пропуском интеграций (SponsorBlock).</p>
+                                    </div>
+                                    <div class="bg-surface-900 p-3 rounded-lg border border-slate-800">
+                                        <div class="text-cyan-400 font-bold mb-1">Для ПК и Ноутбуков:</div>
+                                        <p class="text-[11px] text-slate-300">Используйте расширение <strong>uBlock Origin</strong> — оно вырезает рекламу на уровне веб-страницы и скриптов плеера, не ломая сеть.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Accordion 3: Local device attribution -->
+                        <div class="border border-slate-800 rounded-xl overflow-hidden bg-surface-950">
+                            <button type="button" onclick="toggleDnsHelperAccordion('device-id')" class="w-full p-4 text-left flex items-center justify-between hover:bg-slate-900/60 transition">
+                                <div class="flex items-center space-x-3">
+                                    <div class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
+                                        <i data-lucide="laptop" class="w-4 h-4"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">Как передавать имена устройств в NextDNS и Control D</div>
+                                        <div class="text-[11px] text-slate-400">Настройка DoH-профиля роутера для 100% точной привязки к устройствам</div>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-down" id="acc-icon-device-id" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+                            </button>
+                            <div id="acc-content-device-id" class="hidden p-4 pt-0 border-t border-slate-800/60 text-xs text-slate-300 space-y-3 font-sans">
+                                <p class="mt-3 text-slate-400">
+                                    По умолчанию облачный DNS видит только один внешний IP вашего роутера. Чтобы видеть в KeenGuard, какое именно устройство отправило заблокированный запрос:
+                                </p>
+                                <ul class="list-disc list-inside space-y-1.5 text-slate-300 text-[11px]">
+                                    <li><strong>NextDNS</strong>: в настройках Keenetic DoH укажите адрес в формате <code>https://dns.nextdns.io/{profile_id}/Keenetic</code> или используйте клиент NextDNS CLI на Keenetic (Entware).</li>
+                                    <li><strong>Control D</strong>: создайте отдельные профили под устройства и используйте уникальные DoH-адреса для разных сегментов.</li>
+                                    <li><strong>AdGuard Home / Pi-hole</strong>: локальные установки автоматически передают внутренние адреса (192.168.1.X), привязка к устройствам в KeenGuard работает из коробки.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-PANE 10: WEB NETWORK ACCESS & AUTH -->
+                <div id="settings-subpane-web-access" class="settings-subpane hidden space-y-6">
+                    <!-- Network Binding Card -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/60 pb-4">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                    <i data-lucide="network" class="w-5 h-5 text-indigo-400"></i>
+                                    <span>Сетевой интерфейс и доступ из локальной сети (LAN)</span>
+                                </h2>
+                                <p class="text-xs text-slate-400 mt-0.5">Определяет, доступен ли веб-интерфейс только с текущего ПК или для других устройств в вашей домашней сети</p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span id="web-access-mode-badge" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    127.0.0.1 (Закрыт)
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Bind Selection Options -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Option 1: 127.0.0.1 -->
+                            <label class="relative flex flex-col p-4 bg-surface-950 border border-slate-800 rounded-xl cursor-pointer hover:border-indigo-500/50 transition">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center space-x-2.5">
+                                        <input type="radio" name="cfg-web-host-radio" value="127.0.0.1" id="cfg-web-host-local" class="text-indigo-600 focus:ring-indigo-500" onchange="onWebHostRadioChange('127.0.0.1')">
+                                        <span class="font-bold text-sm text-white">Только этот ПК (127.0.0.1)</span>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300">По умолчанию</span>
+                                </div>
+                                <p class="text-xs text-slate-400">
+                                    Веб-интерфейс полностью скрыт от локальной сети. Любые устройства, телефоны, Smart TV или гости в Wi-Fi не смогут обнаружить порт 9989.
+                                </p>
+                            </label>
+
+                            <!-- Option 2: 0.0.0.0 -->
+                            <label class="relative flex flex-col p-4 bg-surface-950 border border-slate-800 rounded-xl cursor-pointer hover:border-indigo-500/50 transition">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center space-x-2.5">
+                                        <input type="radio" name="cfg-web-host-radio" value="0.0.0.0" id="cfg-web-host-any" class="text-indigo-600 focus:ring-indigo-500" onchange="onWebHostRadioChange('0.0.0.0')">
+                                        <span class="font-bold text-sm text-white">Вся локальная сеть (0.0.0.0)</span>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300">LAN-доступ</span>
+                                </div>
+                                <p class="text-xs text-slate-400">
+                                    Интерфейс доступен с любого смартфона, планшета или ПК в домашней сети по IP этого компьютера. Обязательно действует парольная защита и защита от брутфорса.
+                                </p>
+                            </label>
+                        </div>
+
+                        <!-- Localhost Exemption Setting -->
+                        <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-200">Авторизация для локального хоста (127.0.0.1)</label>
+                                <p class="text-[11px] text-slate-400">Не запрашивать пароль, если вы открываете панель прямо с компьютера, где запущен KeenGuard</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="cfg-web-auth-exempt-localhost" class="sr-only peer" checked>
+                                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Administrator Password Card -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 space-y-5">
+                        <div class="border-b border-slate-800/60 pb-3">
+                            <h2 class="text-base font-bold text-slate-100 flex items-center space-x-2">
+                                <i data-lucide="key-round" class="w-5 h-5 text-indigo-400"></i>
+                                <span>Пароль администратора Веб-интерфейса</span>
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Используется для входа при доступе из локальной сети или при включенной авторизации</p>
+                        </div>
+
+                        <div class="space-y-4 max-w-lg">
+                            <div id="web-pw-status-box" class="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+                                <span class="text-slate-400">Текущий статус пароля:</span>
+                                <span id="web-pw-status-text" class="font-semibold text-emerald-400">Установлен</span>
+                            </div>
+
+                            <div id="box-old-password" class="space-y-1.5">
+                                <label class="block text-xs font-medium text-slate-300">Текущий пароль (если уже задан)</label>
+                                <input type="password" id="cfg-web-old-password" placeholder="••••••••" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-medium text-slate-300">Новый пароль</label>
+                                <input type="password" id="cfg-web-new-password" placeholder="Не менее 6 символов" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-medium text-slate-300">Подтверждение нового пароля</label>
+                                <input type="password" id="cfg-web-confirm-password" placeholder="Повторите новый пароль" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono">
+                            </div>
+
+                            <div class="flex items-center space-x-3 pt-2">
+                                <button type="button" onclick="submitChangeWebPassword()" id="btn-save-web-password" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl font-semibold transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/20">
+                                    <i data-lucide="check" class="w-4 h-4"></i>
+                                    <span>Сменить пароль</span>
+                                </button>
+                                <button type="button" onclick="generateRandomWebPassword()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition flex items-center space-x-1.5">
+                                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
+                                    <span>Сгенерировать надежный</span>
+                                </button>
+                            </div>
+                            <p id="web-pw-feedback" class="text-xs hidden"></p>
+                        </div>
+                    </div>
+
+                    <!-- Brute Force Security Info -->
+                    <div class="p-4 bg-indigo-950/20 border border-indigo-500/20 rounded-2xl flex items-start space-x-3 text-xs text-slate-300">
+                        <i data-lucide="shield-alert" class="w-5 h-5 text-indigo-400 shrink-0 mt-0.5"></i>
+                        <div class="space-y-1">
+                            <h4 class="font-bold text-white">Встроенная защита от атак перебором (Brute-Force Guard)</h4>
+                            <p class="text-slate-400">
+                                При 5 неудачных попытках ввода пароля с одного IP-адреса доступ для него блокируется на 15 минут, а в Telegram немедленно направляется оповещение безопасности с указанием IP злоумышленника.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+            </form>
+        </section>

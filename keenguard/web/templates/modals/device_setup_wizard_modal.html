@@ -1,0 +1,287 @@
+    <!-- Modal: 5-Step Adaptive Device Setup Wizard -->
+    <div id="device-setup-wizard-modal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <!-- Header: Fixed -->
+            <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 shrink-0 bg-surface-900/90 backdrop-blur">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                        <i data-lucide="wand-2" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">Мастер настройки устройства</h3>
+                        <p id="dev-wizard-header-subtitle" class="text-xs text-slate-400">Шаг 1 из 5: Базовая идентификация</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeDeviceWizard()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Wizard Step Pills Indicator -->
+            <div class="px-5 pt-3 pb-2 border-b border-slate-800/80 bg-surface-950/60 flex items-center justify-between text-xs">
+                <div class="flex items-center space-x-1.5" id="dev-wizard-pill-1">
+                    <span class="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[11px] bg-indigo-600 text-white">1</span>
+                    <span class="font-medium text-slate-200 hidden sm:inline">Идентификация</span>
+                </div>
+                <div class="w-6 h-0.5 bg-slate-800" id="dev-wizard-line-1"></div>
+                <div class="flex items-center space-x-1.5" id="dev-wizard-pill-2">
+                    <span class="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[11px] bg-slate-800 text-slate-400">2</span>
+                    <span class="font-medium text-slate-400 hidden sm:inline">Профиль</span>
+                </div>
+                <div class="w-6 h-0.5 bg-slate-800" id="dev-wizard-line-2"></div>
+                <div class="flex items-center space-x-1.5" id="dev-wizard-pill-3">
+                    <span class="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[11px] bg-slate-800 text-slate-400">3</span>
+                    <span class="font-medium text-slate-400 hidden sm:inline">LAN Пресет</span>
+                </div>
+                <div class="w-6 h-0.5 bg-slate-800" id="dev-wizard-line-3"></div>
+                <div class="flex items-center space-x-1.5" id="dev-wizard-pill-4">
+                    <span class="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[11px] bg-slate-800 text-slate-400">4</span>
+                    <span class="font-medium text-slate-400 hidden sm:inline">Карантин</span>
+                </div>
+                <div class="w-6 h-0.5 bg-slate-800" id="dev-wizard-line-4"></div>
+                <div class="flex items-center space-x-1.5" id="dev-wizard-pill-5">
+                    <span class="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[11px] bg-slate-800 text-slate-400">5</span>
+                    <span class="font-medium text-slate-400 hidden sm:inline">Итог</span>
+                </div>
+            </div>
+
+            <!-- Body: Scrollable -->
+            <div class="overflow-y-auto flex-1 p-5 space-y-4 text-xs custom-scrollbar">
+                <!-- STEP 1: Basic Identity -->
+                <div id="dev-wizard-step-1" class="space-y-4">
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1.5">Понятное имя устройства:</label>
+                        <input type="text" id="wizard-dev-name" placeholder="Например, Телевизор в спальне" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <div>
+                            <span class="text-slate-500 text-[11px]">MAC-адрес:</span>
+                            <span id="wizard-dev-mac" class="block font-mono text-slate-200 mt-0.5 font-bold">--:--:--:--:--:--</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">IP-адрес:</span>
+                            <span id="wizard-dev-ip" class="block font-mono text-slate-200 mt-0.5">--</span>
+                        </div>
+                        <div class="col-span-2 pt-1 border-t border-slate-800/80">
+                            <span class="text-slate-500 text-[11px]">Вендор (OUI):</span>
+                            <span id="wizard-dev-vendor" class="block text-slate-300 mt-0.5">--</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1.5">Категория / профиль оборудования:</label>
+                        <select id="wizard-dev-profile" onchange="deviceWizardOnProfileChange()" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                            <option value="smart_tv">📺 Smart TV / Медиаплеер</option>
+                            <option value="camera">📹 IP-камера видеонаблюдения</option>
+                            <option value="iot">🔌 IoT / Умный дом (розетки, реле, пылесосы)</option>
+                            <option value="smart_home_hub">🎛️ Хаб умного дома (Home Assistant, SprutHub)</option>
+                            <option value="trusted">💻 Доверенная рабочая станция (ПК, ноутбук, смартфон)</option>
+                            <option value="guest">👤 Гостевое устройство</option>
+                            <option value="unassigned">❓ Не назначен</option>
+                        </select>
+                        <span class="text-[11px] text-slate-400 mt-1 block">На следующем шаге откроются специализированные параметры для выбранного профиля.</span>
+                    </div>
+                </div>
+
+                <!-- STEP 2: Device-Specific Tuning -->
+                <div id="dev-wizard-step-2" class="space-y-4 hidden">
+                    <!-- 2A: Smart TV -->
+                    <div id="wizard-step2-tv" class="space-y-3.5 hidden">
+                        <div class="text-xs font-semibold text-indigo-300 flex items-center space-x-1.5">
+                            <i data-lucide="tv" class="w-4 h-4"></i>
+                            <span>Параметры форензики Smart TV</span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-slate-300 mb-1">Начало сна (ночь):</label>
+                                <input type="number" id="wizard-tv-night-start" min="0" max="23" value="0" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block text-slate-300 mb-1">Конец сна (утро):</label>
+                                <input type="number" id="wizard-tv-night-end" min="0" max="23" value="7" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-300 mb-1">Дневной режим отслеживания:</label>
+                            <select id="wizard-tv-day-mode" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                                <option value="autonomous_only" selected>Только автономные пробуждения (рекомендуется)</option>
+                                <option value="all">Все включения телевизора</option>
+                                <option value="disabled">Отключить дневной анализ</option>
+                            </select>
+                            <span class="text-[10px] text-slate-500 block mt-1">При режиме «Только автономные» включения по AirPlay/пульту днем не генерируют тревог.</span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 pt-1">
+                            <div>
+                                <label class="block text-slate-300 mb-1">Pre-wake буфер (сек):</label>
+                                <input type="number" id="wizard-tv-pre" min="5" max="300" value="30" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block text-slate-300 mb-1">Post-wake запись (сек):</label>
+                                <input type="number" id="wizard-tv-post" min="0" max="600" value="30" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-300 mb-1">Доверенный DLNA / медиасервер:</label>
+                            <select id="wizard-tv-dlna-select" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                                <option value="">Без явного медиасервера</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 2B: IP Camera -->
+                    <div id="wizard-step2-camera" class="space-y-3.5 hidden">
+                        <div class="text-xs font-semibold text-rose-300 flex items-center space-x-1.5">
+                            <i data-lucide="video" class="w-4 h-4"></i>
+                            <span>Специфика видеонаблюдения</span>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-300 mb-1">Доверенный NVR / регистратор:</label>
+                            <select id="wizard-camera-nvr-select" onchange="deviceWizardOnNvrSelectChange()" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                                <option value="">Указать IP вручную...</option>
+                            </select>
+                            <input type="text" id="wizard-camera-nvr-custom" placeholder="192.168.1.200" class="w-full mt-2 bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono hidden">
+                            <span class="text-[10px] text-slate-500 block mt-1">Трансляция видео на этот IP-адрес считается авторизованной и не вызывает тревог утечки.</span>
+                        </div>
+
+                        <div class="space-y-2 pt-1 border-t border-slate-800">
+                            <label class="flex items-center justify-between p-2.5 rounded-xl bg-surface-950 border border-slate-800 cursor-pointer">
+                                <div>
+                                    <span class="font-medium text-slate-200 block">Тревога при видеопотоке в WAN (Интернет)</span>
+                                    <span class="text-[10px] text-slate-500 block">Уведомлять об утечке видео наружу</span>
+                                </div>
+                                <input type="checkbox" id="wizard-camera-wan-notify" checked class="w-4 h-4 rounded text-rose-600 bg-surface-900 border-slate-700">
+                            </label>
+                            <label class="flex items-center justify-between p-2.5 rounded-xl bg-surface-950 border border-slate-800 cursor-pointer">
+                                <div>
+                                    <span class="font-medium text-slate-200 block">Оповещение о локальном просмотре (LAN)</span>
+                                    <span class="text-[10px] text-slate-500 block">Уведомлять при трансляции на хосты кроме NVR</span>
+                                </div>
+                                <input type="checkbox" id="wizard-camera-lan-notify" class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 2C: IoT / Dumb Sensor -->
+                    <div id="wizard-step2-iot" class="space-y-3.5 hidden">
+                        <div class="text-xs font-semibold text-amber-300 flex items-center space-x-1.5">
+                            <i data-lucide="cpu" class="w-4 h-4"></i>
+                            <span>Политика устройств умного дома</span>
+                        </div>
+                        <div>
+                            <label class="block text-slate-300 mb-1">Режим выхода в интернет:</label>
+                            <select id="wizard-iot-wan-policy" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white">
+                                <option value="zero_internet" selected>Zero Internet (Строго локально, блокировать WAN)</option>
+                                <option value="allow_wan">Облако вендора (Разрешить доступ наружу с надзором)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 2D: Workstation / Trusted -->
+                    <div id="wizard-step2-trusted" class="space-y-3.5 hidden">
+                        <div class="text-xs font-semibold text-emerald-300 flex items-center space-x-1.5">
+                            <i data-lucide="shield-check" class="w-4 h-4"></i>
+                            <span>Параметры доверенного узла</span>
+                        </div>
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 text-slate-300 space-y-1">
+                            <p class="font-semibold text-emerald-400">🛡️ Белый список без ложных срабатываний</p>
+                            <p class="text-[11px] text-slate-400">Для рабочих станций, ПК и смартфонов разрешены любые сетевые операции (SMB, SSH, базы данных). Система никогда не закрывает им интернет автоматически.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 3: LAN Policy Preset Selection -->
+                <div id="dev-wizard-step-3" class="space-y-4 hidden">
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">Выберите пресет сетевых политик LAN:</label>
+                        <p class="text-[11px] text-slate-400 mb-2">Определяет, к каким портам и службам в домашней сети устройству разрешено обращаться.</p>
+                    </div>
+
+                    <!-- Dynamic Presets Radio Grid -->
+                    <div id="wizard-presets-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="pt-2 border-t border-slate-800">
+                        <label class="block text-slate-300 mb-1">Дополнительные разрешенные порты (через запятую):</label>
+                        <input type="text" id="wizard-custom-ports" placeholder="например: 445, 8200, 32400" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono text-xs">
+                        <span class="text-[10px] text-slate-500 mt-0.5 block">Используйте, если устройству требуется доступ к нестандартным службам</span>
+                    </div>
+                </div>
+
+                <!-- STEP 4: Auto-Quarantine & Incident Response -->
+                <div id="dev-wizard-step-4" class="space-y-4 hidden">
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">Поведение автокарантина при аномалиях:</label>
+                        <p class="text-[11px] text-slate-400 mb-2">Что делать роутеру при обнаружении попытки взлома, сканирования сети или утечки трафика:</p>
+                    </div>
+
+                    <select id="wizard-quarantine-override" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-xs">
+                        <option value="profile_default">По умолчанию глобальной политики</option>
+                        <option value="always_quarantine">Всегда блокировать выход в Интернет (WAN)</option>
+                        <option value="never_quarantine">Никогда не блокировать автоматически (только тревога в Telegram/UI)</option>
+                    </select>
+
+                    <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2 pt-3">
+                        <label class="flex items-start space-x-2.5 cursor-pointer">
+                            <input type="checkbox" id="wizard-run-audit" checked class="w-4 h-4 rounded text-indigo-600 bg-surface-900 border-slate-700 mt-0.5">
+                            <div>
+                                <span class="font-medium text-slate-200 text-xs block">Запустить экспресс-аудит трафика после завершения (60 сек)</span>
+                                <span class="text-[11px] text-slate-400 block">Проверит внешние облака устройства, отсутствие незашифрованных учетных записей и паразитных пакетов.</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- STEP 5: Summary Review & Technical Realism -->
+                <div id="dev-wizard-step-5" class="space-y-4 hidden">
+                    <div class="text-xs font-semibold text-slate-200">Итоговая сводка конфигурации:</div>
+                    <div id="wizard-summary-box" class="p-3.5 bg-surface-950 rounded-xl border border-slate-800 space-y-1.5 text-xs text-slate-300">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Technical Realism L2 Banner (Strict AGENTS.md adherence) -->
+                    <div id="wizard-l2-warning" class="p-3.5 rounded-xl bg-amber-950/30 border border-amber-700/50 space-y-2 text-xs text-amber-200 hidden">
+                        <div class="flex items-center space-x-2 font-bold text-amber-300">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                            <span>Физический сетевой сегмент: Bridge0 (192.168.1.0/24)</span>
+                        </div>
+                        <p class="text-[11px] text-slate-300 leading-relaxed">
+                            Устройство подключено к основному сегменту домашней сети. Программный карантин KeenGuard закрывает устройству доступ в <b>Интернет (WAN)</b>.
+                        </p>
+                        <p class="text-[11px] text-slate-300 leading-relaxed font-semibold">
+                            ⚠️ Однако локальный L2-трафик между клиентами в Bridge0 коммутируется аппаратно в обход межсетевого экрана роутера.
+                        </p>
+                        <p class="text-[10px] text-amber-400/90 leading-tight">
+                            Для полной аппаратной L2-изоляции от домашних компьютеров и NAS переведите данное устройство в <b>Гостевой Wi-Fi (Bridge1)</b> или выделите отдельный VLAN в KeeneticOS.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer: Navigation Buttons -->
+            <div class="border-t border-slate-800 px-5 py-3 shrink-0 bg-surface-900/90 flex items-center justify-between">
+                <button type="button" id="dev-wizard-btn-prev" onclick="deviceWizardPrevStep()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition hidden">
+                    &larr; Назад
+                </button>
+                <div class="ml-auto flex items-center space-x-2">
+                    <button type="button" onclick="closeDeviceWizard()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs rounded-xl font-medium transition">
+                        Отмена
+                    </button>
+                    <button type="button" id="dev-wizard-btn-next" onclick="deviceWizardNextStep()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl font-medium transition shadow-lg shadow-indigo-600/20">
+                        Далее &rarr;
+                    </button>
+                    <button type="button" id="dev-wizard-btn-finish" onclick="submitDeviceWizard()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-xl font-medium transition shadow-lg shadow-emerald-600/20 hidden flex items-center space-x-1.5">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        <span>Завершить настройку</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+

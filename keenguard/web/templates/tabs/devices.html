@@ -1,0 +1,88 @@
+        <!-- TAB: DEVICES -->
+        <section id="view-devices" class="hidden space-y-6">
+            <!-- Header Controls & Filters -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2.5">
+                            <h2 class="text-lg font-bold text-slate-100">Инспектор устройств сети</h2>
+                            <span id="devices-online-counter-badge" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">0 в сети</span>
+                        </div>
+                        <p class="text-xs text-slate-400">Применяйте профили безопасности, управляйте доступом и аудитом трафика</p>
+                    </div>
+
+                    <!-- Toolbar: Search, Sort, View Switcher & Export -->
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <!-- Search Input -->
+                        <div class="relative w-full sm:w-56">
+                            <input type="text" id="devices-search-input" oninput="applyDeviceFiltersAndRender()" placeholder="Поиск (имя, IP, MAC)..." class="w-full bg-surface-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5"></i>
+                        </div>
+
+                        <!-- Sort Select -->
+                        <div class="flex items-center space-x-1.5">
+                            <select id="devices-sort-select" onchange="changeDeviceSort(this.value)" class="bg-surface-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer">
+                                <option value="name_asc">По имени (А → Я)</option>
+                                <option value="name_desc">По имени (Я → А)</option>
+                                <option value="status_online">Сначала в сети (Online)</option>
+                                <option value="ip_asc">По IP-адресу</option>
+                                <option value="vendor_asc">По производителю</option>
+                            </select>
+                        </div>
+
+                        <!-- Toggle: Hide Offline Devices -->
+                        <label class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-surface-950 border border-slate-800 text-xs text-slate-300 hover:text-white cursor-pointer select-none transition" title="Скрыть оффлайн-устройства из списка">
+                            <input type="checkbox" id="toggle-hide-offline-devices" onchange="toggleHideOffline(this.checked)" class="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer">
+                            <span class="whitespace-nowrap text-[11px]">Только в сети</span>
+                        </label>
+
+                        <!-- View Mode Switch (Cards vs Table Rows) -->
+                        <div class="flex items-center bg-surface-950 border border-slate-800 rounded-xl p-0.5">
+                            <button id="btn-device-view-grid" onclick="setDeviceViewMode('grid')" title="Вид: Карточки (Сетка)" class="px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 bg-indigo-600 text-white shadow-sm">
+                                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                                <span class="hidden sm:inline">Карточки</span>
+                            </button>
+                            <button id="btn-device-view-table" onclick="setDeviceViewMode('table')" title="Вид: Строки (Таблица)" class="px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 text-slate-400 hover:text-white">
+                                <i data-lucide="list" class="w-3.5 h-3.5"></i>
+                                <span class="hidden sm:inline">Строки</span>
+                            </button>
+                        </div>
+
+                        <!-- Data Export -->
+                        <div class="flex items-center space-x-1">
+                            <button onclick="exportData('devices', 'csv')" title="Экспорт реестра в CSV для Excel" class="px-2 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center space-x-1 transition border border-slate-700">
+                                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-emerald-400"></i>
+                                <span class="hidden sm:inline">CSV</span>
+                            </button>
+                            <button onclick="exportData('devices', 'json')" title="Экспорт JSON" class="px-2 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center space-x-1 transition border border-slate-700">
+                                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                                <span class="hidden sm:inline">JSON</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category Group Filter Pills -->
+                <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/60">
+                    <button onclick="filterDevices('all')" class="dev-filter-btn active px-3 py-1.5 text-xs rounded-xl bg-indigo-600 text-white font-medium transition" data-filter="all">Все группы</button>
+                    <button onclick="filterDevices('trusted')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition" data-filter="trusted">Доверенные</button>
+                    <button onclick="filterDevices('smart_tv')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition" data-filter="smart_tv">Smart TV</button>
+                    <button onclick="filterDevices('camera')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition" data-filter="camera">Камеры</button>
+                    <button onclick="filterDevices('smart_home_hub')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition" data-filter="smart_home_hub">Хабы умного дома</button>
+                    <button onclick="filterDevices('iot')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition" data-filter="iot">IoT / Умный дом</button>
+                    <button onclick="filterDevices('unassigned')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition" data-filter="unassigned">Не назначены</button>
+                    <button onclick="filterDevices('offline')" class="dev-filter-btn px-3 py-1.5 text-xs rounded-xl bg-surface-950 border border-slate-800 text-slate-400 hover:text-white transition flex items-center space-x-1.5" data-filter="offline">
+                        <span>Офлайн</span>
+                        <span id="devices-offline-pill-count" class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-400 border border-slate-700 font-mono">0</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Grouped Devices Container -->
+            <div id="devices-container" class="space-y-6">
+                <div id="devices-grid">
+                    <!-- Dynamic grouped content (cards or tables) populated by JS -->
+                </div>
+            </div>
+        </section>
+

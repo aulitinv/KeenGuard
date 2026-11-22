@@ -1,0 +1,297 @@
+        <!-- TAB: INCIDENT INVESTIGATION WIZARD -->
+        <section id="view-investigator" class="hidden space-y-6">
+            <!-- Header & Overview -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-800">
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-xl font-bold text-white flex items-center space-x-2.5">
+                            <i data-lucide="crosshair" class="w-6 h-6 text-rose-400"></i>
+                            <span>Исследователь инцидентов (Incident Wizard)</span>
+                        </h1>
+                        <span class="text-xs font-semibold text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20">v4.6</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">Интерактивный пошаговый анализ сетевых аномалий, DNS-сопоставление, Threat Intelligence и локальная диагностика для любых ОС</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="loadInvestigatorIncidents()" class="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center space-x-1.5 shadow-sm" title="Обновить список недавних аудитов и инцидентов">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span>Обновить цели</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Incident Selection & Target Input Card -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                    <div class="flex items-center space-x-2">
+                        <span class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+                            <i data-lucide="target" class="w-4 h-4"></i>
+                        </span>
+                        <h3 class="text-sm font-semibold text-slate-200">Выбор объекта расследования</h3>
+                    </div>
+                    <span class="text-[11px] text-slate-400">Выберите готовый инцидент или укажите адрес вручную</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Dropdown: Select recent audit or incident -->
+                    <div class="md:col-span-2 space-y-1.5">
+                        <label class="block text-xs font-medium text-slate-300">Недавние инциденты и аудиты устройств</label>
+                        <div class="relative">
+                            <select id="investigator-incident-select" onchange="onInvestigatorSelectChange()" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans truncate">
+                                <option value="">— Загрузка списка инцидентов... —</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- OS override dropdown -->
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-medium text-slate-300">Операционная система клиента</label>
+                        <select id="investigator-select-os" onchange="onInvestigatorOsChange()" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-sans">
+                            <option value="auto">⚡ Автоопределение (по вендору/хосту)</option>
+                            <option value="windows">🪟 Windows (10 / 11 / Server)</option>
+                            <option value="linux">🐧 Linux (Ubuntu, Debian, Raspberry Pi)</option>
+                            <option value="macos">🍎 Apple macOS</option>
+                            <option value="android">🤖 Google Android / One UI / MIUI</option>
+                            <option value="ios">📱 Apple iOS / iPadOS</option>
+                            <option value="smart_tv">📺 Smart TV (LG webOS / Samsung Tizen)</option>
+                            <option value="iot">🔌 IoT / Умный дом / Роутер</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Manual Target Input (Foldable / Collapsible) -->
+                <div class="pt-2 border-t border-slate-800/40 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div class="flex-1 flex items-center space-x-2">
+                        <span class="text-xs text-slate-400 whitespace-nowrap">Или вручную IP / Домен:</span>
+                        <input type="text" id="investigator-manual-ip" placeholder="например, 198.51.100.1 или tracking.example.org" class="flex-1 bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <button type="button" onclick="startInvestigatorManualRun()" id="btn-investigate-run" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/20 flex items-center justify-center space-x-2 shrink-0">
+                        <i data-lucide="crosshair" class="w-4 h-4"></i>
+                        <span>Начать расследование</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Interactive Wizard Container -->
+            <div id="investigator-wizard-container" class="space-y-6">
+                <!-- Loading State placeholder -->
+                <div id="investigator-loading" class="hidden bg-surface-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                    <div class="inline-block p-4 rounded-full bg-indigo-500/10 text-indigo-400 animate-spin">
+                        <i data-lucide="loader-2" class="w-8 h-8"></i>
+                    </div>
+                    <h3 class="text-sm font-semibold text-slate-200">Идет глубокий анализ инцидента...</h3>
+                    <p class="text-xs text-slate-400 max-w-md mx-auto">Сопоставление IP-адресов с DNS-кэшем роутера Keenetic, распознавание протоколов и генерация инструкций для вашей ОС</p>
+                </div>
+
+                <!-- Initial Empty State -->
+                <div id="investigator-empty" class="bg-surface-900 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
+                    <div class="inline-block p-4 rounded-2xl bg-slate-800/80 text-slate-400">
+                        <i data-lucide="search" class="w-10 h-10 text-rose-400"></i>
+                    </div>
+                    <h3 class="text-base font-bold text-slate-200">Выберите инцидент или устройство для начала расследования</h3>
+                    <p class="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
+                        Исследователь инцидентов поможет выяснить: какая конкретно программа на клиенте обращается по подозрительному адресу, проверит репутацию узлов в VirusTotal и AbuseIPDB, объяснит влияние VPN и Private DNS, и предоставит безопасное решение в один клик.
+                    </p>
+                </div>
+
+                <!-- Main Investigation Report (4 Steps) -->
+                <div id="investigator-report" class="hidden space-y-6">
+
+                    <!-- Target Device Banner & Verdict -->
+                    <div class="bg-surface-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/60 pb-4">
+                            <div class="flex items-center space-x-3.5">
+                                <div id="investigator-target-icon-box" class="p-3 rounded-2xl bg-indigo-500/10 text-indigo-400 shrink-0">
+                                    <i data-lucide="laptop" id="investigator-target-icon" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <div class="flex items-center space-x-2">
+                                        <h2 id="investigator-target-name" class="text-base font-bold text-white">Target Host</h2>
+                                        <span id="investigator-target-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">Внимание</span>
+                                    </div>
+                                    <p id="investigator-target-meta" class="text-xs text-slate-400 font-mono mt-0.5">IP: 192.168.1.x &bull; MAC: 00:xx:xx:xx:xx:xx &bull; ОС: Windows</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-2 shrink-0">
+                                <div class="text-right">
+                                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Вердикт безопасности</div>
+                                    <div id="investigator-verdict-title" class="text-xs font-bold text-slate-200">Предупреждение: открытый трафик</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Findings Bullet Points -->
+                        <div id="investigator-findings-list" class="space-y-2 text-xs text-slate-300">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- STEP 1: CONTEXT & CORRELATED DNS FLOWS -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 font-bold text-xs flex items-center justify-center">1</span>
+                                <h3 class="text-sm font-bold text-slate-200">Сетевой контекст и сопоставление с DNS</h3>
+                            </div>
+                            <span class="text-[11px] text-slate-400 font-mono" id="investigator-flows-count">0 соединений</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800 font-semibold bg-surface-950/40">
+                                    <tr>
+                                        <th class="py-2.5 px-3">Удаленный узел (IP & Порт)</th>
+                                        <th class="py-2.5 px-3">Сопоставленный домен (DNS)</th>
+                                        <th class="py-2.5 px-3">Протокол & Шифрование</th>
+                                        <th class="py-2.5 px-3">Классификация / Служба</th>
+                                        <th class="py-2.5 px-3">Оценка</th>
+                                        <th class="py-2.5 px-3 text-right">Intel ссылки</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="investigator-flows-tbody" class="divide-y divide-slate-800/60 font-sans">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2: THREAT INTELLIGENCE & REPUTATION -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-xs flex items-center justify-center">2</span>
+                                <h3 class="text-sm font-bold text-slate-200">Проверка репутации & Threat Intelligence</h3>
+                            </div>
+                            <span class="text-[11px] text-slate-400">Внешние базы киберразведки</span>
+                        </div>
+
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            KeenGuard не передает токены и персональные данные вашей сети. Нажмите на любой узел ниже, чтобы открыть официальный отчет по безопасности адреса:
+                        </p>
+
+                        <div id="investigator-intel-cards-container" class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- STEP 3: LOCAL CLIENT OS DIAGNOSIS PLAYBOOK -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/60 pb-3">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs flex items-center justify-center">3</span>
+                                <div>
+                                    <h3 id="investigator-step3-title" class="text-sm font-bold text-slate-200">Локальная диагностика («Какая программа это делает?»)</h3>
+                                    <p id="investigator-step3-subtitle" class="text-[11px] text-slate-400 mt-0.5">Готовые команды и инструкции для точного определения процесса на целевом устройстве</p>
+                                </div>
+                            </div>
+                            <!-- OS Selector Tabs in Playbook -->
+                            <div class="flex flex-wrap gap-1 bg-surface-950 p-1 rounded-xl border border-slate-800" id="investigator-os-tabs">
+                                <button type="button" onclick="switchInvestigatorOS('windows')" id="inv-os-tab-windows" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">🪟 Windows</button>
+                                <button type="button" onclick="switchInvestigatorOS('linux')" id="inv-os-tab-linux" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">🐧 Linux</button>
+                                <button type="button" onclick="switchInvestigatorOS('macos')" id="inv-os-tab-macos" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">🍎 macOS</button>
+                                <button type="button" onclick="switchInvestigatorOS('android')" id="inv-os-tab-android" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">🤖 Android</button>
+                                <button type="button" onclick="switchInvestigatorOS('ios')" id="inv-os-tab-ios" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">📱 iOS</button>
+                                <button type="button" onclick="switchInvestigatorOS('smart_tv')" id="inv-os-tab-smart_tv" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">📺 Smart TV</button>
+                                <button type="button" onclick="switchInvestigatorOS('iot')" id="inv-os-tab-iot" class="px-2.5 py-1 rounded-lg text-xs font-medium transition">🔌 IoT</button>
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Playbook Content -->
+                        <div id="investigator-playbook-content" class="space-y-4">
+                            <!-- Rendered dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- STEP 4: PHYSICAL REALITY & REMEDIATION -->
+                    <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-5">
+                        <div class="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-6 h-6 rounded-full bg-rose-500/20 text-rose-400 font-bold text-xs flex items-center justify-center">4</span>
+                                <div>
+                                    <h3 class="text-sm font-bold text-slate-200">Решение на роутере Keenetic & Физические ограничения</h3>
+                                    <p class="text-[11px] text-slate-400 mt-0.5">Аппаратные правила файрвола, профили устройств и технические ограничения сети</p>
+                                </div>
+                            </div>
+                            <span class="px-2.5 py-1 rounded-full text-[11px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20">Zero-Placebo</span>
+                        </div>
+
+                        <!-- Technical Caveats Grid (Golden rules from AGENTS.md) -->
+                        <div class="space-y-3">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400">⚠️ Физические ограничения аппаратной блокировки:</h4>
+                            <div id="investigator-caveats-container" class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Remediation Actions: 3 Column Layout -->
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <!-- Action 1: DNS Sinkhole 0.0.0.0 -->
+                            <div class="p-4 rounded-xl bg-surface-950 border border-slate-800 space-y-3 flex flex-col justify-between">
+                                <div class="space-y-2">
+                                    <div class="flex items-center space-x-2">
+                                        <i data-lucide="shield-ban" class="w-4 h-4 text-rose-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Действие 1: DNS Sinkhole (0.0.0.0)</span>
+                                    </div>
+                                    <p class="text-xs text-slate-400 leading-relaxed">
+                                        Аппаратная блокировка домена на DNS Keenetic. Роутер возвращает <span class="font-mono text-cyan-300">0.0.0.0</span> на любые запросы устройства к этому хосту.
+                                    </p>
+                                </div>
+                                <div class="space-y-2.5 pt-2">
+                                    <input type="text" id="investigator-block-input" placeholder="Домен для блокировки (например, samsungacr.com)" class="w-full bg-surface-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-rose-500">
+                                    <button type="button" onclick="executeInvestigatorBlock()" id="btn-investigator-block" class="w-full px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition shadow-md shadow-rose-600/20 flex items-center justify-center space-x-2">
+                                        <i data-lucide="shield-ban" class="w-4 h-4"></i>
+                                        <span>Заблокировать домен</span>
+                                    </button>
+                                    <div id="investigator-block-status" class="hidden text-xs p-3 rounded-xl"></div>
+                                </div>
+                            </div>
+
+                            <!-- Action 2: Hardware IP Blackhole (Reject) -->
+                            <div class="p-4 rounded-xl bg-surface-950 border border-slate-800 space-y-3 flex flex-col justify-between">
+                                <div class="space-y-2">
+                                    <div class="flex items-center space-x-2">
+                                        <i data-lucide="shield-alert" class="w-4 h-4 text-amber-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Действие 2: IP Blackhole (Reject)</span>
+                                    </div>
+                                    <p class="text-xs text-slate-400 leading-relaxed">
+                                        Аппаратный сброс пакетов к выделенному внешнему IP на уровне ядра роутера (<code class="text-amber-300">ip route reject</code>).
+                                    </p>
+                                </div>
+                                <div class="space-y-2.5 pt-2">
+                                    <input type="text" id="investigator-ip-block-input" placeholder="Внешний IPv4 (например, 198.51.100.25)" class="w-full bg-surface-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500">
+                                    <button type="button" onclick="executeInvestigatorIpBlock()" id="btn-investigator-ip-block" class="w-full px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition shadow-md shadow-amber-600/20 flex items-center justify-center space-x-2">
+                                        <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                                        <span>Заблокировать IP на Keenetic</span>
+                                    </button>
+                                    <div id="investigator-ip-block-status" class="hidden text-xs p-3 rounded-xl"></div>
+                                </div>
+                            </div>
+
+                            <!-- Action 3: Keenetic Device Security Profile & WAN/LAN Isolation -->
+                            <div class="p-4 rounded-xl bg-surface-950 border border-slate-800 space-y-3 flex flex-col justify-between" id="investigator-device-actions-box">
+                                <div class="space-y-2">
+                                    <div class="flex items-center space-x-2">
+                                        <i data-lucide="sliders" class="w-4 h-4 text-indigo-400"></i>
+                                        <span class="text-xs font-bold text-slate-200">Действие 3: Профиль безопасности хоста</span>
+                                    </div>
+                                    <p class="text-xs text-slate-400 leading-relaxed" id="investigator-device-actions-desc">
+                                        Назначение аппаратного профиля и политик межсетевого экрана для исследуемого клиента на Keenetic.
+                                    </p>
+                                    <div id="investigator-device-current-status" class="text-[11px] font-mono p-2 rounded-lg bg-surface-900 border border-slate-800 text-slate-300 space-y-1">
+                                        <!-- Populated dynamically -->
+                                    </div>
+                                </div>
+                                <div class="space-y-2 pt-2" id="investigator-device-buttons">
+                                    <!-- Populated dynamically -->
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+

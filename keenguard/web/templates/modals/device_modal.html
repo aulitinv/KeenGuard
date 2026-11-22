@@ -1,0 +1,487 @@
+    <!-- Modal: Device Details -->
+    <div id="device-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <!-- Header: Fixed -->
+            <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 shrink-0 bg-surface-900/90 backdrop-blur">
+                <div class="flex items-center space-x-3">
+                    <div id="modal-dev-icon" class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                        <i data-lucide="tv" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="modal-dev-name" class="font-bold text-base text-white">Device Name</h3>
+                        <p id="modal-dev-mac" class="text-xs font-mono text-slate-400">AA:BB:CC:DD:EE:FF</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="openDeviceWizard(currentDeviceMac)" class="px-2.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 hover:text-white rounded-xl text-xs font-medium border border-indigo-500/30 flex items-center space-x-1.5 transition">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span class="hidden sm:inline">Мастер настройки</span>
+                    </button>
+                    <button onclick="closeDeviceModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body: Scrollable -->
+            <div class="overflow-y-auto flex-1 p-4 sm:p-5 space-y-3.5 custom-scrollbar text-xs">
+                <!-- Modal Sub-Tabs (4 horizontal tabs) -->
+                <div class="flex border-b border-slate-800 gap-1 pb-1 overflow-x-auto select-none no-scrollbar">
+                    <button id="modal-tab-btn-overview" onclick="switchDeviceModalTab('overview')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap">
+                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                        <span>Обзор</span>
+                    </button>
+                    <button id="modal-tab-btn-policies" onclick="switchDeviceModalTab('policies')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap">
+                        <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+                        <span>Безопасность</span>
+                    </button>
+                    <button id="modal-tab-btn-traffic" onclick="switchDeviceModalTab('traffic')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 whitespace-nowrap">
+                        <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+                        <span>Трафик & Шейпинг</span>
+                    </button>
+                    <button id="modal-tab-btn-special" onclick="switchDeviceModalTab('special')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 flex items-center space-x-1.5 transition shrink-0 relative whitespace-nowrap">
+                        <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                        <span>Спец-режимы & Аудит</span>
+                        <span id="modal-special-badge" class="w-2 h-2 rounded-full bg-cyan-400 hidden absolute top-1 right-1"></span>
+                    </button>
+                </div>
+
+                <!-- Tab 1: Overview -->
+                <div id="modal-tab-overview" class="space-y-3">
+                    <!-- Network & Hardware Info Grid -->
+                    <div class="grid grid-cols-2 gap-2 bg-surface-950 p-2.5 rounded-xl border border-slate-800">
+                        <div>
+                            <span class="text-slate-500 text-[11px]">IP-адрес:</span>
+                            <span id="modal-dev-ip" class="block font-mono text-slate-200 mt-0.5">192.168.1.100</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Вендор:</span>
+                            <span id="modal-dev-vendor" class="block text-slate-200 mt-0.5 truncate">Vendor Name</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Тип MAC-адреса:</span>
+                            <div id="modal-dev-mac-type" class="mt-0.5">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Заводской OUI</span>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Сетевой сегмент:</span>
+                            <span id="modal-dev-segment-disp" class="block text-slate-200 mt-0.5 truncate font-mono">Bridge0 (Home)</span>
+                        </div>
+                    </div>
+
+                    <!-- Connection & Signal Telemetry -->
+                    <div class="grid grid-cols-2 gap-2 bg-surface-950 p-2.5 rounded-xl border border-slate-800">
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Статус в сети:</span>
+                            <span id="modal-dev-status-text" class="block mt-0.5 font-medium text-emerald-400">● В сети</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Сигнал Wi-Fi / Порт:</span>
+                            <span id="modal-dev-rssi-text" class="block font-mono text-slate-200 mt-0.5">-</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Интерфейс:</span>
+                            <span id="modal-dev-band-text" class="block text-slate-200 mt-0.5">-</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[11px]">Активность:</span>
+                            <span id="modal-dev-seen-text" class="block text-slate-400 mt-0.5 text-[10px]">-</span>
+                        </div>
+                    </div>
+
+                    <!-- Custom Name / Alias -->
+                    <div class="bg-surface-950 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+                        <label class="text-slate-400 font-medium text-[11px] block">Пользовательское имя (псевдоним):</label>
+                        <div class="flex items-center space-x-1.5">
+                            <input type="text" id="modal-dev-custom-name-input" placeholder="Например: Телевизор в гостиной" class="flex-1 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs focus:border-indigo-500 focus:outline-none">
+                            <button type="button" onclick="saveModalCustomName(document.getElementById('modal-dev-custom-name-input').value)" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1 shrink-0">
+                                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- MAC Randomization & Device Identity Banner -->
+                    <div id="modal-mac-rotation-banner" class="hidden p-2.5 rounded-xl bg-amber-950/30 border border-amber-800/40 text-xs space-y-1.5">
+                        <div class="flex items-center space-x-2 text-amber-300 font-semibold">
+                            <i data-lucide="shuffle" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                            <span id="modal-mac-rotation-title">Случайный / ротируемый MAC-адрес</span>
+                        </div>
+                        <div id="modal-mac-rotation-body" class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                            <!-- Populated dynamically via app.js -->
+                        </div>
+                        <div id="modal-mac-rotation-actions" class="hidden pt-1.5 border-t border-amber-800/30 flex items-center justify-between">
+                            <span class="text-[10px] text-amber-200/80">Синхронизация профиля и блокировок:</span>
+                            <button type="button" id="btn-sync-group-policy" onclick="applyGroupPolicy()" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[10px] font-medium transition flex items-center space-x-1 cursor-pointer">
+                                <i data-lucide="shield-check" class="w-3 h-3 text-amber-300"></i>
+                                <span>Применить политику ко всем адресам устройства</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Policies & Security -->
+                <div id="modal-tab-policies" class="hidden space-y-3">
+                    <!-- Unified Policy & Security Profile Selector -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="font-medium text-slate-300 text-xs">Политика и профиль безопасности:</label>
+                            <button type="button" onclick="openDeviceWizard(currentDeviceMac)" class="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center space-x-1">
+                                <i data-lucide="sparkles" class="w-3 h-3"></i>
+                                <span>Мастер настройки</span>
+                            </button>
+                        </div>
+                        <select id="modal-profile-select" onchange="saveModalUnifiedPolicy(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <optgroup label="Стандартные политики безопасности">
+                                <option value="trusted">🖥️ Доверенный (ПК / Смартфон / Планшет)</option>
+                                <option value="smart_home_hub">🧠 Хаб умного дома (SprutHub / Home Assistant / Контроллер)</option>
+                                <option value="smart_tv">📺 Smart TV / Медиаплеер (AirPlay, DLNA, ночной аудит)</option>
+                                <option value="camera">📹 IP-камера (RTSP-видео, NVR / Ограничение интернета)</option>
+                                <option value="iot">🔌 Умный дом / IoT (Local-Only, без доступа в интернет)</option>
+                                <option value="iot_cloud">🌐 Умный дом (Облачный: пылесос, климат, шлюзы)</option>
+                                <option value="quarantine">🔒 Карантин (Выход в интернет полностью заблокирован)</option>
+                                <option value="guest">👤 Гостевое устройство (Изолировано от домашней сети)</option>
+                                <option value="unassigned">⚪ Не назначен (Базовый доступ без ограничений)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <!-- Granular Policy Toggles (2-column grid) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800">
+                        <label class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition">
+                            <div class="pr-2">
+                                <span class="font-medium text-slate-200 text-xs block">Блок WAN (Интернет)</span>
+                                <span class="text-[10px] text-slate-500 leading-tight block">Запрещает выход наружу</span>
+                            </div>
+                            <input type="checkbox" id="modal-toggle-wan" onchange="toggleModalWan(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                        </label>
+
+                        <div class="flex items-start justify-between p-2 rounded-xl bg-surface-950 border border-slate-800/80">
+                            <div class="pr-2">
+                                <span class="font-medium text-slate-200 text-xs block">Сетевой сегмент / LAN</span>
+                                <span class="text-[10px] text-slate-500 leading-tight block" id="modal-lan-subtitle">В домашней сети Bridge0</span>
+                            </div>
+                            <div id="modal-lan-badge" class="shrink-0 mt-0.5">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">Bridge0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Linked MACs WAN Toggle Sync Box -->
+                    <div id="modal-wan-linked-box" class="hidden p-2 rounded-xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
+                            <span class="text-[11px] text-indigo-200">Применить WAN-блокировку ко всем <b id="modal-wan-linked-count">2</b> связанным MAC телефона:</span>
+                        </div>
+                        <input type="checkbox" id="modal-wan-apply-to-linked" class="w-4 h-4 rounded text-indigo-600">
+                    </div>
+
+                    <!-- Auto-Quarantine Override -->
+                    <div>
+                        <label class="block font-medium text-slate-300 mb-1">Автокарантин при инцидентах:</label>
+                        <select id="modal-auto-quarantine-override" onchange="saveModalAutoQuarantine(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <option value="profile_default">По умолчанию глобальной политики</option>
+                            <option value="always_quarantine">Всегда закрывать доступ в интернет (WAN)</option>
+                            <option value="never_quarantine">Никогда не блокировать (только предупреждения)</option>
+                        </select>
+                    </div>
+
+                    <!-- Advanced Granular LAN Policy Accordion -->
+                    <details id="modal-advanced-lan-details" class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80 group">
+                        <summary class="flex items-center justify-between cursor-pointer list-none select-none text-slate-300 font-medium text-xs">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
+                                <span>Тонкая настройка: Пресет LAN и порты</span>
+                            </div>
+                            <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+                        </summary>
+                        <div class="mt-2.5 space-y-2.5 pt-2 border-t border-slate-800/80 text-xs">
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-slate-400 font-medium text-[11px]">Пресет инспекции портов LAN:</label>
+                                    <button type="button" onclick="navigateToSettingsSubTab('presets')" class="text-[10px] text-indigo-400 hover:underline">+ Создать свой пресет</button>
+                                </div>
+                                <select id="modal-lan-preset-select" onchange="saveModalDevicePreset(this.value)" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs">
+                                    <option value="">Автоматически (согласно политике)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-slate-400 font-medium text-[11px]">Индивидуальные разрешенные порты:</label>
+                                    <span id="modal-custom-ports-status" class="text-[10px] text-emerald-400 font-medium hidden flex items-center space-x-1">
+                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                        <span>Сохранено</span>
+                                    </span>
+                                </div>
+                                <div class="flex items-center space-x-1.5">
+                                    <input type="text" id="modal-custom-allowed-ports" placeholder="Например: 8080, 9000, 554" onchange="saveModalCustomPorts(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); this.blur();}" class="flex-1 bg-surface-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono focus:border-indigo-500 focus:outline-none">
+                                    <button type="button" onclick="saveModalCustomPorts(document.getElementById('modal-custom-allowed-ports').value)" class="px-2.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1 shrink-0" title="Сохранить кастомные порты">
+                                        <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                        <span>Сохранить</span>
+                                    </button>
+                                </div>
+                                <span class="text-[10px] text-slate-500 mt-1 block">Разрешенные порты устройства сверх стандартного пресета</span>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- Asymmetric Segmentation Recommendation Tip Banner -->
+                    <details id="modal-segmentation-tip" class="hidden p-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 group">
+                        <summary class="flex items-center justify-between cursor-pointer list-none select-none text-purple-300 font-semibold text-xs">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="shield-alert" class="w-4 h-4 text-purple-400 shrink-0"></i>
+                                <span>Совет по безопасности: Асимметричная сегментация (Keenetic)</span>
+                            </div>
+                            <span class="text-[10px] text-purple-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+                        </summary>
+                        <div class="mt-2 text-[11px] text-slate-300 space-y-1.5 leading-relaxed pt-2 border-t border-purple-900/30">
+                            <p>Для хабов умного дома (SprutHub, HA) и роботов-пылесосов полная изоляция неудобна (теряется локальное управление из дома), а свободный доступ в домашнюю сеть небезопасен при компрометации устройства.</p>
+                            <div class="bg-surface-950/80 p-2.5 rounded-lg border border-purple-900/40 text-[10px] space-y-1.5 text-slate-300">
+                                <div class="font-semibold text-purple-200">Как настроить односторонний доступ в KeeneticOS:</div>
+                                <p>1. В веб-интерфейсе Keenetic выделите отдельный сегмент (например, <i>«Умный дом / IoT»</i>) и перенесите туда устройство.</p>
+                                <p>2. Перейдите в <b>«Сетевая безопасность» &rarr; «Межсетевой экран»</b> и создайте 2 правила:</p>
+                                <div class="pl-2 border-l-2 border-emerald-500 text-emerald-300 font-mono">
+                                    ✓ Домашняя сеть &rarr; Сегмент IoT: <b>Разрешить</b> (любой трафик)
+                                </div>
+                                <div class="pl-2 border-l-2 border-rose-500 text-rose-300 font-mono">
+                                    ✕ Сегмент IoT &rarr; Домашняя сеть: <b>Запретить</b> (любой трафик)
+                                </div>
+                                <p class="text-slate-400 pt-0.5">
+                                    <b>Почему это работает:</b> В Keenetic встроен <i>Stateful Firewall</i>. Когда смартфон или ПК обращается к хабу/пылесосу, ответные пакеты пропускаются автоматически. При этом само устройство не сможет инициировать соединение в домашнюю сеть или сканировать хранилище (NAS).
+                                </p>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Tab 3: Traffic & Shaping -->
+                <div id="modal-tab-traffic" class="hidden space-y-3.5">
+                    <!-- Live Device Traffic Rate Chart -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-slate-300 flex items-center space-x-1.5">
+                                <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>График скорости трафика (Rx / Tx)</span>
+                            </span>
+                            <span id="modal-traffic-rate-now" class="text-[10px] text-indigo-400 font-mono">0 Kbps</span>
+                        </div>
+                        <div class="bg-surface-950 p-2 rounded-xl border border-slate-800 relative h-28">
+                            <canvas id="device-traffic-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Keenetic Bandwidth Traffic Shaper Section -->
+                    <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-slate-300 flex items-center space-x-1.5">
+                                <i data-lucide="gauge" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>Ограничение скорости (Keenetic Traffic Shaper)</span>
+                            </span>
+                            <span id="modal-shaper-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">Без ограничений</span>
+                        </div>
+                        <p class="text-[10px] text-slate-400 leading-relaxed">
+                            Аппаратное ограничение пропускной способности хоста через KeeneticOS RCI.
+                        </p>
+                        <div class="flex items-center space-x-2 pt-1">
+                            <select id="modal-shaper-preset-select" onchange="onModalShaperPresetChange(this.value)" class="flex-1 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs">
+                                <option value="0">0 — Без ограничений</option>
+                                <option value="512">512 Кбит/с — IoT / Датчики</option>
+                                <option value="2048">2048 Кбит/с — Музыка / SD</option>
+                                <option value="5120">5 Мбит/с — Серфинг / Офис</option>
+                                <option value="15360">15 Мбит/с — Full HD видео</option>
+                                <option value="custom">Свое значение...</option>
+                            </select>
+                            <input type="number" id="modal-shaper-custom-input" placeholder="Кбит/с" class="hidden w-24 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono">
+                            <button type="button" onclick="applyModalSpeedLimit()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium transition flex items-center space-x-1 shrink-0 shadow-sm">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>Применить</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Dedicated Traffic Audit & Forensics Session -->
+                    <div class="pt-2 border-t border-slate-800 space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="font-bold text-xs text-indigo-300 flex items-center space-x-1.5">
+                                    <i data-lucide="scan-search" class="w-4 h-4 text-indigo-400"></i>
+                                    <span>Индивидуальный аудит и захват трафика</span>
+                                </h4>
+                                <p class="text-[10px] text-slate-400 mt-0.5">Исследование внешних облаков, незашифрованных данных и попыток сканирования</p>
+                            </div>
+                        </div>
+
+                        <!-- Audit Controls (When Idle) -->
+                        <div id="modal-audit-idle" class="bg-surface-950 p-3 rounded-xl border border-slate-800/80 space-y-2.5">
+                            <div class="flex items-center justify-between">
+                                <label class="text-[11px] text-slate-300">Длительность сбора:</label>
+                                <select id="modal-audit-duration" class="bg-surface-900 border border-slate-700 text-xs rounded-lg px-2 py-1 text-slate-200">
+                                    <option value="60">1 минута (экспресс)</option>
+                                    <option value="300" selected>5 минут (стандарт)</option>
+                                    <option value="900">15 минут (глубокий)</option>
+                                    <option value="0">Вручную (до остановки)</option>
+                                </select>
+                            </div>
+                            <button onclick="startModalAudit()" class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-2 transition shadow-lg shadow-indigo-600/20">
+                                <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                                <span>Начать сбор и аудит трафика</span>
+                            </button>
+                        </div>
+
+                        <!-- Audit In Progress (When Recording) -->
+                        <div id="modal-audit-running" class="hidden bg-surface-950 p-3 rounded-xl border border-indigo-500/30 space-y-2.5">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-2">
+                                    <span class="relative flex h-2.5 w-2.5">
+                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                                    </span>
+                                    <span class="text-xs font-semibold text-rose-300">Идет запись трафика...</span>
+                                </div>
+                                <span id="modal-audit-timer" class="text-xs font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">00:00</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-[11px]">
+                                <div class="bg-surface-900 p-2 rounded-lg border border-slate-800">
+                                    <span class="text-slate-500 block">Потоков:</span>
+                                    <span id="modal-audit-live-flows" class="font-bold text-slate-200 text-xs">0</span>
+                                </div>
+                                <div class="bg-surface-900 p-2 rounded-lg border border-slate-800">
+                                    <span class="text-slate-500 block">Трафик:</span>
+                                    <span id="modal-audit-live-bytes" class="font-bold text-slate-200 text-xs">0 KB</span>
+                                </div>
+                            </div>
+                            <button onclick="stopModalAudit()" class="w-full py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs flex items-center justify-center space-x-2 transition shadow-lg shadow-rose-600/20">
+                                <i data-lucide="square" class="w-3.5 h-3.5"></i>
+                                <span>Остановить и сформировать отчет</span>
+                            </button>
+                        </div>
+
+                        <!-- Audit Result Report -->
+                        <div id="modal-audit-result" class="hidden bg-surface-950 p-3 rounded-xl border border-slate-800/80 space-y-2.5">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-2">
+                                    <span id="modal-audit-risk-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Безопасно</span>
+                                    <span id="modal-audit-capture-source" class="px-2 py-0.5 rounded-full text-[9px] font-mono border hidden"></span>
+                                    <span class="text-[11px] font-medium text-slate-300" id="modal-audit-flows-summary">0 соединений</span>
+                                </div>
+                                <a id="modal-audit-pcap-btn" href="#" target="_blank" class="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center space-x-1">
+                                    <i data-lucide="download" class="w-3 h-3"></i>
+                                    <span>Скачать PCAP</span>
+                                </a>
+                            </div>
+                            <div id="modal-audit-findings" class="text-[11px] text-slate-300 bg-surface-900 p-2 rounded-lg border border-slate-800 space-y-1">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div id="modal-audit-recommendations" class="hidden text-[11px] text-purple-300 bg-purple-950/40 p-2.5 rounded-lg border border-purple-800/40 space-y-1 leading-relaxed">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div id="modal-audit-http-section" class="hidden space-y-1">
+                                <div class="text-[10px] text-amber-300 font-semibold flex items-center space-x-1">
+                                    <span>⚠️ Незашифрованный трафик (HTTP):</span>
+                                    <span id="modal-audit-http-count" class="text-slate-400 font-mono">0</span>
+                                </div>
+                                <div id="modal-audit-http-list" class="max-h-28 overflow-y-auto space-y-1 font-mono text-[10px]"></div>
+                            </div>
+                            <div id="modal-audit-dns-section" class="hidden space-y-1">
+                                <div class="text-[10px] text-slate-400 font-medium">DNS-запросы (кликните для анализа/блокировки):</div>
+                                <div id="modal-audit-dns-tags" class="flex flex-wrap gap-1"></div>
+                            </div>
+                            <div class="max-h-36 overflow-y-auto space-y-1" id="modal-audit-flows-list">
+                                <!-- Populated by JS -->
+                            </div>
+                            <button onclick="resetModalAudit()" class="w-full py-1.5 text-center text-[11px] text-slate-400 hover:text-slate-200">
+                                Новое исследование
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Special (Smart TV, Camera, Notes) -->
+                <div id="modal-tab-special" class="hidden space-y-3">
+                    <!-- Smart TV Block -->
+                    <div id="modal-special-tv-block" class="hidden space-y-2 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <div class="text-[11px] font-bold text-indigo-300 flex items-center space-x-1.5">
+                            <i data-lucide="tv" class="w-4 h-4 text-cyan-400"></i>
+                            <span>Интеграции Smart TV / Медиаплеера:</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-900 border border-slate-800 hover:border-slate-700 cursor-pointer transition">
+                                <div class="pr-2">
+                                    <span class="font-medium text-slate-200 text-xs block">AirPlay / Cast Relay</span>
+                                    <span class="text-[10px] text-slate-500 leading-tight block">Ретрансляция mDNS в гостевой сети</span>
+                                </div>
+                                <input type="checkbox" id="modal-toggle-airplay" onchange="toggleModalAirplay(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                            </label>
+
+                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-900 border border-slate-800 hover:border-slate-700 cursor-pointer transition">
+                                <div class="pr-2">
+                                    <span class="font-medium text-slate-200 text-xs block">Keenetic DLNA</span>
+                                    <span class="text-[10px] text-slate-500 leading-tight block">Доступ к медиа роутера (порт 8200)</span>
+                                </div>
+                                <input type="checkbox" id="modal-toggle-dlna" onchange="toggleModalDlna(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                            </label>
+
+                            <label class="flex items-start justify-between p-2 rounded-xl bg-surface-900 border border-slate-800 hover:border-slate-700 cursor-pointer transition sm:col-span-2">
+                                <div class="pr-2">
+                                    <span class="font-medium text-slate-200 text-xs block">Пассивный ночной мониторинг (00:00 - 07:00)</span>
+                                    <span class="text-[10px] text-slate-500 leading-tight block">Запись PCAP-дампов при фоновых пробуждениях (WOL/mDNS)</span>
+                                </div>
+                                <input type="checkbox" id="modal-toggle-night" onchange="toggleModalNight(this.checked)" class="w-4 h-4 rounded text-indigo-600 mt-0.5 shrink-0">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Camera & NVR Block -->
+                    <div id="modal-special-camera-block" class="hidden space-y-2 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <div class="text-[11px] font-bold text-amber-300 flex items-center space-x-1.5">
+                            <i data-lucide="video" class="w-4 h-4 text-amber-400"></i>
+                            <span>Параметры безопасности IP-камеры:</span>
+                        </div>
+                        <div class="space-y-1.5 pt-1">
+                            <label class="block font-medium text-slate-300 text-xs">Доверенный видеорегистратор / NVR (IP):</label>
+                            <div class="flex items-center space-x-1.5">
+                                <input type="text" id="modal-nvr-ip" placeholder="192.168.1.200" class="flex-1 bg-surface-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white text-xs font-mono focus:border-indigo-500 focus:outline-none">
+                                <button type="button" onclick="saveModalNvrIp(document.getElementById('modal-nvr-ip').value)" class="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1 shrink-0">
+                                    <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                    <span>Сохранить</span>
+                                </button>
+                            </div>
+                            <span class="text-[10px] text-slate-500 block">Локальный RTSP стрим на этот IP разрешен и не вызывает тревог утечки</span>
+                        </div>
+                    </div>
+
+                    <!-- General Device Notes Block -->
+                    <div class="space-y-1.5 bg-surface-950 p-3 rounded-xl border border-slate-800">
+                        <label class="text-slate-400 font-medium text-[11px] flex items-center space-x-1.5">
+                            <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i>
+                            <span>Заметки администратора:</span>
+                        </label>
+                        <textarea id="modal-dev-notes-input" rows="3" placeholder="Дополнительное описание, физическое расположение розетки или назначение устройства..." class="w-full bg-surface-900 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:border-indigo-500 focus:outline-none resize-none"></textarea>
+                        <div class="flex justify-end pt-1">
+                            <button type="button" onclick="saveModalNotes(document.getElementById('modal-dev-notes-input').value)" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition flex items-center space-x-1">
+                                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                                <span>Сохранить заметку</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer: Fixed -->
+            <div class="border-t border-slate-800 px-5 py-2.5 shrink-0 bg-surface-900/90 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="closeDeviceModal(); openInvestigatorForDevice(currentDeviceMac)" class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1.5" title="Открыть интерактивное расследование трафика этого устройства (Wizard)">
+                        <i data-lucide="crosshair" class="w-3.5 h-3.5 text-rose-400"></i>
+                        <span>Расследовать трафик</span>
+                    </button>
+                    <button id="btn-delete-device-modal" onclick="deleteCurrentDevice()" class="hidden px-3 py-1.5 bg-slate-800 hover:bg-rose-950/60 text-rose-400 hover:text-rose-300 text-xs rounded-xl font-medium transition border border-slate-700 hover:border-rose-800/50 flex items-center space-x-1.5" title="Удалить неактивное устройство из списка">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>Удалить устройство</span>
+                    </button>
+                </div>
+                <button onclick="closeDeviceModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition">Закрыть</button>
+            </div>
+        </div>
+    </div>
+

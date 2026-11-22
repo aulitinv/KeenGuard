@@ -36,7 +36,12 @@ def html_content() -> str:
 @pytest.fixture(scope="module")
 def js_content() -> str:
     assert APP_JS.exists(), f"Missing {APP_JS}"
-    return APP_JS.read_text(encoding="utf-8")
+    parts = [APP_JS.read_text(encoding="utf-8")]
+    js_dir = STATIC_DIR / "js"
+    if js_dir.exists():
+        for p in sorted(js_dir.rglob("*.js")):
+            parts.append(p.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 @pytest.fixture(scope="module")
@@ -163,3 +168,12 @@ def test_svg_topology_interaction_integrity(js_content: str):
     assert "touchstart" in js_content and "touchend" in js_content, (
         "Topology must handle touchstart/touchend for mobile and tablet devices"
     )
+
+
+def test_template_builder_integrity(html_content: str):
+    """
+    Verify that keenguard.web.builder compiles modular templates into an exact match of static index.html.
+    """
+    from keenguard.web.builder import assemble_index_html
+    assembled = assemble_index_html()
+    assert assembled == html_content, "Assembled templates must match static index.html byte-for-byte"

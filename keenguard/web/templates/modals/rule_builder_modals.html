@@ -1,0 +1,415 @@
+    <!-- Modal: Rule Builder (ЕСЛИ -> ТО) -->
+    <div id="rule-modal" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
+                        <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="rule-modal-title" class="font-bold text-base text-white">Настройка правила безопасности</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Гибкий фильтр: условия сопоставления трафика и реакция системы</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRuleModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <form id="rule-builder-form" onsubmit="submitRuleForm(event)" class="space-y-4 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <input type="hidden" id="rule-form-id" value="">
+                <input type="hidden" id="rule-form-order" value="0">
+
+                <!-- Basic Rule Info -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-300">Название правила *</label>
+                        <input type="text" id="rule-form-name" required placeholder="Например: Разрешить Plex на Smart TV" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-300">Категория</label>
+                        <select id="rule-form-category" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                            <option value="custom">Пользовательское (Custom)</option>
+                            <option value="media">Медиа & Стриминг (Media)</option>
+                            <option value="perimeter">Периметр & Безопасность (Perimeter)</option>
+                            <option value="iot">Умный дом & IoT (IoT)</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2 space-y-1">
+                        <label class="text-xs font-medium text-slate-300">Описание / Примечания</label>
+                        <input type="text" id="rule-form-desc" placeholder="Краткое назначение правила и контекст" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <!-- SECTION 1: ЕСЛИ (УСЛОВИЯ СОПОСТАВЛЕНИЯ) -->
+                <div class="bg-slate-900/60 border border-indigo-500/20 rounded-2xl p-4 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div class="flex items-center space-x-2 text-xs font-bold text-indigo-400 uppercase tracking-wider">
+                            <i data-lucide="filter" class="w-3.5 h-3.5"></i>
+                            <span>ЕСЛИ (Условия сопоставления трафика)</span>
+                        </div>
+                    </div>
+
+                    <!-- Source (Источник) -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-xs font-semibold text-slate-200">1. Источник (Устройства и Профили)</label>
+                            <label class="flex items-center space-x-2 text-xs text-amber-400 cursor-pointer">
+                                <input type="checkbox" id="rule-form-src-invert" class="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0">
+                                <span class="font-medium">Инвертировать: Все устройства КРОМЕ выбранных</span>
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="smart_tv" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Smart TV</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="camera" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Камеры</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="iot" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">IoT устройства</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="trusted" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Доверенные</span>
+                            </label>
+                            <label class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer hover:bg-slate-800">
+                                <input type="checkbox" name="rule-src-profile" value="unassigned" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                <span class="truncate">Без профиля</span>
+                            </label>
+                        </div>
+                        <input type="text" id="rule-form-src-macs" placeholder="Конкретные MAC-адреса через запятую (опционально, e.g. AA:BB:CC:11:22:33)" class="w-full px-3 py-1.5 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+                    </div>
+
+                    <!-- Destination & Ports -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">2. Направление потока</label>
+                            <select id="rule-form-direction" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="any">Любое направление (Any)</option>
+                                <option value="lan_to_lan">Локальная сеть (LAN -> LAN)</option>
+                                <option value="lan_to_wan">Выход в Интернет (LAN -> WAN)</option>
+                                <option value="lan_to_router">Служебный к роутеру (LAN -> Router)</option>
+                            </select>
+                            <p class="text-[10px] text-slate-400 leading-tight">LAN ➔ LAN применяется к межсегментному трафику (L3) и сессиям аудита. Внутри одной подсети L2-пакеты коммутируются свитчем в обход шлюза.</p>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="flex items-center justify-between">
+                                <label class="text-xs font-semibold text-slate-200">3. Порты назначения</label>
+                                <label class="flex items-center space-x-1.5 text-xs text-amber-400 cursor-pointer">
+                                    <input type="checkbox" id="rule-form-dst-invert-ports" class="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0">
+                                    <span class="text-[11px] font-medium">КРОМЕ указанных</span>
+                                </label>
+                            </div>
+                            <input type="text" id="rule-form-ports" placeholder="Порты через запятую или диапазон (e.g. 8080, 8096, 50000-50005)" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Protocols & Targets -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Протоколы</label>
+                            <div class="flex items-center space-x-4 pt-1 text-xs">
+                                <label class="flex items-center space-x-1.5 cursor-pointer">
+                                    <input type="checkbox" name="rule-protocol" value="TCP" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0">
+                                    <span>TCP</span>
+                                </label>
+                                <label class="flex items-center space-x-1.5 cursor-pointer">
+                                    <input type="checkbox" name="rule-protocol" value="UDP" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0">
+                                    <span>UDP</span>
+                                </label>
+                                <label class="flex items-center space-x-1.5 cursor-pointer">
+                                    <input type="checkbox" name="rule-protocol" value="ICMP" class="rounded bg-slate-800 border-slate-700 text-indigo-500 focus:ring-0">
+                                    <span>ICMP</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Целевые IP / подсети (опционально)</label>
+                            <input type="text" id="rule-form-targets" placeholder="e.g. 192.168.1.100, 10.0.0.0/24" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Context & Volume -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-slate-800/60">
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Оператор объема данных</label>
+                            <select id="rule-form-vol-op" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="">Без ограничения объема</option>
+                                <option value=">">Больше чем (&gt;)</option>
+                                <option value="<">Меньше чем (&lt;)</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Порог объема (КБ)</label>
+                            <input type="number" id="rule-form-vol-val" min="0" value="0" placeholder="0" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-semibold text-slate-200">Временное окно</label>
+                            <select id="rule-form-time-window" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="always">Всегда (24/7)</option>
+                                <option value="night_only">Только ночью (00:00 - 07:00)</option>
+                                <option value="day_only">Только днем (07:00 - 00:00)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECTION 2: ТО (РЕАКЦИЯ И ДЕЙСТВИЕ) -->
+                <div class="bg-slate-900/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div class="flex items-center space-x-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                            <span>ТО (Реакция системы при совпадении)</span>
+                        </div>
+                    </div>
+
+                    <!-- Action Mode & Severity -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label class="text-xs font-semibold text-slate-200">Действие правила *</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <label id="label-action-pass" class="flex items-center space-x-2 p-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 cursor-pointer font-medium text-xs">
+                                    <input type="radio" name="rule-action-mode" value="pass" checked onchange="onRuleActionModeChange()" class="text-emerald-500 focus:ring-0">
+                                    <span>Разрешить (Pass)</span>
+                                </label>
+                                <label id="label-action-alert" class="flex items-center space-x-2 p-2.5 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 cursor-pointer font-medium text-xs hover:border-slate-600">
+                                    <input type="radio" name="rule-action-mode" value="alert" onchange="onRuleActionModeChange()" class="text-rose-500 focus:ring-0">
+                                    <span>Инцидент (Alert)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="rule-severity-container" class="space-y-1 opacity-50 pointer-events-none transition">
+                            <label class="text-xs font-semibold text-slate-200">Уровень опасности инцидента</label>
+                            <select id="rule-form-severity" class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700/80 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="INFO">Информационный (INFO)</option>
+                                <option value="WARNING" selected>Предупреждение (WARNING)</option>
+                                <option value="CRITICAL">Критический (CRITICAL)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Reactive Measures (for Alert mode) -->
+                    <div id="rule-reactive-measures" class="space-y-2.5 pt-2 border-t border-slate-800/60 opacity-50 pointer-events-none transition">
+                        <label class="text-xs font-semibold text-slate-200">Реактивные меры и автоматизация</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer">
+                                <div class="flex items-center space-x-2">
+                                    <input type="checkbox" id="rule-form-tg-notify" class="rounded bg-slate-700 border-slate-600 text-indigo-500 focus:ring-0">
+                                    <span>Уведомление в Telegram</span>
+                                </div>
+                                <select id="rule-form-tg-mode" class="px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-300">
+                                    <option value="digest">В дайджесте</option>
+                                    <option value="immediate">Срочно</option>
+                                </select>
+                            </label>
+
+                            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer">
+                                <div class="flex items-center space-x-2">
+                                    <i data-lucide="file-video" class="w-3.5 h-3.5 text-cyan-400"></i>
+                                    <span>Захват PCAP дампа</span>
+                                </div>
+                                <select id="rule-form-pcap-sec" class="px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-300">
+                                    <option value="0">Отключено</option>
+                                    <option value="15">15 секунд</option>
+                                    <option value="30">30 секунд</option>
+                                    <option value="60">60 секунд</option>
+                                </select>
+                            </label>
+
+                            <label class="flex items-center space-x-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 cursor-pointer">
+                                <input type="checkbox" id="rule-form-wan-block" class="rounded bg-slate-700 border-slate-600 text-rose-500 focus:ring-0">
+                                <span class="text-rose-300 font-medium">Блокировать WAN на роутере</span>
+                            </label>
+
+                            <div class="flex items-center space-x-2 p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
+                                <span class="text-slate-400 shrink-0">Пресет:</span>
+                                <select id="rule-form-apply-preset" class="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-300">
+                                    <option value="">Не менять пресет</option>
+                                    <option value="preset_camera">Камера (Изоляция)</option>
+                                    <option value="preset_iot">IoT (Строгий)</option>
+                                    <option value="preset_smart_tv">Smart TV</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Modal Footer -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <button type="button" onclick="closeRuleModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Отмена
+                </button>
+                <button type="button" onclick="document.getElementById('rule-builder-form').requestSubmit()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-xl font-medium shadow-lg shadow-indigo-600/30 transition flex items-center space-x-1.5 cursor-pointer">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>Сохранить правило</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Soft Validation Conflict Warning -->
+    <div id="rule-conflict-modal" class="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-amber-500/50 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center space-x-3 border-b border-slate-800 pb-3 shrink-0">
+                <div class="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-white">Обнаружен конфликт порядка правил</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Валидатор зафиксировал перекрытие (shadowing) или логический конфликт</p>
+                </div>
+            </div>
+
+            <div class="space-y-3 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <p class="text-xs text-slate-300">
+                    Принцип <strong class="text-white">First-Match Win</strong> означает, что верхнее правило сработает первым. Нижестоящее разрешающее правило может никогда не выполниться:
+                </p>
+                <div id="rule-conflict-issues-list" class="space-y-2">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <button type="button" onclick="closeRuleConflictModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Вернуться к редактированию
+                </button>
+                <button type="button" onclick="saveRuleOrder(true)" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-xl font-medium shadow-lg shadow-amber-600/30 transition flex items-center space-x-1.5 cursor-pointer">
+                    <i data-lucide="alert-octagon" class="w-4 h-4"></i>
+                    <span>Сохранить принудительно</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Hit Telemetry History Drawer -->
+    <div id="rule-hits-drawer" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
+                        <i data-lucide="activity" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="rule-hits-modal-name" class="font-bold text-base text-white">История срабатываний</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                            Всего: <span id="rule-hits-modal-total" class="font-semibold text-white">0</span> | За 24ч: <span id="rule-hits-modal-24h" class="font-semibold text-cyan-400">0</span>
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRuleHitsDrawer()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-[11px] font-semibold text-slate-400 uppercase">
+                            <th class="py-2 px-2">Время</th>
+                            <th class="py-2 px-2">Источник</th>
+                            <th class="py-2 px-2">Назначение</th>
+                            <th class="py-2 px-2">Порт / Протокол</th>
+                            <th class="py-2 px-2 text-right">Объем</th>
+                            <th class="py-2 px-2 text-center">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rule-hits-modal-body" class="divide-y divide-slate-800/60 text-slate-300">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+                <div id="rule-hits-modal-empty" class="hidden py-8 text-center text-xs text-slate-500">
+                    История срабатываний для этого правила пока пуста.
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex justify-end shrink-0">
+                <button type="button" onclick="closeRuleHitsDrawer()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Traffic Flow Simulator -->
+    <div id="rule-sim-modal" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
+                        <i data-lucide="flask-conical" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">Симулятор сетевого потока (Dry-Run)</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Тестирование прохождения пакета через цепочку правил без записи в БД</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRuleSimModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 overflow-y-auto flex-1 pr-1 custom-scrollbar">
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">IP источника *</label>
+                        <input type="text" id="sim-src-ip" value="192.168.1.150" placeholder="192.168.1.150" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">IP назначения *</label>
+                        <input type="text" id="sim-dst-ip" value="192.168.1.200" placeholder="192.168.1.200" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Порт назначения *</label>
+                        <input type="number" id="sim-port" value="8096" placeholder="8096" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Протокол</label>
+                        <select id="sim-proto" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                            <option value="TCP">TCP</option>
+                            <option value="UDP">UDP</option>
+                            <option value="ICMP">ICMP</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Объем данных (байт)</label>
+                        <input type="number" id="sim-bytes" value="50000" placeholder="50000" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="font-medium text-slate-300">Время суток</label>
+                        <select id="sim-time" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                            <option value="now">Текущее время</option>
+                            <option value="day">День (14:00)</option>
+                            <option value="night">Ночь (03:00)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button type="button" onclick="runRuleSimulation()" class="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-cyan-600/30 transition flex items-center justify-center space-x-1.5 cursor-pointer">
+                        <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                        <span>Проверить через цепочку правил</span>
+                    </button>
+                </div>
+
+                <!-- Result Box -->
+                <div id="sim-result-box" class="hidden p-4 rounded-xl border transition">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex justify-end shrink-0">
+                <button type="button" onclick="closeRuleSimModal()" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition cursor-pointer">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+

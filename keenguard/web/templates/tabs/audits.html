@@ -1,0 +1,143 @@
+        <!-- TAB: TRAFFIC AUDITS -->
+        <section id="view-audits" class="hidden space-y-6">
+            <!-- Header Banner -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div class="space-y-1">
+                    <h2 class="text-lg font-bold text-slate-100 flex items-center space-x-2">
+                        <i data-lucide="activity" class="w-5 h-5 text-cyan-400"></i>
+                        <span>Глубокий аудит сетевого трафика</span>
+                    </h2>
+                    <p class="text-xs text-slate-400 max-w-2xl">
+                        Захват NAT-сессий, DNS-запросов и сетевых пакетов любого устройства в реальном времени. Автоматическое определение облачных провайдеров (AWS, Cloudflare, Yandex, Tuya), проверка шифрования протоколов и выгрузка PCAP-дампов.
+                    </p>
+                </div>
+                <div class="flex items-center space-x-3 shrink-0">
+                    <button onclick="startNetworkAuditQuick('all', 0)" id="btn-quick-network-audit" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-cyan-600/20 transition flex items-center space-x-2" title="Запустить непрерывный аудит всей сети до ручной остановки">
+                        <i data-lucide="radio" class="w-4 h-4 animate-pulse text-cyan-200"></i>
+                        <span>Аудит всей сети (без лимита)</span>
+                    </button>
+                    <button onclick="loadTrafficAuditsTab()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition flex items-center space-x-1.5">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                        <span>Обновить данные</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Launch Form -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 shadow-sm">
+                <h3 class="text-sm font-semibold text-slate-200 mb-4 flex items-center space-x-2">
+                    <i data-lucide="play-circle" class="w-4 h-4 text-cyan-400"></i>
+                    <span>Запуск новой сессии аудита</span>
+                </h3>
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
+                    <div class="sm:col-span-6">
+                        <label class="block text-xs font-medium text-slate-300 mb-1.5">Выберите устройство или область сети для анализа:</label>
+                        <select id="audit-launch-device" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500">
+                            <option value="">Загрузка списка устройств...</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-3">
+                        <label class="block text-xs font-medium text-slate-300 mb-1.5">Длительность сессии:</label>
+                        <select id="audit-launch-duration" class="w-full bg-surface-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500">
+                            <option value="60">1 минута (экспресс-тест)</option>
+                            <option value="300" selected>5 минут (стандартный)</option>
+                            <option value="900">15 минут (глубокий срез)</option>
+                            <option value="0">Без ограничения (ручная остановка)</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-3">
+                        <button onclick="startTrafficAuditFromTab()" class="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium transition shadow-lg shadow-cyan-600/20 flex items-center justify-center space-x-2">
+                            <i data-lucide="play" class="w-4 h-4"></i>
+                            <span>Начать аудит</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Audits Live Monitor -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>Текущие активные сессии аудита</span>
+                    </h3>
+                    <span id="active-audits-count" class="text-xs font-mono text-slate-400">0 активных сессий</span>
+                </div>
+                <div id="active-audits-container" class="space-y-3">
+                    <div class="p-6 text-center text-slate-500 text-xs italic bg-surface-950/40 rounded-xl border border-slate-800/40">
+                        Нет активных сессий аудита. Выберите устройство выше и нажмите «Начать аудит».
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit History & Reports Archive -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-6 shadow-sm">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+                            <i data-lucide="file-text" class="w-4 h-4 text-indigo-400"></i>
+                            <span>Архив отчетов и PCAP-дампов</span>
+                        </h3>
+                        <p class="text-[11px] text-slate-400 mt-0.5">Результаты завершенных сессий аудита с детекцией облаков, открытых протоколов и дампом пакетов</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="openClearAuditsModal()" id="btn-clear-audits" class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-rose-950/50 text-slate-300 hover:text-rose-300 flex items-center space-x-1.5 transition border border-slate-700 hover:border-rose-800/50" title="Очистить архив отчетов и дампов">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-400"></i>
+                            <span>Очистить архив</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800 font-semibold bg-surface-950/40 select-none">
+                            <tr>
+                                <th onclick="toggleSortTable('audits', 'device')" class="py-3 px-4 cursor-pointer hover:text-white transition group" title="Сортировать по устройству">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span>Устройство</span>
+                                        <span id="sort-icon-audits-device" class="text-[10px] text-slate-500 font-mono group-hover:text-slate-300">⇅</span>
+                                    </div>
+                                </th>
+                                <th onclick="toggleSortTable('audits', 'date')" class="py-3 px-4 cursor-pointer hover:text-white transition group whitespace-nowrap" title="Сортировать по дате">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span>Дата / Время</span>
+                                        <span id="sort-icon-audits-date" class="text-[10px] text-indigo-400 font-mono font-bold group-hover:text-indigo-300">▼</span>
+                                    </div>
+                                </th>
+                                <th onclick="toggleSortTable('audits', 'duration')" class="py-3 px-4 cursor-pointer hover:text-white transition group whitespace-nowrap" title="Сортировать по длительности">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span>Длительность</span>
+                                        <span id="sort-icon-audits-duration" class="text-[10px] text-slate-500 font-mono group-hover:text-slate-300">⇅</span>
+                                    </div>
+                                </th>
+                                <th onclick="toggleSortTable('audits', 'traffic')" class="py-3 px-4 cursor-pointer hover:text-white transition group" title="Сортировать по объему трафика">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span>Объем / Пакеты</span>
+                                        <span id="sort-icon-audits-traffic" class="text-[10px] text-slate-500 font-mono group-hover:text-slate-300">⇅</span>
+                                    </div>
+                                </th>
+                                <th onclick="toggleSortTable('audits', 'risk')" class="py-3 px-4 cursor-pointer hover:text-white transition group whitespace-nowrap" title="Сортировать по оценке риска">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span>Оценка риска</span>
+                                        <span id="sort-icon-audits-risk" class="text-[10px] text-slate-500 font-mono group-hover:text-slate-300">⇅</span>
+                                    </div>
+                                </th>
+                                <th onclick="toggleSortTable('audits', 'summary')" class="py-3 px-4 cursor-pointer hover:text-white transition group" title="Сортировать по ключевым находкам">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span>Ключевые находки</span>
+                                        <span id="sort-icon-audits-summary" class="text-[10px] text-slate-500 font-mono group-hover:text-slate-300">⇅</span>
+                                    </div>
+                                </th>
+                                <th class="py-3 px-4 text-right">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-reports-tbody" class="divide-y divide-slate-800/60 font-sans">
+                            <tr>
+                                <td colspan="7" class="py-6 text-center text-slate-500 italic">Загрузка архива отчетов...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+

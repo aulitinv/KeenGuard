@@ -1,0 +1,46 @@
+        <!-- TAB: ALERTS & UPNP -->
+        <section id="view-alerts" class="hidden space-y-6">
+            <!-- UPnP Port Forwarding Audit -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="font-semibold text-sm text-slate-200 flex items-center space-x-2">
+                            <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i>
+                            <span>Аудит UPnP / NAT-PMP пробросов наружу</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-1">Опасные порты, открытые устройствами (камерами, ТВ) в публичный интернет</p>
+                    </div>
+                </div>
+                <div id="upnp-table-container">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Security Events Log -->
+            <div class="bg-surface-900 border border-slate-800/80 rounded-2xl p-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                    <h3 class="font-semibold text-sm text-slate-200 flex items-center space-x-2">
+                        <i data-lucide="list" class="w-4 h-4 text-amber-400"></i>
+                        <span>Журнал инцидентов безопасности</span>
+                    </h3>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="openDigestModal()" class="px-3 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center space-x-1.5 transition shadow-sm">
+                            <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                            <span>Дайджест безопасности</span>
+                        </button>
+                        <button onclick="exportData('events', 'csv')" class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center space-x-1.5 transition border border-slate-700">
+                            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            <span>CSV</span>
+                        </button>
+                        <button onclick="openClearEventsModal()" id="btn-clear-events" class="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-rose-950/50 text-slate-300 hover:text-rose-300 flex items-center space-x-1.5 transition border border-slate-700 hover:border-rose-800/50" title="Очистить журнал инцидентов">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-400"></i>
+                            <span>Очистить</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="all-events-list" class="space-y-3">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </section>
+

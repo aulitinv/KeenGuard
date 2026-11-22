@@ -1,0 +1,271 @@
+    <!-- Modal: Interactive Security Wizard (Мастер настройки безопасности) -->
+    <div id="security-wizard-modal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[92vh] flex flex-col">
+            <!-- Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500/20 to-cyan-500/20 text-indigo-400 border border-indigo-500/30">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-amber-300"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white flex items-center space-x-2">
+                            <span>Мастер настройки безопасности сети</span>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">KeeneticOS</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">Пошаговое руководство по изоляции устройств и защите периметра</p>
+                    </div>
+                </div>
+                <button onclick="closeSecurityWizard()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Stepper Progress Bar -->
+            <div class="shrink-0 bg-surface-950 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex items-center justify-between text-xs font-medium">
+                    <div id="wizard-step-indicator-1" class="wizard-step-pill flex items-center space-x-1.5 text-indigo-400 font-semibold">
+                        <span class="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[11px]">1</span>
+                        <span>Smart TV</span>
+                    </div>
+                    <div class="h-0.5 w-6 bg-slate-800"></div>
+                    <div id="wizard-step-indicator-2" class="wizard-step-pill flex items-center space-x-1.5 text-slate-500">
+                        <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-[11px]">2</span>
+                        <span>Умный дом</span>
+                    </div>
+                    <div class="h-0.5 w-6 bg-slate-800"></div>
+                    <div id="wizard-step-indicator-3" class="wizard-step-pill flex items-center space-x-1.5 text-slate-500">
+                        <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-[11px]">3</span>
+                        <span>Wi-Fi & PMF</span>
+                    </div>
+                    <div class="h-0.5 w-6 bg-slate-800"></div>
+                    <div id="wizard-step-indicator-4" class="wizard-step-pill flex items-center space-x-1.5 text-slate-500">
+                        <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-[11px]">4</span>
+                        <span>DoH & DNS</span>
+                    </div>
+                    <div class="h-0.5 w-6 bg-slate-800"></div>
+                    <div id="wizard-step-indicator-5" class="wizard-step-pill flex items-center space-x-1.5 text-slate-500">
+                        <span class="w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center text-[11px]">5</span>
+                        <span>Итоги</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scrollable Step Contents -->
+            <div class="overflow-y-auto space-y-4 pr-1 flex-1">
+                <!-- STEP 1: SMART TV -->
+                <div id="wizard-step-view-1" class="space-y-4 wizard-step-pane">
+                    <div class="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 text-xs text-indigo-200 leading-relaxed">
+                        <strong class="text-white block mb-1">Медиаэкраны и Smart TV: изоляция без потери стриминга</strong>
+                        Smart TV собирают телеметрию (AppMetrica, трекинг рекламы) и спонтанно просыпаются по ночам. При этом важно не сломать возможность транслировать видео (AirPlay, Miracast, DLNA) со смартфона на ТВ.
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2">
+                            <div class="text-xs font-semibold text-slate-200 flex items-center space-x-2">
+                                <i data-lucide="router" class="w-4 h-4 text-cyan-400"></i>
+                                <span>1. Настройка изоляции в KeeneticOS:</span>
+                            </div>
+                            <ol class="text-xs text-slate-300 space-y-1.5 list-decimal list-inside leading-relaxed">
+                                <li>Подключите телевизор к <strong>Гостевой Wi-Fi сети Keenetic (Bridge1)</strong>. Это физически отрежет ТВ от рабочих ПК и сетевых хранилищ (NAS).</li>
+                                <li>В веб-интерфейсе Keenetic перейдите в <strong>«Управление» ➔ «Параметры системы» ➔ «Компоненты»</strong> и убедитесь, что установлен компонент <strong>«UDP-прокси (mDNS relay)»</strong>.</li>
+                                <li>mDNS-релей автоматически транслирует обнаружение AirPlay/Cast между Домашней и Гостевой сетями!</li>
+                            </ol>
+                        </div>
+
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                            <div class="space-y-0.5">
+                                <label for="wizard-opt-tv-night" class="text-xs font-semibold text-slate-200 block cursor-pointer">
+                                    Пассивный ночной мониторинг KeenGuard
+                                </label>
+                                <span class="text-[11px] text-slate-400 block">
+                                    Записывать сетевые пробуждения ТВ (WOL, mDNS) в кольцевой PCAP-буфер для анализа
+                                </span>
+                            </div>
+                            <input type="checkbox" id="wizard-opt-tv-night" checked class="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 2: IOT & SENSORS ZERO-INTERNET -->
+                <div id="wizard-step-view-2" class="space-y-4 wizard-step-pane hidden">
+                    <div class="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/20 text-xs text-amber-200 leading-relaxed">
+                        <strong class="text-white block mb-1">Умный дом & Сенсоры: Избирательный Zero-Internet</strong>
+                        Все Wi-Fi устройства исходно обращаются в интернет. Если устройство поддерживает работу по локальной сети без облака (Local LAN/HomeKit), ему можно отключить WAN без потери функций. Для облачно-зависимых приборов и погодных экранов интернет необходимо сохранить.
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                            <div class="space-y-0.5 pr-3">
+                                <label for="wizard-opt-zero-internet" class="text-xs font-semibold text-slate-200 block cursor-pointer">
+                                    Включить избирательный Zero-Internet для устройств с локальным управлением
+                                </label>
+                                <span class="text-[11px] text-slate-400 block">
+                                    Заблокировать WAN только устройствам с поддержкой локальной сети без облака, сохранив интернет для погодных экранов (Qingping), хаба и облачной техники
+                                </span>
+                            </div>
+                            <input type="checkbox" id="wizard-opt-zero-internet" checked class="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0">
+                        </div>
+
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <div class="text-xs font-semibold text-slate-200 flex items-center space-x-2">
+                                    <i data-lucide="shield" class="w-4 h-4 text-emerald-400"></i>
+                                    <span>Stateful Firewall для сегмента умного дома в KeeneticOS:</span>
+                                </div>
+                                <button onclick="copyWizardRule('firewall')" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center space-x-1">
+                                    <i data-lucide="copy" class="w-3 h-3"></i>
+                                    <span>Скопировать шпаргалку</span>
+                                </button>
+                            </div>
+                            <div class="bg-surface-900 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-slate-300 space-y-1">
+                                <div class="text-emerald-400">✓ Домашняя сеть ➔ Сегмент IoT: Разрешить (Permit)</div>
+                                <div class="text-rose-400">✕ Сегмент IoT ➔ Домашняя сеть: Запретить (Drop)</div>
+                            </div>
+                            <p class="text-[11px] text-slate-400 leading-relaxed">
+                                Роутер Keenetic с функцией Stateful Inspection автоматически разрешит ответные пакеты: ваши смартфоны смогут управлять хабом и лампами, а взломанный IoT-гаджет не сможет даже просканировать домашний компьютер.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 3: WI-FI & PMF 802.11w -->
+                <div id="wizard-step-view-3" class="space-y-4 wizard-step-pane hidden">
+                    <div class="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/20 text-xs text-purple-200 leading-relaxed">
+                        <strong class="text-white block mb-1">Защита от атак деаутентификации (Deauth attack / Flipper Zero)</strong>
+                        Без стандарта PMF (802.11w) любой злоумышленник рядом с домом может принудительно отключить Wi-Fi камеры и охранные датчики от сети за 2 секунды. При этом включение «Обязательно» на 2.4 ГГц может сломать старые чипы ESP8266.
+                    </div>
+
+                    <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-3">
+                        <div class="text-xs font-semibold text-slate-200">
+                            Рекомендуемая стратегия двух диапазонов в KeeneticOS:
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="p-3 rounded-xl bg-surface-900 border border-indigo-500/20 space-y-1.5">
+                                <div class="text-xs font-bold text-indigo-300 flex items-center space-x-1.5">
+                                    <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
+                                    <span>Сеть 5 ГГц (ПК, Смартфоны)</span>
+                                </div>
+                                <div class="text-[11px] text-slate-300 space-y-0.5 font-mono">
+                                    <div>Безопасность: <span class="text-emerald-400">WPA2+WPA3</span></div>
+                                    <div>Защита PMF: <span class="text-emerald-400">Обязательно (100%)</span></div>
+                                </div>
+                                <div class="text-[10px] text-slate-400">Полный иммунитет к деаутентификации</div>
+                            </div>
+                            <div class="p-3 rounded-xl bg-surface-900 border border-amber-500/20 space-y-1.5">
+                                <div class="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
+                                    <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+                                    <span>Сеть 2.4 ГГц (IoT, Умный дом)</span>
+                                </div>
+                                <div class="text-[11px] text-slate-300 space-y-0.5 font-mono">
+                                    <div>Безопасность: <span class="text-slate-300">WPA2-PSK</span></div>
+                                    <div>Защита PMF: <span class="text-amber-400">По возможности</span></div>
+                                </div>
+                                <div class="text-[10px] text-slate-400">Совместимость со старыми ESP8266/ESP32</div>
+                            </div>
+                        </div>
+                        <div class="text-[11px] text-slate-400">
+                            Где настроить: веб-интерфейс Keenetic ➔ <strong>«Сетевые правила» ➔ «Беспроводная сеть» ➔ «Домашняя сеть»</strong> (отдельно для 2.4 и 5 ГГц).
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 4: ENCRYPTED DOH & DNS FILTER -->
+                <div id="wizard-step-view-4" class="space-y-4 wizard-step-pane hidden">
+                    <div class="p-3.5 rounded-xl bg-cyan-950/30 border border-cyan-500/20 text-xs text-cyan-200 leading-relaxed">
+                        <strong class="text-white block mb-1">Шифрованный DNS (DoH) и автоматическая блокировка трекеров</strong>
+                        Вместо ручной блокировки сотен доменов (как AppMetrica или рекламные сети), подключите фильтрующий DoH-резолвер. Он зашифрует DNS-запросы от провайдера и автоматически срежет 99% мусорного трафика.
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2">
+                            <div class="text-xs font-semibold text-slate-200">
+                                Рекомендуемые DoH-резолверы для Keenetic:
+                            </div>
+                            <div class="space-y-2">
+                                <div class="p-2.5 rounded-lg bg-surface-900 border border-slate-800 flex items-center justify-between">
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">AdGuard DNS (Без рекламы и трекеров)</div>
+                                        <div class="text-[10px] font-mono text-cyan-400">https://dns.adguard-dns.com/dns-query</div>
+                                    </div>
+                                    <button onclick="copyWizardRule('adguard_doh')" class="px-2.5 py-1 text-[10px] rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center space-x-1 transition">
+                                        <i data-lucide="copy" class="w-3 h-3"></i>
+                                        <span>Скопировать URL</span>
+                                    </button>
+                                </div>
+                                <div class="p-2.5 rounded-lg bg-surface-900 border border-slate-800 flex items-center justify-between">
+                                    <div>
+                                        <div class="text-xs font-bold text-slate-200">NextDNS (Персональный фильтр)</div>
+                                        <div class="text-[10px] font-mono text-slate-400">Встроенная поддержка профилей в KeeneticOS</div>
+                                    </div>
+                                    <span class="text-[10px] text-slate-500">Встроен в меню</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1 leading-relaxed">
+                            <strong class="text-white block">Как включить в Keenetic:</strong>
+                            <div>1. Откройте <strong>«Сетевые правила» ➔ «Интернет-фильтр»</strong>.</div>
+                            <div>2. В выпадающем списке выберите <strong>AdGuard DNS</strong> (профиль «Семейный» или «Без рекламы»).</div>
+                            <div>3. Нажмите кнопку <strong>Сохранить</strong>.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 5: REVIEW & 1-CLICK APPLY -->
+                <div id="wizard-step-view-5" class="space-y-4 wizard-step-pane hidden">
+                    <div class="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-xs text-emerald-200 leading-relaxed">
+                        <strong class="text-white block mb-1">Итоговая проверка конфигурации</strong>
+                        Готово! Ниже представлены параметры, которые будут применены в системе KeenGuard в один клик.
+                    </div>
+
+                    <div class="p-3 bg-surface-950 rounded-xl border border-slate-800 space-y-2.5">
+                        <div class="text-xs font-semibold text-slate-200">Выбранные политики KeenGuard:</div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-surface-900 border border-slate-800/80">
+                                <span class="text-slate-300">Smart TV: пассивный ночной мониторинг (PCAP)</span>
+                                <span id="wizard-sum-tv" class="text-emerald-400 font-semibold font-mono">Включен</span>
+                            </div>
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-surface-900 border border-slate-800/80">
+                                <span class="text-slate-300">Избирательный Zero-Internet (устройства с Local LAN)</span>
+                                <span id="wizard-sum-sensors" class="text-emerald-400 font-semibold font-mono">Включен</span>
+                            </div>
+                            <div class="flex items-center justify-between p-2 rounded-lg bg-surface-900 border border-slate-800/80">
+                                <div class="space-y-0.5">
+                                    <label for="wizard-opt-quarantine" class="text-slate-300 cursor-pointer block">
+                                        Строгий автокарантин новых устройств в сети
+                                    </label>
+                                    <span class="text-[10px] text-slate-500 block">Блокирует доступ в интернет (WAN) для незнакомых MAC-адресов</span>
+                                </div>
+                                <input type="checkbox" id="wizard-opt-quarantine" checked class="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="wizard-apply-feedback" class="hidden p-3 rounded-xl text-xs font-medium"></div>
+
+                    <div class="p-3 bg-indigo-950/20 rounded-xl border border-indigo-500/20 text-xs text-indigo-300 flex items-start space-x-2">
+                        <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-indigo-400"></i>
+                        <span>Все правила обратимы в любой момент из вкладки «Центр безопасности» или «Настройки».</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Buttons -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <button id="wizard-btn-prev" onclick="wizardPrevStep()" class="hidden px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition flex items-center space-x-1.5">
+                    <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+                    <span>Назад</span>
+                </button>
+                <div class="flex items-center space-x-2 ml-auto">
+                    <button onclick="closeSecurityWizard()" class="px-4 py-2 text-slate-400 hover:text-slate-200 text-xs font-medium transition">
+                        Отмена
+                    </button>
+                    <button id="wizard-btn-next" onclick="wizardNextStep()" class="px-5 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs rounded-xl font-medium transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/30">
+                        <span>Далее</span>
+                        <i data-lucide="arrow-right" class="w-3.5 h-3.5" id="wizard-btn-next-icon"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+

@@ -1,0 +1,136 @@
+        <!-- TAB: NETWORK TOPOLOGY MAP -->
+        <section id="view-topology" class="hidden space-y-6">
+            <!-- Header & Toolbar -->
+            <div class="bg-surface-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="git-merge" class="w-6 h-6 text-purple-400"></i>
+                            <h2 class="text-xl font-bold text-slate-100">Интерактивная топология сети</h2>
+                            <span id="topology-device-count-badge" class="px-2 py-0.5 rounded-full text-xs bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono">0 устройств</span>
+                            <span id="topology-online-badge" class="px-2 py-0.5 rounded-full text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono">0 онлайн</span>
+                        </div>
+                        <p class="text-xs text-slate-400 max-w-3xl">
+                            Граф сетевой инфраструктуры в реальном времени: аппаратные мосты Keenetic (Bridge0 / Bridge1), интерфейсы Wi-Fi 2.4/5 GHz, проводные порты LAN и активные хосты с отображением статуса изоляции.
+                        </p>
+                    </div>
+
+                    <div class="flex items-center space-x-2.5 shrink-0">
+                        <button onclick="loadTopologyTab()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition flex items-center space-x-1.5 border border-slate-700">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                            <span>Обновить</span>
+                        </button>
+                        <div class="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                            <button onclick="zoomTopology(1.2)" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Увеличить">
+                                <i data-lucide="zoom-in" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="zoomTopology(0.8)" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Уменьшить">
+                                <i data-lucide="zoom-out" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="resetTopologyView()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Центрировать">
+                                <i data-lucide="maximize-2" class="w-4 h-4"></i>
+                            </button>
+                            <button id="btn-topology-fullscreen" onclick="toggleTopologyFullscreen()" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Во весь экран">
+                                <i data-lucide="expand" id="topology-fullscreen-icon" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Chips Toolbar -->
+                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                    <span class="text-xs text-slate-400 font-medium mr-1 flex items-center gap-1">
+                        <i data-lucide="filter" class="w-3.5 h-3.5 text-slate-500"></i> Фильтр:
+                    </span>
+                    <button onclick="setTopologyFilter('all')" id="topo-filter-all" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 transition">
+                        Все
+                    </button>
+                    <button onclick="setTopologyFilter('online')" id="topo-filter-online" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        Только онлайн
+                    </button>
+                    <button onclick="setTopologyFilter('hide_trusted')" id="topo-filter-hide_trusted" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        Скрыть доверенные
+                    </button>
+                    <button onclick="setTopologyFilter('iot_tv')" id="topo-filter-iot_tv" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        Только IoT / ТВ / Камеры
+                    </button>
+                    <button onclick="setTopologyFilter('quarantine')" id="topo-filter-quarantine" class="topo-filter-chip px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 transition">
+                        В карантине / Блок WAN
+                    </button>
+                </div>
+
+                <!-- Technical Realism Disclosure Banner -->
+                <div class="p-3.5 rounded-xl bg-surface-950 border border-purple-900/40 text-xs text-slate-300 flex items-start space-x-3">
+                    <i data-lucide="info" class="w-4 h-4 text-purple-400 shrink-0 mt-0.5"></i>
+                    <div class="space-y-1">
+                        <span class="font-semibold text-purple-300">Аппаратный контекст L2/L3 Keenetic:</span>
+                        <p id="topology-realism-note" class="text-slate-400 leading-relaxed text-[11px]">
+                            Устройства в мосте Bridge0 находятся в общем широковещательном домене (L2-коммутация идет напрямую через свитч без файрвола). Сегмент Bridge1 аппаратно изолирован на уровне моста.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph Canvas / SVG Interactive Area -->
+            <div id="topology-container-card" class="relative w-full h-[650px] bg-surface-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+                <!-- Floating Exit Fullscreen Button -->
+                <button id="btn-topology-exit-fs" onclick="toggleTopologyFullscreen()" class="hidden absolute top-4 right-4 z-30 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700 text-slate-200 hover:text-white text-xs font-semibold shadow-lg backdrop-blur-md flex items-center space-x-1.5 transition">
+                    <i data-lucide="shrink" class="w-3.5 h-3.5"></i>
+                    <span>Выйти из полноэкранного режима</span>
+                </button>
+
+                <!-- SVG Canvas for Links & Nodes -->
+                <svg id="topology-svg" class="w-full h-full cursor-grab active:cursor-grabbing select-none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="grad-router" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#06b6d4" />
+                            <stop offset="100%" stop-color="#3b82f6" />
+                        </linearGradient>
+                        <linearGradient id="grad-bridge0" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#10b981" />
+                            <stop offset="0%" stop-color="#059669" />
+                        </linearGradient>
+                        <linearGradient id="grad-bridge1" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#f59e0b" />
+                            <stop offset="100%" stop-color="#d97706" />
+                        </linearGradient>
+                    </defs>
+                    <g id="topology-viewport">
+                        <g id="topology-boundaries"></g>
+                        <g id="topology-links"></g>
+                        <g id="topology-nodes"></g>
+                    </g>
+                </svg>
+
+                <!-- Floating Legend -->
+                <div class="absolute bottom-4 left-4 p-3 rounded-xl bg-surface-900/90 backdrop-blur-md border border-slate-800 text-[11px] text-slate-300 space-y-1.5 shadow-xl select-none">
+                    <span class="font-bold text-slate-400 uppercase tracking-wider text-[9px] block">Обозначения на карте</span>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                        <span>Доверенное / Онлайн</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                        <span>Шлюз / Роутер / Мост</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                        <span>Гостевой сегмент / IoT</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                        <span>Карантин / Блокировка WAN</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+                        <span>Офлайн устройство</span>
+                    </div>
+                </div>
+
+                <!-- Floating Tooltip -->
+                <div id="topology-tooltip" class="absolute hidden pointer-events-none p-3 rounded-xl bg-surface-900/95 backdrop-blur-md border border-slate-700 text-xs shadow-2xl z-20 space-y-1 min-w-[200px]">
+                    <!-- Populated dynamically on node hover -->
+                </div>
+            </div>
+        </section>
+

@@ -1,0 +1,95 @@
+    <!-- Modal: Interactive DNS Sinkhole Preset Selector -->
+    <div id="dns-preset-modal" class="fixed inset-0 z-[70] bg-black/75 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div id="dns-preset-modal-icon-container" class="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400">
+                        <i data-lucide="shield-check" id="dns-preset-modal-icon" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h3 id="dns-preset-modal-title" class="font-bold text-base text-white">Выборочная блокировка рекламы</h3>
+                            <span id="dns-preset-modal-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">0.0.0.0 Sinkhole</span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5" id="dns-preset-modal-desc">Выберите домены для блокировки встроенным DNS роутера Keenetic</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeDnsPresetModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Technical Realism Explanation Notice -->
+            <div class="p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/20 flex items-start space-x-2.5 text-xs text-indigo-200 shrink-0">
+                <i data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5"></i>
+                <div class="space-y-1">
+                    <p class="font-medium text-white">Аппаратное исполнение Keenetic:</p>
+                    <p class="text-[11px] text-slate-300 leading-relaxed">
+                        Для каждого выбранного домена на Keenetic создается статическая DNS-запись вида <code class="bg-surface-950 px-1 py-0.5 rounded text-indigo-300 font-mono">ip host &lt;домен&gt; 0.0.0.0</code>. Устройства при запросе получат ответ 0.0.0.0 мгновенно без выхода во внешнюю сеть.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <div class="space-y-4 overflow-y-auto flex-1 pr-1" id="dns-preset-modal-body">
+                <!-- Section 1: Detected in Local Network -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">1. Зафиксировано в вашей сети</span>
+                            <span id="dns-preset-detected-count-badge" class="px-2 py-0.2 rounded-full text-[10px] font-mono bg-indigo-500/20 text-indigo-300">0</span>
+                        </div>
+                        <div class="flex items-center space-x-2" id="dns-preset-detected-actions">
+                            <button type="button" onclick="toggleAllDnsPresetGroup('detected', true)" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline">Выбрать все</button>
+                            <span class="text-slate-600">|</span>
+                            <button type="button" onclick="toggleAllDnsPresetGroup('detected', false)" class="text-[11px] text-slate-400 hover:text-slate-300">Снять выбор</button>
+                        </div>
+                    </div>
+
+                    <!-- Container for detected list / empty state -->
+                    <div id="dns-preset-detected-list" class="space-y-1.5">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Section 2: Curated Blocklist -->
+                <div class="space-y-2 pt-2 border-t border-slate-800/80">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">2. Рекомендованная база для блокировки</span>
+                            <span id="dns-preset-curated-count-badge" class="px-2 py-0.2 rounded-full text-[10px] font-mono bg-slate-800 text-slate-300">0</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button type="button" onclick="toggleAllDnsPresetGroup('curated', true)" class="text-[11px] text-indigo-400 hover:text-indigo-300 underline">Выбрать все</button>
+                            <span class="text-slate-600">|</span>
+                            <button type="button" onclick="toggleAllDnsPresetGroup('curated', false)" class="text-[11px] text-slate-400 hover:text-slate-300">Снять выбор</button>
+                        </div>
+                    </div>
+
+                    <!-- Container for curated list -->
+                    <div id="dns-preset-curated-list" class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="pt-3 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+                <div class="text-xs text-slate-400 flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-start">
+                    <span>Выбрано к блокировке:</span>
+                    <span id="dns-preset-total-selected" class="font-bold text-white font-mono bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30 text-xs">0 доменов</span>
+                </div>
+                <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                    <button type="button" onclick="closeDnsPresetModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition">
+                        Отмена
+                    </button>
+                    <button type="button" id="btn-apply-dns-preset" onclick="submitSelectedDnsPreset()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs rounded-xl font-bold transition shadow-lg shadow-emerald-600/20 flex items-center space-x-1.5">
+                        <i data-lucide="shield-check" class="w-4 h-4" id="btn-apply-dns-preset-icon"></i>
+                        <span id="btn-apply-dns-preset-text">Применить на Keenetic</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+

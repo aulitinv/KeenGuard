@@ -1,0 +1,45 @@
+    <!-- Modal: Physical LAN Isolation Wizard -->
+    <div id="isolation-wizard-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-surface-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-400">
+                        <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">Мастер физической изоляции (L2/L3)</h3>
+                        <p class="text-xs text-slate-400" id="iso-wizard-device-subtitle">Устройство в сети</p>
+                    </div>
+                </div>
+                <button onclick="closeIsolationWizardModal()" class="text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Engineering Context Notice -->
+            <div class="p-3.5 bg-surface-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
+                <div class="flex items-center space-x-2 text-amber-400 font-semibold">
+                    <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+                    <span>Почему нельзя изолировать кнопкой в один клик?</span>
+                </div>
+                <p class="text-[11px] text-slate-400 leading-relaxed">
+                    Внутри одного сегмента домашней сети (<code class="text-indigo-300">Bridge0</code> / 192.168.1.0/24) пакеты между устройствами передаются напрямую через чип свитча или по радиоканалу Wi-Fi в обход файрвола роутера. Чтобы изоляция стала 100% реальной, устройство нужно аппаратно отделить на роутере.
+                </p>
+            </div>
+
+            <!-- Steps Container -->
+            <div id="iso-wizard-steps-container" class="space-y-3">
+                <!-- Dynamically populated steps -->
+            </div>
+
+            <!-- Actions Footer -->
+            <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+                <a href="http://192.168.1.1" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs rounded-xl font-medium transition flex items-center space-x-1.5">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    <span>Открыть панель Keenetic</span>
+                </a>
+                <button onclick="closeIsolationWizardModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition">Понятно</button>
+            </div>
+        </div>
+    </div>
+
