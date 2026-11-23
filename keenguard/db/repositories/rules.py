@@ -112,7 +112,7 @@ BUILTIN_SECURITY_RULES: List[Dict[str, Any]] = [
         "enabled": True,
         "is_builtin": True,
         "category": "perimeter",
-        "source": {"invert": False, "device_macs": [], "profiles": [], "segments": [], "vendors": [], "properties": []},
+        "source": {"invert": False, "device_macs": [], "profiles": ["iot", "camera", "unassigned", "smart_tv"], "segments": [], "vendors": [], "properties": []},
         "destination": {
             "direction": "any",
             "invert_targets": False,
@@ -159,15 +159,45 @@ BUILTIN_SECURITY_RULES: List[Dict[str, Any]] = [
 class RulesRepository(BaseRepository):
     """Database operations for Security Rules and Telemetry."""
 
-    def _row_to_rule(self, r: aiosqlite.Row) -> SecurityRule:
-        source_data = json.loads(r["source_json"]) if r["source_json"] else {}
-        destination_data = json.loads(r["destination_json"]) if r["destination_json"] else {}
-        context_data = json.loads(r["context_json"]) if r["context_json"] else {}
-        reaction_data = json.loads(r["reaction_json"]) if r["reaction_json"] else {}
+    def _row_to_rule(self, r: aiosqlite.Row, hits_24h_override: Optional[int] = None) -> SecurityRule:
+        def _safe_json(val: Any) -> Dict[str, Any]:
+            if not val:
+                return {}
+            try:
+                data = json.loads(val)
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
 
+        source_data = _safe_json(r["source_json"])
+        destination_data = _safe_json(r["destination_json"])
+        context_data = _safe_json(r["context_json"])
+        reaction_data = _safe_json(r["reaction_json"])
+
+        try:
+            source = RuleSource(**source_data)
+        except Exception:
+            source = RuleSource()
+
+        try:
+            destination = RuleDestination(**destination_data)
+        except Exception:
+            destination = RuleDestination()
+
+        try:
+            context = RuleContext(**context_data)
+        except Exception:
+            context = RuleContext()
+
+        try:
+            reaction = RuleReaction(**reaction_data)
+        except Exception:
+            reaction = RuleReaction()
+
+        hits_24h_val = hits_24h_override if hits_24h_override is not None else (r["hits_24h"] or 0)
         telemetry = RuleTelemetry(
             hits_total=r["hits_total"] or 0,
-            hits_24h=r["hits_24h"] or 0,
+            hits_24h=hits_24h_val,
             last_hit_at=r["last_hit_at"],
             last_hit_summary=r["last_hit_summary"]
         )
@@ -181,33 +211,50 @@ class RulesRepository(BaseRepository):
             is_builtin=bool(r["is_builtin"]),
             category=r["category"] or "general",
             temporary_until=r["temporary_until"],
-            source=RuleSource(**source_data),
-            destination=RuleDestination(**destination_data),
-            context=RuleContext(**context_data),
-            reaction=RuleReaction(**reaction_data),
+            source=source,
+            destination=destination,
+            context=context,
+            reaction=reaction,
             telemetry=telemetry,
             created_at=r["created_at"] or datetime.now(timezone.utc).isoformat(),
             updated_at=r["updated_at"] or datetime.now(timezone.utc).isoformat()
         )
 
     async def get_rules(self, include_disabled: bool = True) -> List[SecurityRule]:
-        """Returns all security rules ordered by order_index ASC."""
+        """Returns all security rules ordered by order_index ASC with accurate 24h hit counts."""
         query = "SELECT * FROM security_rules"
         if not include_disabled:
             query += " WHERE enabled = 1"
         query += " ORDER BY order_index ASC"
 
+        cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         async with self.get_connection() as conn:
+            # Query hits in last 24h
+            hits_cursor = await conn.execute(
+                "SELECT rule_id, COUNT(*) as cnt FROM security_rule_hits WHERE timestamp >= ? GROUP BY rule_id",
+                (cutoff_24h,)
+            )
+            hits_24h_map = {row["rule_id"]: row["cnt"] for row in await hits_cursor.fetchall()}
+
             cursor = await conn.execute(query)
             rows = await cursor.fetchall()
-            return [self._row_to_rule(r) for r in rows]
+            return [self._row_to_rule(r, hits_24h_override=hits_24h_map.get(r["id"])) for r in rows]
 
     async def get_rule(self, rule_id: str) -> Optional[SecurityRule]:
-        """Fetches a specific security rule by ID."""
+        """Fetches a specific security rule by ID with accurate 24h hit count."""
+        cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         async with self.get_connection() as conn:
             cursor = await conn.execute("SELECT * FROM security_rules WHERE id = ?", (rule_id,))
             row = await cursor.fetchone()
-            return self._row_to_rule(row) if row else None
+            if not row:
+                return None
+
+            hits_cursor = await conn.execute(
+                "SELECT COUNT(*) FROM security_rule_hits WHERE rule_id = ? AND timestamp >= ?",
+                (rule_id, cutoff_24h)
+            )
+            hits_24h = (await hits_cursor.fetchone())[0]
+            return self._row_to_rule(row, hits_24h_override=hits_24h)
 
     async def create_rule(self, rule: SecurityRule) -> SecurityRule:
         """Creates a new security rule."""
@@ -304,7 +351,13 @@ class RulesRepository(BaseRepository):
             return cursor.rowcount > 0
 
     async def toggle_rule(self, rule_id: str, enabled: bool) -> bool:
-        """Enables or disables a security rule."""
+        """Enables or disables a security rule. Protected core rules cannot be disabled."""
+        if not enabled:
+            rule = await self.get_rule(rule_id)
+            if rule and (rule.category == "core" or rule.id in ("rule_core_dhcp", "rule_core_dns", "rule_core_web")):
+                logger.warning("Attempted to disable protected core failsafe rule: %s", rule_id)
+                return False
+
         now = datetime.now(timezone.utc).isoformat()
         async with self.get_connection() as conn:
             cursor = await conn.execute(

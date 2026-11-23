@@ -27,6 +27,14 @@ class KeeneticBackend(BaseRouterBackend):
             return keenetic_client
 
     @property
+    def mock_mode(self) -> bool:
+        return getattr(self.client, "mock_mode", False)
+
+    @mock_mode.setter
+    def mock_mode(self, value: bool) -> None:
+        self.client.mock_mode = value
+
+    @property
     def platform_id(self) -> str:
         return "keenetic"
 
@@ -73,21 +81,26 @@ class KeeneticBackend(BaseRouterBackend):
                 elif isinstance(res, dict):
                     status_data = res
 
+            if not status_data and hasattr(self.client, "_send_request"):
+                resp = await self.client._send_request("GET", "/rci/show/system")
+                if resp and resp.status_code == 200:
+                    status_data = resp.json()
+
             dev_info = status_data.get("device", {}) if isinstance(status_data, dict) else {}
-            model = dev_info.get("model") if isinstance(dev_info, dict) else None
+            model = status_data.get("model") or (dev_info.get("model") if isinstance(dev_info, dict) else None)
             if not isinstance(model, str):
                 last_m = getattr(self.client, "last_model", None)
                 model = last_m if isinstance(last_m, str) else "Keenetic"
 
-            version = dev_info.get("ndms", {}).get("version") if isinstance(dev_info, dict) and isinstance(dev_info.get("ndms"), dict) else None
+            version = status_data.get("release") or status_data.get("title") or (dev_info.get("ndms", {}).get("version") if isinstance(dev_info, dict) and isinstance(dev_info.get("ndms"), dict) else None)
             if not isinstance(version, str):
                 last_v = getattr(self.client, "last_version", None)
                 version = last_v if isinstance(last_v, str) else "KeeneticOS"
 
-            uptime = int(dev_info.get("uptime") or 0) if isinstance(dev_info, dict) else 0
-            mem_data = dev_info.get("memory", {}) if isinstance(dev_info, dict) else {}
-            mem_total = int(mem_data.get("total") or 0) if isinstance(mem_data, dict) else 0
-            mem_free = int(mem_data.get("free") or 0) if isinstance(mem_data, dict) else 0
+            uptime = int(status_data.get("uptime") or (dev_info.get("uptime") if isinstance(dev_info, dict) else 0) or 0)
+            mem_data = status_data.get("meminfo") or status_data.get("memory") or (dev_info.get("memory", {}) if isinstance(dev_info, dict) else {})
+            mem_total = int((mem_data.get("total") or mem_data.get("MemTotal") or 0) if isinstance(mem_data, dict) else 0)
+            mem_free = int((mem_data.get("free") or mem_data.get("MemFree") or 0) if isinstance(mem_data, dict) else 0)
 
             return RouterSystemInfo(
                 model=model,
@@ -155,9 +168,7 @@ class KeeneticBackend(BaseRouterBackend):
 
     async def add_dns_sinkhole(self, domain: str, ip: str = "0.0.0.0") -> bool:
         """Injects static ip host into Keenetic dnsmasq."""
-        if ip == "0.0.0.0":
-            return await self.client.add_dns_sinkhole(domain)
-        return await self.client.add_dns_sinkhole(domain, ip)
+        return await self.client.add_dns_sinkhole(domain)
 
     async def remove_dns_sinkhole(self, domain: str) -> bool:
         """Removes static ip host from Keenetic dnsmasq."""
@@ -228,12 +239,12 @@ class KeeneticBackend(BaseRouterBackend):
     async def set_wifi_pmf(self, mode: str = "required") -> bool:
         if hasattr(self.client, "set_wifi_pmf"):
             return await self.client.set_wifi_pmf(mode=mode)
-        return True
+        return False
 
     async def set_wifi_wpa3(self, enable: bool = True) -> bool:
         if hasattr(self.client, "set_wifi_wpa3"):
             return await self.client.set_wifi_wpa3(enable=enable)
-        return True
+        return False
 
     async def get_system_log(self, limit: int = 200) -> List[str]:
         if hasattr(self.client, "get_system_log"):
@@ -347,4 +358,25 @@ class KeeneticBackend(BaseRouterBackend):
         return await self.client.set_dlna_access(mac, ip, allow=allow)
 
     async def enable_mdns_relay(self) -> bool:
-        return await self.client.enable_mdns_relay()
+        if hasattr(self.client, "enable_mdns_relay"):
+            res = await self.client.enable_mdns_relay()
+            if isinstance(res, bool):
+                return res
+            if isinstance(res, dict):
+                return res.get("status") == "ok"
+        return False
+
+    async def has_traffic_shaper_component(self) -> bool:
+        return await self.client.has_traffic_shaper_component()
+
+    async def set_device_speed_limit(self, mac: str, speed_kbps: int) -> bool:
+        return await self.client.set_device_speed_limit(mac, speed_kbps)
+
+    async def get_device_speed_limits(self) -> Dict[str, int]:
+        return await self.client.get_device_speed_limits()
+
+    async def block_dot_traffic(self, enable: bool = True) -> bool:
+        return await self.client.block_dot_traffic(enable)
+
+    async def is_dot_blocked(self) -> bool:
+        return await self.client.is_dot_blocked()

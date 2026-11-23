@@ -81,7 +81,10 @@ async function loadLanStats() {
         if (flowsEl) flowsEl.textContent = s.active_flows_count || 0;
         if (arpEl) arpEl.textContent = s.arp_queries_count || 0;
 
-        if (s.top_communicating_pair) {
+        if (s.top_chatter && s.top_chatter !== 'Нет активности') {
+            if (chatterEl) chatterEl.textContent = s.top_chatter;
+            if (chatterPktsEl) chatterPktsEl.textContent = `${s.top_chatter_packets || 0} пакетов`;
+        } else if (s.top_communicating_pair) {
             const pair = s.top_communicating_pair;
             if (chatterEl) chatterEl.textContent = `${pair.src} <-> ${pair.dst}`;
             if (chatterPktsEl) chatterPktsEl.textContent = `${pair.packets || 0} пакетов (${pair.last_protocol || 'LAN'})`;
@@ -180,7 +183,7 @@ async function loadLanCommunications() {
                 protoBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">${escapeHtml(item.protocol)}</span>`;
             }
 
-            let statusBadge = `<span class="text-[10px] text-slate-400 font-mono">${item.status || 'flow'}</span>`;
+            let statusBadge = `<span class="text-[10px] text-slate-400 font-mono">${escapeHtml(item.status || 'flow')}</span>`;
             if (item.status === 'replied') {
                 const rtt = item.rtt_ms !== undefined && item.rtt_ms !== null ? `${item.rtt_ms} ms` : 'OK';
                 statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">✓ ${rtt}</span>`;
@@ -191,9 +194,9 @@ async function loadLanCommunications() {
             }
 
             const pktAction = item.packet_id
-                ? `<button onclick="openPacketInspectorModal('${escapeHtml(item.packet_id)}')" class="px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white transition border border-slate-700 flex items-center space-x-1 float-right">
+                ? `<button data-packet-id="${escapeHtml(item.packet_id)}" onclick="openPacketInspectorModal(this.dataset.packetId)" class="px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white transition border border-slate-700 flex items-center space-x-1 float-right">
                     <i data-lucide="binary" class="w-3 h-3"></i>
-                    <span>Пакет #${item.packet_id}</span>
+                    <span>Пакет #${escapeHtml(item.packet_id)}</span>
                    </button>`
                 : `<span class="text-slate-600 text-[11px]">—</span>`;
 
@@ -268,9 +271,12 @@ async function loadLanPingMatrix() {
             if (successRate < 95 && successRate >= 50) rateBadge = `<span class="text-amber-400 font-bold">${successRate}%</span>`;
             if (successRate < 50) rateBadge = `<span class="text-rose-400 font-bold">${successRate}%</span>`;
 
+            const minRtt = m.min_rtt_ms ?? m.rtt_min_ms;
+            const avgRtt = m.avg_rtt_ms ?? m.rtt_avg_ms;
+            const maxRtt = m.max_rtt_ms ?? m.rtt_max_ms;
             let rttStr = '—';
-            if (m.rtt_min_ms !== undefined && m.rtt_avg_ms !== undefined && m.rtt_max_ms !== undefined) {
-                rttStr = `${m.rtt_min_ms} / <span class="font-bold text-cyan-300">${m.rtt_avg_ms}</span> / ${m.rtt_max_ms} ms`;
+            if (minRtt !== undefined && minRtt !== null && avgRtt !== undefined && avgRtt !== null && maxRtt !== undefined && maxRtt !== null) {
+                rttStr = `${minRtt} / <span class="font-bold text-cyan-300">${avgRtt}</span> / ${maxRtt} ms`;
             }
 
             let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">ОТЛИЧНО</span>`;
@@ -280,8 +286,9 @@ async function loadLanPingMatrix() {
                 statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">НЕТ ОТВЕТА</span>`;
             }
 
-            const lastSeen = formatHumanTime(m.last_seen);
-            const fullLastSeen = formatHumanFullDateTime(m.last_seen);
+            const seenTime = m.last_reply_time || m.last_sent_time || m.last_seen;
+            const lastSeen = formatHumanTime(seenTime);
+            const fullLastSeen = formatHumanFullDateTime(seenTime);
 
             return `
                 <tr class="hover:bg-slate-800/40 transition">
@@ -421,8 +428,8 @@ async function loadLanTopology() {
             const srcLabel = formatDeviceIdentifier(srcIp, srcMac, mode, srcName);
             const dstLabel = formatDeviceIdentifier(dstIp, dstMac, mode, dstName);
 
-            const srcClickable = srcMac ? `<button onclick="openDeviceModal('${escapeHtml(srcMac)}')" class="text-cyan-400 hover:text-cyan-300 hover:underline truncate max-w-[130px] text-left transition font-semibold" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</button>` : `<span class="text-cyan-400 truncate max-w-[130px]" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</span>`;
-            const dstClickable = dstMac ? `<button onclick="openDeviceModal('${escapeHtml(dstMac)}')" class="text-indigo-400 hover:text-indigo-300 hover:underline truncate max-w-[130px] text-left transition font-semibold" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</button>` : `<span class="text-indigo-400 truncate max-w-[130px]" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</span>`;
+            const srcClickable = srcMac ? `<button data-mac="${escapeHtml(srcMac)}" onclick="openDeviceModal(this.dataset.mac)" class="text-cyan-400 hover:text-cyan-300 hover:underline truncate max-w-[130px] text-left transition font-semibold" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</button>` : `<span class="text-cyan-400 truncate max-w-[130px]" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</span>`;
+            const dstClickable = dstMac ? `<button data-mac="${escapeHtml(dstMac)}" onclick="openDeviceModal(this.dataset.mac)" class="text-indigo-400 hover:text-indigo-300 hover:underline truncate max-w-[130px] text-left transition font-semibold" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</button>` : `<span class="text-indigo-400 truncate max-w-[130px]" title="${escapeHtml(dstLabel)}">${escapeHtml(dstLabel)}</span>`;
 
             return `
                 <div class="bg-surface-950 border border-slate-800 rounded-xl p-3.5 space-y-2 hover:border-cyan-500/40 transition shadow-sm">
@@ -554,15 +561,16 @@ async function loadIotPayloads() {
             if (hideRouter && (isRouterEntity(p.ip, p.mac) || isRouterEntity(p.src_ip, p.mac) || isRouterEntity(p.dst_ip, null))) return false;
             if (hideHub && (isHubEntity(p.ip, p.mac) || isHubEntity(p.src_ip, p.mac) || isHubEntity(p.dst_ip, null))) return false;
             if (!query) return true;
+            const payloadIp = p.ip || p.src_ip;
+            const payloadSummary = p.decoded_summary || p.summary || '';
             return (
                 (p.mac && p.mac.toLowerCase().includes(query)) ||
                 (p.hostname && p.hostname.toLowerCase().includes(query)) ||
                 (p.device_name && p.device_name.toLowerCase().includes(query)) ||
-                (p.ip && p.ip.toLowerCase().includes(query)) ||
-                (p.src_ip && p.src_ip.toLowerCase().includes(query)) ||
+                (payloadIp && payloadIp.toLowerCase().includes(query)) ||
                 (p.dst_ip && p.dst_ip.toLowerCase().includes(query)) ||
                 (p.protocol && p.protocol.toLowerCase().includes(query)) ||
-                (p.decoded_summary && p.decoded_summary.toLowerCase().includes(query))
+                (payloadSummary && payloadSummary.toLowerCase().includes(query))
             );
         });
 
@@ -599,7 +607,7 @@ async function loadIotPayloads() {
             const sizeStr = `${p.payload_len || (p.payload_hex ? Math.round(p.payload_hex.length / 2) : (p.byte_size || 0))} B`;
 
             const inspectBtn = p.packet_id
-                ? `<button onclick="openPacketInspectorModal('${escapeHtml(p.packet_id)}')" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white transition border border-slate-700 flex items-center space-x-1 float-right">
+                ? `<button data-packet-id="${escapeHtml(p.packet_id)}" onclick="openPacketInspectorModal(this.dataset.packetId)" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white transition border border-slate-700 flex items-center space-x-1 float-right">
                     <i data-lucide="binary" class="w-3 h-3"></i>
                     <span>Инспектор</span>
                    </button>`
@@ -634,7 +642,7 @@ async function loadIotPayloads() {
                 }
             }
 
-            const devCellHtml = renderDeviceCell(p.ip, p.mac, p.hostname || p.device_name || 'IoT Device', currentMode);
+            const devCellHtml = renderDeviceCell(p.ip || p.src_ip, p.mac, p.hostname || p.device_name || 'IoT Device', currentMode);
 
             return `
                 <tr class="hover:bg-slate-800/40 transition">
@@ -647,7 +655,7 @@ async function loadIotPayloads() {
                         ${escapeHtml(formattedDst)}
                     </td>
                     <td class="py-2.5 px-3 text-slate-200 text-xs break-all max-w-[320px]">
-                        <span class="font-mono text-amber-200/90">${escapeHtml(p.decoded_summary || '—')}</span>
+                        <span class="font-mono text-amber-200/90">${escapeHtml(p.decoded_summary || p.summary || '—')}</span>
                     </td>
                     <td class="py-2.5 px-3 text-right font-mono text-slate-400 text-xs">${escapeHtml(sizeStr)}</td>
                     <td class="py-2.5 px-3 text-right">${inspectBtn}</td>
@@ -669,7 +677,7 @@ async function ensureIotDeviceSelect() {
         const res = await fetch('/api/devices');
         if (!res.ok) return;
         const devs = await res.json();
-        const iotDevs = devs.filter(d => ['iot', 'camera', 'smart_tv', 'smart_home_hub'].includes(d.security_profile));
+        const iotDevs = devs.filter(d => ['iot', 'camera', 'smart_home_hub', 'smart_tv'].includes(d.profile));
         (iotDevs.length > 0 ? iotDevs : devs).forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.mac;

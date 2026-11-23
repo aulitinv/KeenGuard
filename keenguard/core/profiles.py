@@ -184,10 +184,20 @@ class PolicyManager:
         # Hardware WAN enforcement on active router
         from keenguard.core.routers import router_manager
         backend = router_manager.get_backend()
+        wan_success = False
         try:
-            await backend.set_wan_access(clean_mac, allow=not want_blocked_wan)
+            wan_success = bool(await backend.set_wan_access(clean_mac, allow=not want_blocked_wan))
         except Exception as e:
             logger.warning("Could not mutate router WAN policy for %s: %s", clean_mac, e)
+            wan_success = False
+
+        # Real WAN state: update only if hardware enforcement succeeded, otherwise preserve actual DB state
+        actual_blocked_wan = want_blocked_wan if wan_success else (existing_dev.is_blocked_wan if existing_dev else False)
+        if not wan_success and existing_dev and existing_dev.is_blocked_wan != want_blocked_wan:
+            logger.warning(
+                "Hardware WAN enforcement failed for %s. Preserving actual DB state is_blocked_wan=%s instead of desired %s",
+                clean_mac, actual_blocked_wan, want_blocked_wan
+            )
 
         # 3. Check real L2 physical isolation status
         is_isolated = False
@@ -206,7 +216,7 @@ class PolicyManager:
             "mac": clean_mac,
             "profile": target_profile,
             "preset_id": target_preset,
-            "is_blocked_wan": want_blocked_wan,
+            "is_blocked_wan": actual_blocked_wan,
             "is_isolated_lan": is_isolated,
             "airplay_allowed": tpl["airplay_allowed"],
             "dlna_allowed": tpl.get("dlna_allowed", True),
@@ -278,8 +288,10 @@ class PolicyManager:
         from keenguard.core.routers import router_manager
         backend = router_manager.get_backend()
         success = await backend.set_wan_access(clean_mac, allow=not block)
-        await db.update_device_policy(clean_mac, is_blocked_wan=block)
-        return success
+        if success:
+            await db.update_device_policy(clean_mac, is_blocked_wan=block)
+        dev = await db.get_device(clean_mac)
+        return dev.is_blocked_wan if dev else (block if success else False)
 
     @staticmethod
     async def toggle_lan_isolation(mac: str, isolate: bool) -> bool:

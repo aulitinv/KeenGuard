@@ -139,7 +139,7 @@ class RuleHitRecord(BaseModel):
 
 class AuditReportRecord(BaseModel):
     id: str
-    mac: str
+    mac: Optional[str] = None
     ip: Optional[str] = None
     hostname: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

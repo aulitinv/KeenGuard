@@ -11,7 +11,16 @@ from keenguard.core.classifier import DeviceClassifier
 
 logger = logging.getLogger("keenguard.rules.matcher")
 
-ROUTER_DEFAULT_IPS = {"192.168.1.1", "192.168.0.1", "192.168.2.1"}
+
+def is_router_entity(ip: Optional[str]) -> bool:
+    """Dynamically checks if target IP belongs to router using active router backend."""
+    if not ip:
+        return False
+    try:
+        from keenguard.core.routers import router_manager
+        return router_manager.is_router_entity(ip=ip)
+    except Exception:
+        return ip in {"192.168.1.1", "192.168.0.1", "192.168.2.1"}
 
 
 class MatchResult(BaseModel):
@@ -103,7 +112,7 @@ class RuleMatcher:
         src_dev = self._resolve_device(clean_src_mac, src_ip, devices_map)
 
         # 2. Determine flow direction
-        is_dst_router = dst_ip in ROUTER_DEFAULT_IPS
+        is_dst_router = is_router_entity(dst_ip)
         is_dst_private = is_private_ip_address(dst_ip)
         if is_dst_router:
             flow_direction = "lan_to_router"
@@ -224,6 +233,10 @@ class RuleMatcher:
             if dst_cond.direction != flow_direction:
                 return False
 
+        # Domains cannot be validated on L4 IP flows (handled by DNS module)
+        if dst_cond.domains:
+            return False
+
         # 3. Protocol matching
         if dst_cond.protocols and "ANY" not in [p.upper() for p in dst_cond.protocols]:
             if protocol not in [p.upper() for p in dst_cond.protocols]:
@@ -263,6 +276,14 @@ class RuleMatcher:
 
         # 6. Context Volume matching
         ctx = rule.context
+        if ctx.bandwidth_operator:
+            # Bandwidth rate calculation (kbps) is not tracked per-flow; do not match blindly
+            return False
+
+        if ctx.rate_limit_burst is not None:
+            # Burst rate tracking is not supported in flow engine; do not match blindly
+            return False
+
         if ctx.volume_operator:
             if ctx.volume_operator == ">" and bytes_count <= ctx.volume_bytes:
                 return False

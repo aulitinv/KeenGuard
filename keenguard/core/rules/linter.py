@@ -95,6 +95,41 @@ class RuleLinter:
                             message=f"Правило '{r_bottom.name}' имеет идентичные условия с правилом '{r_top.name}', но противоположное действие ({r_bottom.reaction.action_mode} против {r_top.reaction.action_mode})."
                         ))
 
+        # 3. Check for unsupported / unhandled fields in flows
+        for rule in active_rules:
+            if rule.destination.domains:
+                issues.append(LinterIssue(
+                    issue_type="unsupported_field",
+                    severity=LinterSeverity.WARNING,
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    message=f"Правило '{rule.name}' использует destination.domains. Фильтрация по доменным именам выполняется в DNS-модуле и не проверяется на уровне L4-потоков."
+                ))
+            if rule.destination.direction == "wan_to_lan":
+                issues.append(LinterIssue(
+                    issue_type="unsupported_direction",
+                    severity=LinterSeverity.WARNING,
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    message=f"Правило '{rule.name}' использует направление wan_to_lan. Входящие WAN-потоки отсекаются файрволом роутера по умолчанию и не отслеживаются в LAN-трекере."
+                ))
+            if rule.context.bandwidth_operator or rule.context.bandwidth_kbps > 0:
+                issues.append(LinterIssue(
+                    issue_type="unsupported_field",
+                    severity=LinterSeverity.WARNING,
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    message=f"Правило '{rule.name}' использует фильтрацию по пропускной способности (bandwidth_*), которая не рассчитывается в рантайме потоков. Рекомендуется использовать volume_*."
+                ))
+            if rule.context.rate_limit_burst is not None:
+                issues.append(LinterIssue(
+                    issue_type="unsupported_field",
+                    severity=LinterSeverity.WARNING,
+                    rule_id=rule.id,
+                    rule_name=rule.name,
+                    message=f"Правило '{rule.name}' задает rate_limit_burst, не поддерживаемый в рантайме L4-потоков."
+                ))
+
         return issues
 
     @staticmethod

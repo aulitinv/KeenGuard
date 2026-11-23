@@ -480,7 +480,7 @@ function appendSnifferFeed(event) {
 
     line.innerHTML = `
         <span class="feed-time text-slate-500 text-[10px]">${timeStr}</span>
-        <span class="${badgeColor}">[${(event.event_type || '').toUpperCase()}]</span>
+        <span class="${badgeColor}">[${escapeHtml((event.event_type || '').toUpperCase())}]</span>
         <span class="feed-desc text-slate-300 truncate flex-1">${escapeHtml(formattedDesc)}</span>
     `;
 
@@ -842,7 +842,7 @@ function renderDeviceCard(d) {
     const dimmingClass = d.is_online ? '' : 'opacity-75 hover:opacity-100 transition-opacity';
 
     return `
-        <div class="bg-surface-950 border border-slate-800 rounded-2xl p-4 hover:border-indigo-500/50 transition cursor-pointer flex flex-col justify-between group shadow-sm ${dimmingClass}" onclick="openDeviceModal('${d.mac}')">
+        <div class="bg-surface-950 border border-slate-800 rounded-2xl p-4 hover:border-indigo-500/50 transition cursor-pointer flex flex-col justify-between group shadow-sm ${dimmingClass}" data-mac="${escapeHtml(d.mac)}" onclick="openDeviceModal(this.dataset.mac)">
             <div>
                 <div class="flex items-start justify-between">
                     <div class="flex items-center space-x-3">
@@ -851,7 +851,7 @@ function renderDeviceCard(d) {
                         </div>
                         <div>
                             <h4 class="font-bold text-sm text-white group-hover:text-indigo-300 transition truncate max-w-[170px]">${escapeHtml(displayName)}</h4>
-                            <p class="text-xs text-slate-400 font-mono">${d.ip || 'Нет IP'} • ${d.mac}</p>
+                            <p class="text-xs text-slate-400 font-mono">${escapeHtml(d.ip || 'Нет IP')} • ${escapeHtml(d.mac)}</p>
                         </div>
                     </div>
                     <div class="flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800/80 text-slate-300 border border-slate-700">
@@ -914,7 +914,7 @@ function renderDeviceRow(d) {
     }
 
     return `
-        <tr class="hover:bg-slate-800/40 transition cursor-pointer group ${dimmingClass}" onclick="openDeviceModal('${d.mac}')">
+        <tr class="hover:bg-slate-800/40 transition cursor-pointer group ${dimmingClass}" data-mac="${escapeHtml(d.mac)}" onclick="openDeviceModal(this.dataset.mac)">
             <td class="py-2.5 px-3.5">
                 <div class="flex items-center space-x-2.5">
                     <div class="p-1.5 rounded-lg ${prof.bg} ${prof.color} shrink-0">
@@ -933,8 +933,8 @@ function renderDeviceRow(d) {
                 </span>
             </td>
             <td class="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
-                <div class="text-slate-200 font-medium">${d.ip || '—'}</div>
-                <div class="text-[10px] text-slate-500">${d.mac}</div>
+                <div class="text-slate-200 font-medium">${escapeHtml(d.ip || '—')}</div>
+                <div class="text-[10px] text-slate-500">${escapeHtml(d.mac)}</div>
             </td>
             <td class="py-2.5 px-3 text-slate-400 text-xs truncate max-w-[140px]">
                 ${escapeHtml(d.vendor || 'Неизвестен')}
@@ -945,7 +945,7 @@ function renderDeviceRow(d) {
                 </div>
             </td>
             <td class="py-2.5 px-3 text-right whitespace-nowrap" onclick="event.stopPropagation()">
-                <button onclick="openDeviceModal('${d.mac}')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs font-medium transition flex items-center space-x-1 ml-auto">
+                <button data-mac="${escapeHtml(d.mac)}" onclick="openDeviceModal(this.dataset.mac)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs font-medium transition flex items-center space-x-1 ml-auto">
                     <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
                     <span>Параметры</span>
                 </button>
@@ -1100,26 +1100,27 @@ async function openDeviceModal(mac) {
                 if (d.rotation_group) {
                     const rg = d.rotation_group;
                     const role = rg.role;
+                    const cleanHostname = rg.hostname || 'Без имени';
                     if (rotTitle) {
                         if (role === 'hardware') {
-                            rotTitle.textContent = `Заводской физический MAC («${escapeHtml(rg.hostname)}»)`;
+                            rotTitle.textContent = `Заводской физический MAC («${cleanHostname}»)`;
                         } else if (role === 'active_random') {
-                            rotTitle.textContent = `Активный приватный MAC («${escapeHtml(rg.hostname)}»)`;
+                            rotTitle.textContent = `Активный приватный MAC («${cleanHostname}»)`;
                         } else {
-                            rotTitle.textContent = `Ротированный MAC (история) («${escapeHtml(rg.hostname)}»)`;
+                            rotTitle.textContent = `Ротированный MAC (история) («${cleanHostname}»)`;
                         }
                     }
                     html += `<p class="font-medium text-slate-200">Обнаружено <b>${rg.alias_count} MAC-адреса</b> с сетевым именем «${escapeHtml(rg.hostname)}».</p>`;
                     if (rg.hardware_mac) {
                         const isCurHw = (rg.hardware_mac === d.mac);
-                        html += `<p class="font-mono text-[10px] text-slate-400">Постоянный заводской MAC: <span class="text-indigo-300 font-semibold">${rg.hardware_mac}</span>${isCurHw ? ' <span class="text-emerald-400">(открыт)</span>' : ''}</p>`;
+                        html += `<p class="font-mono text-[10px] text-slate-400">Постоянный заводской MAC: <span class="text-indigo-300 font-semibold">${escapeHtml(rg.hardware_mac)}</span>${isCurHw ? ' <span class="text-emerald-400">(открыт)</span>' : ''}</p>`;
                     }
                     if (rg.active_mac) {
                         const isCurAct = (rg.active_mac === d.mac);
-                        html += `<p class="font-mono text-[10px] text-slate-400">Текущий активный MAC в сети: <span class="text-teal-300 font-semibold">${rg.active_mac}</span>${isCurAct ? ' <span class="text-teal-400">(это устройство)</span>' : ''}</p>`;
+                        html += `<p class="font-mono text-[10px] text-slate-400">Текущий активный MAC в сети: <span class="text-teal-300 font-semibold">${escapeHtml(rg.active_mac)}</span>${isCurAct ? ' <span class="text-teal-400">(это устройство)</span>' : ''}</p>`;
                     }
                     if (rg.other_macs && rg.other_macs.length > 0) {
-                        html += `<p class="font-mono text-[10px] text-slate-400">Связанные адреса (алиасы): <span class="text-amber-300">${rg.other_macs.join(', ')}</span></p>`;
+                        html += `<p class="font-mono text-[10px] text-slate-400">Связанные адреса (алиасы): <span class="text-amber-300">${escapeHtml(rg.other_macs.join(', '))}</span></p>`;
                     }
                 } else {
                     if (rotTitle) rotTitle.textContent = 'Случайный MAC-адрес (Private Wi-Fi / LAA)';
@@ -1198,7 +1199,7 @@ async function openDeviceModal(mac) {
                 lanBadge.innerHTML = `
                     <div class="flex flex-col items-end gap-1">
                         <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30 whitespace-nowrap">⚠️ В Bridge0 (L2 доступ)</span>
-                        <button type="button" onclick="openIsolationWizard('${d.mac}')" class="px-2 py-0.5 rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-[10px] font-medium border border-indigo-500/30 transition flex items-center space-x-1 whitespace-nowrap cursor-pointer">
+                        <button type="button" data-mac="${escapeHtml(d.mac)}" onclick="openIsolationWizard(this.dataset.mac)" class="px-2 py-0.5 rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-[10px] font-medium border border-indigo-500/30 transition flex items-center space-x-1 whitespace-nowrap cursor-pointer">
                             <i data-lucide="help-circle" class="w-3 h-3"></i>
                             <span>Как изолировать?</span>
                         </button>
@@ -1745,10 +1746,10 @@ async function loadLanPresets() {
                                 </div>
                                 <div class="flex items-center space-x-1.5">
                                     ${!isBuiltin ? `
-                                        <button type="button" onclick="openCustomPresetModal('${escapeHtml(p.id)}')" class="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition" title="Редактировать">
+                                        <button type="button" data-preset-id="${escapeHtml(p.id)}" onclick="openCustomPresetModal(this.dataset.presetId)" class="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition" title="Редактировать">
                                             <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
                                         </button>
-                                        <button type="button" onclick="deleteCustomPreset('${escapeHtml(p.id)}')" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition" title="Удалить">
+                                        <button type="button" data-preset-id="${escapeHtml(p.id)}" onclick="deleteCustomPreset(this.dataset.presetId)" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition" title="Удалить">
                                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                                         </button>
                                     ` : ''}
@@ -1806,9 +1807,12 @@ function openCustomPresetModal(presetId = null) {
             if (nameInput) nameInput.value = p.name;
             if (descInput) descInput.value = p.description || '';
             const rules = p.rules || {};
-            if (allowedInput) allowedInput.value = (rules.allowed_ports || []).join(', ');
-            if (alertInput) alertInput.value = (rules.alert_ports || []).join(', ');
-            if (quarInput) quarInput.value = (rules.quarantine_ports || []).join(', ');
+            const allowed = rules.allowed_services || rules.allowed_ports || [];
+            const alertPorts = rules.alert_services || rules.alert_ports || [];
+            const blocked = rules.blocked_services || rules.quarantine_ports || [];
+            if (allowedInput) allowedInput.value = allowed.join(', ');
+            if (alertInput) alertInput.value = alertPorts.join(', ');
+            if (quarInput) quarInput.value = blocked.join(', ');
         }
     } else {
         if (titleEl) titleEl.textContent = 'Новый пресет сетевой политики LAN';
@@ -1835,8 +1839,13 @@ function closeCustomPresetModal() {
 function parsePortList(str) {
     if (!str) return [];
     return str.split(',')
-        .map(s => parseInt(s.trim(), 10))
-        .filter(n => !isNaN(n) && n > 0 && n <= 65535);
+        .map(s => {
+            const trimmed = s.trim();
+            if (!trimmed) return null;
+            const n = parseInt(trimmed, 10);
+            return (!isNaN(n) && String(n) === trimmed && n > 0 && n <= 65535) ? n : trimmed;
+        })
+        .filter(x => x !== null && x !== '');
 }
 
 async function saveCustomPresetForm(e) {
@@ -1854,18 +1863,35 @@ async function saveCustomPresetForm(e) {
         return;
     }
 
+    const isEdit = idInput.disabled;
+    const existingPreset = isEdit ? allLanPresets.find(x => x.id === presetId) : null;
+    const existingRules = existingPreset ? (existingPreset.rules || {}) : {};
+
+    const allowed = parsePortList(allowedInput.value);
+    const alertList = parsePortList(alertInput.value);
+    const blocked = parsePortList(quarInput.value);
+
+    // Numeric port subsets for backward compatibility
+    const allowedPortsNum = allowed.filter(x => typeof x === 'number');
+    const alertPortsNum = alertList.filter(x => typeof x === 'number');
+    const quarPortsNum = blocked.filter(x => typeof x === 'number');
+
     const payload = {
         id: presetId,
         name: (nameInput.value || '').trim(),
         description: (descInput.value || '').trim(),
         rules: {
-            allowed_ports: parsePortList(allowedInput.value),
-            alert_ports: parsePortList(alertInput.value),
-            quarantine_ports: parsePortList(quarInput.value)
+            allowed_services: allowed,
+            alert_services: alertList,
+            blocked_services: blocked,
+            lan_to_lan_policy: existingRules.lan_to_lan_policy || (blocked.includes('*') ? 'isolated' : 'restricted'),
+            // Backward compatibility
+            allowed_ports: allowedPortsNum,
+            alert_ports: alertPortsNum,
+            quarantine_ports: quarPortsNum
         }
     };
 
-    const isEdit = idInput.disabled;
     const url = isEdit ? `/api/presets/${encodeURIComponent(presetId)}` : '/api/presets';
     const method = isEdit ? 'PUT' : 'POST';
 
@@ -2031,7 +2057,7 @@ function renderDeviceWizardPresetsList() {
         const allowed = rules.allowed_services || rules.allowed_ports || [];
 
         return `
-            <div onclick="deviceWizardSelectPreset('${escapeHtml(p.id)}')" class="p-2.5 rounded-xl border transition cursor-pointer flex items-start space-x-3 ${isSelected ? 'bg-indigo-950/40 border-indigo-500 shadow-md shadow-indigo-500/10' : 'bg-surface-950 border-slate-800 hover:border-slate-700'}">
+            <div data-preset-id="${escapeHtml(p.id)}" onclick="deviceWizardSelectPreset(this.dataset.presetId)" class="p-2.5 rounded-xl border transition cursor-pointer flex items-start space-x-3 ${isSelected ? 'bg-indigo-950/40 border-indigo-500 shadow-md shadow-indigo-500/10' : 'bg-surface-950 border-slate-800 hover:border-slate-700'}">
                 <input type="radio" name="wizard-preset-radio" value="${escapeHtml(p.id)}" ${isSelected ? 'checked' : ''} class="mt-0.5 text-indigo-600 bg-surface-900 border-slate-700">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center space-x-2">

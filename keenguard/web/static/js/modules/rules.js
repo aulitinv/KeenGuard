@@ -6,17 +6,10 @@ let rulesList = [];
 let rulesOriginalSnapshot = [];
 let hasUnsavedRuleChanges = false;
 let draggedRuleIndex = null;
+let draggedRuleId = null;
 let currentEditingRuleId = null;
 
-function escapeRuleHtml(str) {
-    if (!str) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
+const escapeRuleHtml = escapeHtml;
 
 function formatRuleVolume(bytes) {
     if (!bytes || bytes === 0) return '0 B';
@@ -147,10 +140,10 @@ function renderRulesTable() {
 
         if (!isCore) {
             tr.setAttribute('draggable', 'true');
-            tr.addEventListener('dragstart', (e) => onRuleDragStart(e, idx));
-            tr.addEventListener('dragover', (e) => onRuleDragOver(e, idx));
+            tr.addEventListener('dragstart', (e) => onRuleDragStart(e, r.id));
+            tr.addEventListener('dragover', (e) => onRuleDragOver(e, r.id));
             tr.addEventListener('dragleave', onRuleDragLeave);
-            tr.addEventListener('drop', (e) => onRuleDrop(e, idx));
+            tr.addEventListener('drop', (e) => onRuleDrop(e, r.id));
             tr.addEventListener('dragend', onRuleDragEnd);
         }
 
@@ -283,7 +276,7 @@ function renderRulesTable() {
         const hitsTotal = r.telemetry?.hits_total || 0;
         const hits24h = r.telemetry?.hits_24h || 0;
         const hitsBadge = `
-            <button onclick="openRuleHitsDrawer('${r.id}', '${escapeRuleHtml(r.name)}')" class="px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition flex items-center space-x-1.5 mx-auto cursor-pointer" title="Посмотреть историю срабатываний">
+            <button data-rule-id="${escapeRuleHtml(r.id)}" data-rule-name="${escapeRuleHtml(r.name)}" onclick="openRuleHitsDrawer(this.dataset.ruleId, this.dataset.ruleName)" class="px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition flex items-center space-x-1.5 mx-auto cursor-pointer" title="Посмотреть историю срабатываний">
                 <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
                 <span class="font-mono font-semibold">${hitsTotal}</span>
                 <span class="text-[10px] text-slate-400">(+${hits24h})</span>
@@ -293,7 +286,7 @@ function renderRulesTable() {
         // 7. Status Toggle
         const toggleHtml = `
             <label class="relative inline-flex items-center cursor-pointer justify-center w-full">
-                <input type="checkbox" ${r.enabled ? 'checked' : ''} ${isCore ? 'disabled' : ''} onchange="toggleRule('${r.id}', this.checked)" class="sr-only peer">
+                <input type="checkbox" ${r.enabled ? 'checked' : ''} ${isCore ? 'disabled' : ''} data-rule-id="${escapeRuleHtml(r.id)}" onchange="toggleRule(this.dataset.ruleId, this.checked)" class="sr-only peer">
                 <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[calc(50%-16px)] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 ${isCore ? 'opacity-40 cursor-not-allowed' : ''}"></div>
             </label>
         `;
@@ -304,22 +297,22 @@ function renderRulesTable() {
         `;
         if (!isCore) {
             actionButtons += `
-                <button onclick="moveRuleUp(${idx})" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Переместить выше">
+                <button data-rule-id="${escapeRuleHtml(r.id)}" onclick="moveRuleUp(this.dataset.ruleId)" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Переместить выше">
                     <i data-lucide="chevron-up" class="w-3.5 h-3.5"></i>
                 </button>
-                <button onclick="moveRuleDown(${idx})" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Переместить ниже">
+                <button data-rule-id="${escapeRuleHtml(r.id)}" onclick="moveRuleDown(this.dataset.ruleId)" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Переместить ниже">
                     <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
                 </button>
             `;
         }
         actionButtons += `
-            <button onclick="openRuleModal('${r.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition cursor-pointer" title="Редактировать правило">
+            <button data-rule-id="${escapeRuleHtml(r.id)}" onclick="openRuleModal(this.dataset.ruleId)" class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition cursor-pointer" title="Редактировать правило">
                 <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
             </button>
         `;
         if (!isCore) {
             actionButtons += `
-                <button onclick="deleteRule('${r.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer" title="Удалить правило">
+                <button data-rule-id="${escapeRuleHtml(r.id)}" onclick="deleteRule(this.dataset.ruleId)" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer" title="Удалить правило">
                     <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                 </button>
             `;
@@ -346,22 +339,25 @@ function renderRulesTable() {
 }
 
 // HTML5 Drag and Drop handlers
-function onRuleDragStart(e, idx) {
-    if (rulesList[idx].category === 'core') {
+function onRuleDragStart(e, ruleIdOrIdx) {
+    const idx = typeof ruleIdOrIdx === 'number' ? ruleIdOrIdx : rulesList.findIndex(r => r.id === ruleIdOrIdx);
+    if (idx < 0 || rulesList[idx].category === 'core') {
         e.preventDefault();
         return;
     }
+    const rId = rulesList[idx].id;
     draggedRuleIndex = idx;
+    draggedRuleId = rId;
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(idx));
+    e.dataTransfer.setData('text/plain', String(rId));
     e.currentTarget.classList.add('opacity-40', 'bg-indigo-950/40');
 }
 
-function onRuleDragOver(e, idx) {
+function onRuleDragOver(e, ruleIdOrIdx) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    const targetRule = rulesList[idx];
-    if (targetRule.category === 'core') return;
+    const targetRule = typeof ruleIdOrIdx === 'number' ? rulesList[ruleIdOrIdx] : rulesList.find(r => r.id === ruleIdOrIdx);
+    if (targetRule && targetRule.category === 'core') return;
     e.currentTarget.classList.add('border-t-2', 'border-indigo-400');
 }
 
@@ -369,17 +365,20 @@ function onRuleDragLeave(e) {
     e.currentTarget.classList.remove('border-t-2', 'border-indigo-400');
 }
 
-function onRuleDrop(e, targetIdx) {
+function onRuleDrop(e, targetRuleIdOrIdx) {
     e.preventDefault();
     e.currentTarget.classList.remove('border-t-2', 'border-indigo-400');
 
-    if (draggedRuleIndex === null || draggedRuleIndex === targetIdx) return;
+    const sourceIdx = draggedRuleId ? rulesList.findIndex(r => r.id === draggedRuleId) : draggedRuleIndex;
+    const targetIdx = typeof targetRuleIdOrIdx === 'number' ? targetRuleIdOrIdx : rulesList.findIndex(r => r.id === targetRuleIdOrIdx);
+
+    if (sourceIdx === null || sourceIdx < 0 || targetIdx < 0 || sourceIdx === targetIdx) return;
     if (rulesList[targetIdx].category === 'core') {
         showToast('Нельзя размещать правила выше системного ядра Зоны 1', 'warning');
         return;
     }
 
-    const moved = rulesList.splice(draggedRuleIndex, 1)[0];
+    const moved = rulesList.splice(sourceIdx, 1)[0];
     rulesList.splice(targetIdx, 0, moved);
 
     hasUnsavedRuleChanges = true;
@@ -391,10 +390,12 @@ function onRuleDrop(e, targetIdx) {
 function onRuleDragEnd(e) {
     e.currentTarget.classList.remove('opacity-40', 'bg-indigo-950/40', 'border-t-2', 'border-indigo-400');
     draggedRuleIndex = null;
+    draggedRuleId = null;
 }
 
 // Accessible Move Up/Down buttons
-function moveRuleUp(idx) {
+function moveRuleUp(ruleIdOrIdx) {
+    const idx = typeof ruleIdOrIdx === 'number' ? ruleIdOrIdx : rulesList.findIndex(r => r.id === ruleIdOrIdx);
     if (idx <= 0) return;
     const targetIdx = idx - 1;
     if (rulesList[targetIdx].category === 'core') {
@@ -411,8 +412,9 @@ function moveRuleUp(idx) {
     renderRulesTable();
 }
 
-function moveRuleDown(idx) {
-    if (idx >= rulesList.length - 1) return;
+function moveRuleDown(ruleIdOrIdx) {
+    const idx = typeof ruleIdOrIdx === 'number' ? ruleIdOrIdx : rulesList.findIndex(r => r.id === ruleIdOrIdx);
+    if (idx < 0 || idx >= rulesList.length - 1) return;
     const targetIdx = idx + 1;
     const temp = rulesList[idx];
     rulesList[idx] = rulesList[targetIdx];
@@ -675,10 +677,14 @@ async function submitRuleForm(e) {
     const wanBlock = document.getElementById('rule-form-wan-block').checked;
     const applyPreset = document.getElementById('rule-form-apply-preset').value || null;
 
+    const isEdit = Boolean(ruleId);
+    const existingRule = isEdit ? rulesList.find(r => r.id === ruleId) : null;
+    const isEnabled = existingRule !== null && existingRule !== undefined ? Boolean(existingRule.enabled) : true;
+
     const payload = {
         name,
         description,
-        enabled: true,
+        enabled: isEnabled,
         category,
         source: {
             invert: srcInvert,
@@ -937,12 +943,20 @@ async function runRuleSimulation() {
 }
 
 // Guard against unsaved reordering changes on page reload/close
+// Guard against unsaved reordering changes on page reload/close
 window.addEventListener('beforeunload', (e) => {
     if (typeof hasUnsavedRuleChanges !== 'undefined' && hasUnsavedRuleChanges) {
         e.preventDefault();
         e.returnValue = '';
     }
 });
+
+window.moveRuleUp = moveRuleUp;
+window.moveRuleDown = moveRuleDown;
+window.submitRuleForm = submitRuleForm;
+window.deleteRule = deleteRule;
+window.openRuleModal = openRuleModal;
+
 
 
 

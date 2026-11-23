@@ -19,8 +19,8 @@ class ControlDProvider(BaseDnsSecurityProvider):
     """Integration with Control D Cloud DNS security platform."""
 
     def __init__(self, api_key: str = "", device_id: str = ""):
-        self.api_key = api_key.strip()
-        self.device_id = device_id.strip()
+        self.api_key = (api_key or "").strip()
+        self.device_id = (device_id or "").strip()
 
     @property
     def provider_id(self) -> str:

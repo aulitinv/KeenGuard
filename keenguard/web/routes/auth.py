@@ -15,6 +15,7 @@ from keenguard.web.auth import (
     is_auth_required,
     is_localhost_ip,
     revoke_session,
+    revoke_all_sessions,
     validate_session,
     verify_password,
 )
@@ -159,9 +160,24 @@ async def change_password(body: ChangePasswordRequest, request: Request):
     if len(body.new_password.strip()) < 6:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Пароль должен содержать не менее 6 символов")
 
+    from keenguard.web.state import get_db
+
     new_hash = hash_password(body.new_password.strip())
     settings.web_password_hash = new_hash
     settings.web_password = ""
-    persist_web_auth_settings(web_password_hash=new_hash)
-    logger.info("Web UI password was successfully changed from IP %s", get_client_ip(request))
+    db = get_db()
+    await db.save_setting("web_password_hash", new_hash)
+    persist_web_auth_settings(web_password_hash=new_hash, clear_web_password=True)
+
+    try:
+        from keenguard.core.config_service import config_service
+        config_service._cache["web_password_hash"] = new_hash
+        config_service._cache["web_password"] = ""
+    except Exception as ex:
+        logger.debug("Failed to sync config_service cache for password: %s", ex)
+
+    current_token = get_current_session_token(request)
+    revoke_all_sessions(except_token=current_token)
+
+    logger.info("Web UI password was successfully changed from IP %s; stale sessions revoked", get_client_ip(request))
     return {"status": "ok", "message": "Пароль успешно обновлен"}

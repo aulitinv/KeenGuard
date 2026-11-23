@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 from pydantic import BaseModel, Field
@@ -34,10 +34,11 @@ def save_env_router_credentials(host: str, user: str, password: str, port: int =
             if password:
                 set_key(str(ENV_FILE), "KEENETIC_PASSWORD", password)
             set_key(str(ENV_FILE), "KEENETIC_PORT", str(port))
+        set_env_file_permissions(ENV_FILE)
     except Exception as e:
         logger.warning("Failed to persist router credentials to .env: %s", e)
 
-def save_env_openwrt_credentials(host: str, user: str, password: str, port: int = 80, use_https: bool = False):
+def save_env_openwrt_credentials(host: str, user: str, password: str, port: int = 80, use_https: bool = False, verify_tls: bool = False):
     """Persists OpenWrt router credentials to .env."""
     try:
         ENV_FILE.touch(exist_ok=True)
@@ -48,6 +49,8 @@ def save_env_openwrt_credentials(host: str, user: str, password: str, port: int 
             set_key(str(ENV_FILE), "OPENWRT_PASSWORD", password)
         set_key(str(ENV_FILE), "OPENWRT_PORT", str(port))
         set_key(str(ENV_FILE), "OPENWRT_USE_HTTPS", "true" if use_https else "false")
+        set_key(str(ENV_FILE), "OPENWRT_VERIFY_TLS", "true" if verify_tls else "false")
+        set_env_file_permissions(ENV_FILE)
     except Exception as e:
         logger.warning("Failed to persist OpenWrt credentials to .env: %s", e)
 
@@ -63,6 +66,7 @@ def save_env_telegram_settings(token: str, chat_id: str, enabled: bool, api_url:
             set_key(str(ENV_FILE), "TELEGRAM_PROXY", proxy)
         else:
             set_key(str(ENV_FILE), "TELEGRAM_PROXY", "")
+        set_env_file_permissions(ENV_FILE)
     except Exception as e:
         logger.warning("Failed to persist Telegram settings to .env: %s", e)
 
@@ -107,8 +111,26 @@ def save_env_dns_provider_settings(
             set_key(str(ENV_FILE), "PIHOLE_API_TOKEN", pihole_api_token)
         if pihole_password is not None:
             set_key(str(ENV_FILE), "PIHOLE_PASSWORD", pihole_password)
+        set_env_file_permissions(ENV_FILE)
     except Exception as e:
         logger.warning("Failed to persist DNS provider settings to .env: %s", e)
+
+def set_env_file_permissions(env_path: Optional[Path] = None):
+    """Sets restrictive 0600 file permissions on .env on POSIX systems."""
+    path = env_path or ENV_FILE
+    try:
+        if os.name != "nt" and path.exists():
+            os.chmod(path, 0o600)
+    except Exception as ex:
+        logger.debug("Failed to set 0600 permissions on %s: %s", path, ex)
+
+
+def _parse_trusted_proxies() -> list[str]:
+    raw = os.getenv("TRUSTED_PROXIES", "").strip()
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
 
 def persist_web_auth_settings(
     web_host: Optional[str] = None,
@@ -116,19 +138,25 @@ def persist_web_auth_settings(
     web_password_hash: Optional[str] = None,
     web_auth_exempt_localhost: Optional[bool] = None,
     web_session_secret: Optional[str] = None,
+    clear_web_password: bool = False,
 ):
     """Persists Web authentication and network binding settings into .env file."""
     try:
+        ENV_FILE.touch(exist_ok=True)
+        set_env_file_permissions(ENV_FILE)
         if web_host is not None:
             set_key(str(ENV_FILE), "WEB_HOST", web_host)
         if web_auth_enabled is not None:
             set_key(str(ENV_FILE), "WEB_AUTH_ENABLED", web_auth_enabled)
         if web_password_hash is not None:
             set_key(str(ENV_FILE), "WEB_PASSWORD_HASH", web_password_hash)
+        if clear_web_password:
+            set_key(str(ENV_FILE), "WEB_PASSWORD", "")
         if web_auth_exempt_localhost is not None:
             set_key(str(ENV_FILE), "WEB_AUTH_EXEMPT_LOCALHOST", "true" if web_auth_exempt_localhost else "false")
         if web_session_secret is not None:
             set_key(str(ENV_FILE), "WEB_SESSION_SECRET", web_session_secret)
+        set_env_file_permissions(ENV_FILE)
     except Exception as e:
         logger.warning("Failed to persist web auth settings to .env: %s", e)
 
@@ -143,6 +171,8 @@ class Settings(BaseModel):
     web_password: str = Field(default=os.getenv("WEB_PASSWORD", ""), description="Plaintext password fallback from .env")
     web_auth_exempt_localhost: bool = Field(default=os.getenv("WEB_AUTH_EXEMPT_LOCALHOST", "true").lower() in ("true", "1", "yes"), description="Exempt requests from 127.0.0.1/::1 from authentication")
     web_session_secret: str = Field(default=os.getenv("WEB_SESSION_SECRET", ""), description="Secret key for signing session tokens")
+    trusted_proxies: list[str] = Field(default_factory=_parse_trusted_proxies, description="Trusted reverse proxy IP addresses for X-Forwarded-For evaluation")
+    dev_reload: bool = Field(default=os.getenv("KEENGUARD_DEV_RELOAD", "false").lower() in ("true", "1", "yes"), description="Synchronously rebuild HTML templates on GET / in development mode")
 
     # Router Platform Configuration ("keenetic" | "openwrt")
     router_type: str = Field(default=os.getenv("ROUTER_TYPE", "keenetic").lower(), description="Router backend: 'keenetic' or 'openwrt'")
@@ -153,6 +183,7 @@ class Settings(BaseModel):
     router_user: str = Field(default=os.getenv("KEENETIC_USER", "admin"))
     router_password: str = Field(default=os.getenv("KEENETIC_PASSWORD", ""))
     router_use_https: bool = Field(default=False)
+    router_verify_tls: bool = Field(default=os.getenv("KEENETIC_VERIFY_TLS", "false").lower() in ("true", "1", "yes"), description="Verify SSL/TLS certificate for Keenetic HTTPS connection")
     router_poll_interval: int = Field(default=5, description="Seconds between router polling")
 
     # OpenWrt Router configuration
@@ -162,6 +193,7 @@ class Settings(BaseModel):
     openwrt_username: str = Field(default=os.getenv("OPENWRT_USER", "root"), description="OpenWrt admin username")
     openwrt_password: str = Field(default=os.getenv("OPENWRT_PASSWORD", ""), description="OpenWrt admin password")
     openwrt_ubus_path: str = Field(default=os.getenv("OPENWRT_UBUS_PATH", "/ubus"), description="Path to OpenWrt ubus endpoint")
+    openwrt_verify_tls: bool = Field(default=os.getenv("OPENWRT_VERIFY_TLS", "false").lower() in ("true", "1", "yes"), description="Verify SSL/TLS certificate for OpenWrt HTTPS connection")
 
     # Database & PCAP storage
     db_path: Path = Field(default=DATA_DIR / "keenguard.db")
@@ -200,6 +232,7 @@ class Settings(BaseModel):
     lan_scan_threshold: int = Field(default=10, description="Distinct internal IPs probed within 10s")
     mac_conflict_detection_enabled: bool = Field(default=True, description="Detect duplicate MAC addresses or ARP spoofing")
     notification_dedup_window_seconds: int = Field(default=60, description="Sliding window in seconds to aggregate duplicate alerts")
+    upnp_auto_delete: bool = Field(default=False, description="Automatically delete dangerous UPnP port mappings on router")
 
     # Telegram alerts
     telegram_bot_token: str = Field(default=os.getenv("TELEGRAM_BOT_TOKEN", ""))
@@ -211,6 +244,7 @@ class Settings(BaseModel):
     telegram_quiet_hours_start: int = Field(default=int(os.getenv("TELEGRAM_QUIET_HOURS_START", "23")))
     telegram_quiet_hours_end: int = Field(default=int(os.getenv("TELEGRAM_QUIET_HOURS_END", "8")))
     telegram_min_severity: str = Field(default=os.getenv("TELEGRAM_MIN_SEVERITY", "info"))
+    telegram_allowed_user_ids: List[str] = Field(default_factory=lambda: [x.strip() for x in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",") if x.strip()])
 
     # New device policy & reactions (independent modular toggles & category-based matrix)
     new_device_policy_mode: str = Field(default="category", description="'global' or 'category'")

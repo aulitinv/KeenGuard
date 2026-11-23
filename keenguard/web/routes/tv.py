@@ -9,6 +9,8 @@ from keenguard.core.domain_analyzer import (
     TV_BRAND_PRESETS,
     detect_tv_brand,
     get_tv_brand_presets,
+    is_ip_address_string,
+    is_forbidden_or_local_domain,
 )
 from keenguard.core.routers import router_manager
 from keenguard.web.state import (
@@ -161,6 +163,8 @@ async def toggle_tv_sinkhole_domain_api(req: DnsSinkholeToggleRequest):
         raise HTTPException(status_code=400, detail="Некорректное доменное имя")
 
     if req.block:
+        if is_ip_address_string(clean_d) or is_forbidden_or_local_domain(clean_d):
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать IP-адрес или защищенный локальный/роутерный домен")
         success = await router_manager.add_dns_sinkhole(clean_d)
         action = "blocked"
     else:

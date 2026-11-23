@@ -31,6 +31,14 @@ def _validate_mac(mac: str) -> str:
     return mac.upper()
 
 
+def _validate_mutable_mac(mac: str) -> str:
+    """Validates MAC format and ensures protected system interfaces (WAN) cannot be mutated."""
+    clean = _validate_mac(mac)
+    if clean == "02:00:00:00:00:01":
+        raise HTTPException(status_code=400, detail="Системный интерфейс WAN не может быть удален/изменен")
+    return clean
+
+
 class ProfileUpdate(BaseModel):
     profile: str
 
@@ -189,7 +197,7 @@ async def get_device(mac: str):
 @router.delete("/api/devices/{mac}")
 async def delete_single_device(mac: str):
     db = get_db()
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await db.delete_device(clean_mac)
     if not success:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -207,7 +215,7 @@ async def delete_all_offline_devices():
 
 @router.post("/api/devices/{mac}/policy")
 async def set_device_policy_api(mac: str, req: DevicePolicyUpdateRequest):
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     updated = await policy_manager.apply_policy(
         mac=clean_mac,
         policy_id=req.policy_id,
@@ -228,7 +236,7 @@ async def set_device_policy_api(mac: str, req: DevicePolicyUpdateRequest):
 
 @router.post("/api/devices/{mac}/profile")
 async def set_profile(mac: str, update: ProfileUpdate):
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     updated = await policy_manager.apply_policy(clean_mac, policy_id=update.profile)
     if not updated:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -238,12 +246,14 @@ async def set_profile(mac: str, update: ProfileUpdate):
 
 @router.post("/api/devices/{mac}/toggle_wan")
 async def toggle_wan(mac: str, req: ToggleRequest):
-    clean_mac = _validate_mac(mac)
-    success = await profile_manager.toggle_wan(clean_mac, block=req.enabled)
+    clean_mac = _validate_mutable_mac(mac)
+    db = get_db()
+    actual_blocked = await profile_manager.toggle_wan(clean_mac, block=req.enabled)
+    dev = await db.get_device(clean_mac)
+    success = (dev.is_blocked_wan == req.enabled) if dev else (actual_blocked == req.enabled)
     affected_macs = [clean_mac]
 
     if req.apply_to_linked:
-        db = get_db()
         devices = await db.get_all_devices()
         rotations = DeviceClassifier.detect_mac_rotations(devices)
         for grp in rotations:
@@ -259,7 +269,7 @@ async def toggle_wan(mac: str, req: ToggleRequest):
 
     return {
         "status": "ok",
-        "blocked_wan": req.enabled,
+        "blocked_wan": actual_blocked,
         "success": success,
         "affected_macs": affected_macs,
         "applied_to_linked": req.apply_to_linked and len(affected_macs) > 1
@@ -272,7 +282,7 @@ async def apply_policy_to_group(mac: str):
     Applies current device's security policy (profile, preset, WAN block, quarantine override, custom ports)
     to all correlated MAC addresses in the same MAC rotation / alias group.
     """
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     db = get_db()
     source_dev = await db.get_device(clean_mac)
     if not source_dev:
@@ -327,7 +337,7 @@ async def apply_policy_to_group(mac: str):
 @router.post("/api/devices/{mac}/toggle_lan")
 async def toggle_lan(mac: str, req: ToggleRequest):
     db = get_db()
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await profile_manager.toggle_lan_isolation(clean_mac, isolate=req.enabled)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     dev = await db.get_device(clean_mac)
@@ -435,7 +445,7 @@ async def get_isolation_guide(mac: str):
 
 @router.post("/api/devices/{mac}/toggle_airplay")
 async def toggle_airplay(mac: str, req: ToggleRequest):
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await profile_manager.toggle_airplay(clean_mac, allow=req.enabled)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "airplay_allowed": req.enabled, "success": success}
@@ -443,7 +453,7 @@ async def toggle_airplay(mac: str, req: ToggleRequest):
 
 @router.post("/api/devices/{mac}/toggle_dlna")
 async def toggle_dlna(mac: str, req: ToggleRequest):
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await profile_manager.toggle_dlna(clean_mac, allow=req.enabled)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "dlna_allowed": req.enabled, "success": success}
@@ -451,7 +461,7 @@ async def toggle_dlna(mac: str, req: ToggleRequest):
 
 @router.post("/api/devices/{mac}/toggle_night")
 async def toggle_night(mac: str, req: ToggleRequest):
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await profile_manager.toggle_night_mode(clean_mac, enable=req.enabled)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "night_mode": req.enabled, "success": success}
@@ -460,7 +470,7 @@ async def toggle_night(mac: str, req: ToggleRequest):
 @router.post("/api/devices/{mac}/rename")
 async def rename_device(mac: str, req: RenameRequest):
     db = get_db()
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await db.update_device_policy(clean_mac, custom_name=req.custom_name)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "success": success}
@@ -469,7 +479,7 @@ async def rename_device(mac: str, req: RenameRequest):
 @router.post("/api/devices/{mac}/notes")
 async def update_device_notes(mac: str, req: NotesRequest):
     db = get_db()
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     success = await db.update_device_policy(clean_mac, notes=req.notes)
     await ws_manager.broadcast({"type": "device_updated", "mac": clean_mac})
     return {"status": "ok", "success": success, "notes": req.notes}
@@ -478,27 +488,30 @@ async def update_device_notes(mac: str, req: NotesRequest):
 
 @router.post("/api/devices/{mac}/speed-limit")
 async def set_speed_limit(mac: str, req: SpeedLimitRequest):
-    """Sets bandwidth shaping rate limit on Keenetic for device."""
-    clean_mac = _validate_mac(mac)
+    """Sets bandwidth shaping rate limit on router for device."""
+    clean_mac = _validate_mutable_mac(mac)
     db = get_db()
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    speed_kbps = max(0, int(req.speed_kbps))
+    from keenguard.core.routers import router_manager
+    if router_manager.platform_id != "keenetic":
+        raise HTTPException(
+            status_code=501,
+            detail=f"Ограничение скорости (shaping) не поддерживается на платформе {router_manager.platform_name}. Доступно только на Keenetic с компонентом 'Шейпер трафика'."
+        )
 
-    from keenguard.web.state import get_keenetic_client
-    k_client = get_keenetic_client()
-    if k_client:
-        has_shaper = await k_client.has_traffic_shaper_component()
-        if not has_shaper:
-            raise HTTPException(
-                status_code=400,
-                detail="В KeeneticOS не установлен компонент 'Шейпер трафика' (Traffic shaper). Установите его в меню 'Параметры компонентов'."
-            )
-        ok = await k_client.set_device_speed_limit(clean_mac, speed_kbps)
-        if not ok:
-            raise HTTPException(status_code=500, detail="Ошибка при отправке команды ограничения скорости на роутер")
+    speed_kbps = max(0, int(req.speed_kbps))
+    has_shaper = await router_manager.has_traffic_shaper_component()
+    if not has_shaper:
+        raise HTTPException(
+            status_code=400,
+            detail="В KeeneticOS не установлен компонент 'Шейпер трафика' (Traffic shaper). Установите его в меню 'Параметры компонентов'."
+        )
+    ok = await router_manager.set_device_speed_limit(clean_mac, speed_kbps)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Ошибка при отправке команды ограничения скорости на роутер")
 
     await db.update_device_speed_limit(clean_mac, speed_kbps)
     await ws_manager.broadcast({
@@ -590,7 +603,7 @@ async def delete_preset(preset_id: str):
 @router.post("/api/devices/{mac}/lan-policy")
 async def update_device_lan_policy(mac: str, req: DeviceLanPolicyRequest):
     db = get_db()
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")
@@ -664,7 +677,7 @@ async def get_device_wizard_context(mac: str):
 async def submit_device_wizard(mac: str, req: DeviceWizardSubmitRequest):
     db = get_db()
     audit_manager = get_audit_manager()
-    clean_mac = _validate_mac(mac)
+    clean_mac = _validate_mutable_mac(mac)
     dev = await db.get_device(clean_mac)
     if not dev:
         raise HTTPException(status_code=404, detail="Устройство не найдено")

@@ -557,11 +557,11 @@ class HeadlessBrowserSession:
         # Navigate to app
         await self.send("Page.navigate", {"url": f"http://127.0.0.1:{self.server_port}/"})
 
-        # Wait for app.js initialization
+        # Wait for app.js initialization, modules and DOM readiness
         for _ in range(50):
             await asyncio.sleep(0.15)
-            res = await self.eval("typeof switchTab")
-            if res == "function":
+            res = await self.eval("document.readyState === 'complete' && typeof switchTab === 'function' && typeof openCommandPalette === 'function' && !!document.getElementById('command-palette-modal')")
+            if res is True:
                 break
 
         # Override confirm and alert to prevent blocking headless browser executions
@@ -590,7 +590,8 @@ class HeadlessBrowserSession:
     async def eval(self, expression: str):
         res = await self.send("Runtime.evaluate", {
             "expression": expression,
-            "returnByValue": True
+            "returnByValue": True,
+            "awaitPromise": True
         })
         return res.get("result", {}).get("value")
 
@@ -744,24 +745,43 @@ async def test_e2e_topology_click_and_escape_dismiss(browser_path: str, e2e_serv
     """Clicking a topology device node via physical CDP mouse opens Device Modal; Escape key dismisses."""
     async with HeadlessBrowserSession(browser_path, e2e_server) as session:
         await session.eval("switchTab('topology'); true")
-        await asyncio.sleep(0.8)
-
-        node_count = await session.eval("document.querySelectorAll('.topology-node-group').length")
+        node_count = 0
+        for _ in range(10):
+            node_count = await session.eval("document.querySelectorAll('.topology-node-group').length") or 0
+            if node_count >= 1:
+                break
+            await asyncio.sleep(0.3)
         assert node_count >= 1, f"Expected topology nodes, got {node_count}"
 
-        center = await session.get_element_center('#topo-node-dev_1 .topology-hit-circle')
-        if not center:
-            center = await session.get_element_center('#topo-node-dev_1')
+        # Wait for physics simulation to stabilize coordinates
+        await asyncio.sleep(0.5)
+
+        center = None
+        for _ in range(15):
+            center = await session.get_element_center('#topo-node-dev_1 .topology-hit-circle')
+            if not center:
+                center = await session.get_element_center('#topo-node-dev_1')
+            if center:
+                break
+            await asyncio.sleep(0.2)
         assert center is not None, "Failed to resolve coordinates for #topo-node-dev_1"
 
         await session.click_at(center["x"], center["y"])
-        await asyncio.sleep(0.5)
-
-        is_open = await session.eval("!document.getElementById('device-modal').classList.contains('hidden')")
+        is_open = False
+        for _ in range(15):
+            is_open = await session.eval("!document.getElementById('device-modal').classList.contains('hidden')")
+            if is_open:
+                break
+            await asyncio.sleep(0.2)
         assert is_open is True, "device-modal was not opened by physical CDP click"
 
         await session.press_key("Escape", 27)
-        is_closed = await session.eval("document.getElementById('device-modal').classList.contains('hidden')")
+        is_closed = False
+        for _ in range(15):
+            is_closed = await session.eval("document.getElementById('device-modal').classList.contains('hidden')")
+            if is_closed:
+                break
+            await asyncio.sleep(0.2)
         assert is_closed is True, "device-modal was not closed by Escape"
 
 
@@ -770,16 +790,23 @@ async def test_e2e_topology_jitter_vs_drag(browser_path: str, e2e_server: int):
     """Distinguishes hand tremor (jitter <= 5px -> Click) from intentional node drag (> 10px -> Drag)."""
     async with HeadlessBrowserSession(browser_path, e2e_server) as session:
         await session.eval("switchTab('topology'); true")
-        await asyncio.sleep(0.8)
+        for _ in range(20):
+            cnt = await session.eval("document.querySelectorAll('.topology-node-group').length") or 0
+            if cnt >= 1:
+                break
+            await asyncio.sleep(0.2)
+
+        # Wait for physics simulation to stabilize coordinates
+        await asyncio.sleep(0.5)
 
         center = None
-        for _ in range(10):
+        for _ in range(20):
             center = await session.get_element_center('#topo-node-dev_1 .topology-hit-circle')
             if not center:
                 center = await session.get_element_center('#topo-node-dev_1')
             if center:
                 break
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.2)
         assert center is not None, "Failed to resolve coordinates for #topo-node-dev_1"
 
         # 1. Jitter test (2px movement during click -> MUST open modal)

@@ -85,7 +85,7 @@ async def test_rules_e2e_alert_pipeline(tmp_path, monkeypatch):
         assert violation["violation_type"] == "rule_alert"
         assert violation["matched_rule_id"] == rule_id
         assert violation["matched_rule_name"] == "Block Rogue Port 4444"
-        assert violation["severity"] == "CRITICAL"
+        assert violation["severity"] == "critical"
 
         # 3. Automatic background pipeline records the event and hit telemetry
         await asyncio.sleep(0.05)

@@ -49,6 +49,12 @@ class RouterManager:
         else:
             self._cached_type = None
 
+    def reset_backend(self) -> None:
+        """Resets the cached backend instance so it is recreated with updated settings on next access."""
+        self._current_backend = None
+        self._cached_type = None
+        self._explicit_override = False
+
     @property
     def platform_id(self) -> str:
         return self.get_backend().platform_id
@@ -201,6 +207,27 @@ class RouterManager:
 
     async def enable_mdns_relay(self) -> bool:
         return await self.get_backend().enable_mdns_relay()
+
+    async def has_traffic_shaper_component(self) -> bool:
+        return await self.get_backend().has_traffic_shaper_component()
+
+    async def set_device_speed_limit(self, mac: str, speed_kbps: int) -> bool:
+        return await self.get_backend().set_device_speed_limit(mac, speed_kbps)
+
+    async def get_device_speed_limits(self) -> Dict[str, int]:
+        return await self.get_backend().get_device_speed_limits()
+
+    async def block_dot_traffic(self, enable: bool = True) -> bool:
+        backend = self.get_backend()
+        if hasattr(backend, "block_dot_traffic"):
+            return await backend.block_dot_traffic(enable)
+        return False
+
+    async def is_dot_blocked(self) -> bool:
+        backend = self.get_backend()
+        if hasattr(backend, "is_dot_blocked"):
+            return await backend.is_dot_blocked()
+        return False
 
 
 router_manager = RouterManager()

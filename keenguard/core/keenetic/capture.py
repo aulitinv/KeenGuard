@@ -1,4 +1,5 @@
 """Keenetic hardware packet capture management mixin."""
+import ipaddress
 import json
 import logging
 from pathlib import Path
@@ -56,7 +57,12 @@ class KeeneticCaptureMixin:
             "timeout": {"timeout-ms": duration_seconds * 1000}
         }
         if target_ip:
-            payload["filter"] = {"bpf-program": f"host {target_ip}"}
+            try:
+                ipaddress.ip_address(target_ip)
+                payload["filter"] = {"bpf-program": f"host {target_ip}"}
+            except ValueError:
+                logger.warning("Invalid target_ip provided for packet capture: %s", target_ip)
+                return None
 
         logger.info(
             "Starting Keenetic hardware capture on %s (IP: %s, duration: %ds, max: %dKB)",
@@ -106,6 +112,7 @@ class KeeneticCaptureMixin:
     async def download_capture_file(self, capture_file_path: str, local_dest_path: Path) -> bool:
         """
         Downloads a captured .pcap file from Keenetic router via /ci/<path> and saves locally.
+        Streams in chunks and enforces a 50MB safety limit with automatic re-auth on 401.
         """
         local_dest_path = Path(local_dest_path)
         local_dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,20 +127,39 @@ class KeeneticCaptureMixin:
 
         clean_path = capture_file_path.strip().lstrip("/")
         url = f"/{clean_path}" if clean_path.startswith("ci/") else f"/ci/{clean_path}"
+        max_bytes = 50 * 1024 * 1024  # 50 MB limit
 
-        try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=30.0, verify=False) as client:
-                resp = await client.get(url, cookies=self._cookies)
-                if resp.status_code == 200 and len(resp.content) > 0:
-                    local_dest_path.write_bytes(resp.content)
-                    logger.info("Successfully downloaded router capture to %s (%d bytes)", local_dest_path, len(resp.content))
-                    return True
-                else:
-                    logger.warning("Router capture download failed (HTTP %d, %d bytes)", resp.status_code, len(resp.content))
-                    return False
-        except (httpx.HTTPError, ConnectionError, OSError, TimeoutError) as e:
-            logger.error("Failed to download capture file from %s: %s", url, e)
-            return False
+        for attempt in range(2):
+            try:
+                client = self._get_client() if hasattr(self, "_get_client") else httpx.AsyncClient(base_url=self.base_url, timeout=30.0, verify=getattr(self, "verify_tls", False))
+                async with client.stream("GET", url, cookies=self._cookies) as resp:
+                    if resp.status_code == 401 and attempt == 0:
+                        await self.authenticate()
+                        continue
+                    if resp.status_code != 200:
+                        logger.warning("Router capture download failed (HTTP %d)", resp.status_code)
+                        return False
+
+                    total_bytes = 0
+                    with open(local_dest_path, "wb") as f:
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            total_bytes += len(chunk)
+                            if total_bytes > max_bytes:
+                                logger.error("Router capture download exceeded 50MB limit, aborting")
+                                local_dest_path.unlink(missing_ok=True)
+                                return False
+                            f.write(chunk)
+
+                    if total_bytes > 0:
+                        logger.info("Successfully downloaded router capture to %s (%d bytes)", local_dest_path, total_bytes)
+                        return True
+                    else:
+                        local_dest_path.unlink(missing_ok=True)
+                        return False
+            except (httpx.HTTPError, ConnectionError, OSError, TimeoutError) as e:
+                logger.error("Failed to download capture file from %s: %s", url, e)
+                return False
+        return False
 
     async def reset_packet_capture(self, interface: str = "Bridge0") -> bool:
         """

@@ -4,11 +4,13 @@
 !.env.example
 
 # Database & PCAP Data
+data/
 /data/
 !keenguard/data/
-*.pcap
+*.pcap*
 *.db
-*.sqlite
+*.db.bak*
+*.sqlite*
 *.sqlite3
 
 # Python bytecode & cache

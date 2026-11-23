@@ -235,7 +235,7 @@ class BaseRepository:
                     pass
                 raise
 
-    async def close(self, all_loops: bool = True):
+    async def close(self, all_loops: bool = False):
         """Close persistent connection(s) safely across all event loops."""
         try:
             current_loop = asyncio.get_running_loop()
@@ -257,9 +257,12 @@ class BaseRepository:
                 try:
                     if l is current_loop and not l.is_closed():
                         await conn.close()
+                    elif l.is_running():
+                        try:
+                            l.call_soon_threadsafe(conn.stop)
+                        except Exception:
+                            conn.stop()
                     else:
-                        if hasattr(conn, "_connection") and conn._connection:
-                            conn._connection.close()
-                        conn._running = False
+                        conn.stop()
                 except Exception:
                     pass

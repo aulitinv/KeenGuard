@@ -120,6 +120,59 @@ class LanTrafficTracker:
         from keenguard.db.repositories.settings import BUILTIN_LAN_PRESETS
         self.presets_cache: Dict[str, Dict[str, Any]] = {p["id"]: p for p in BUILTIN_LAN_PRESETS}
 
+    def _prune_flows_locked(self):
+        """Enforces MAX 2000 flows with TTL (24h) and oldest eviction."""
+        if len(self.flows) >= 2000:
+            now = time.time()
+            expired = []
+            for k, f in self.flows.items():
+                ls = f.get("last_seen_epoch") or 0.0
+                if now - ls > 86400:
+                    expired.append(k)
+            for k in expired:
+                self.flows.pop(k, None)
+            if len(self.flows) >= 2000:
+                excess = len(self.flows) - 2000 + 1
+                sorted_keys = sorted(self.flows.keys(), key=lambda k: self.flows[k].get("last_seen_epoch", 0.0))[:excess]
+                for k in sorted_keys:
+                    self.flows.pop(k, None)
+
+    def _prune_ping_matrix_locked(self):
+        """Enforces MAX 1000 ping matrix entries with oldest/least active eviction."""
+        if len(self.ping_matrix) >= 1000:
+            excess = len(self.ping_matrix) - 1000 + 1
+            sorted_keys = sorted(self.ping_matrix.keys(), key=lambda k: (self.ping_matrix[k].get("received", 0), self.ping_matrix[k].get("sent", 0)))[:excess]
+            for k in sorted_keys:
+                self.ping_matrix.pop(k, None)
+
+    def _prune_arp_table_locked(self):
+        """Enforces MAX 1000 ARP table entries."""
+        if len(self.arp_table) >= 1000:
+            excess = len(self.arp_table) - 1000 + 1
+            keys_to_pop = list(self.arp_table.keys())[:excess]
+            for k in keys_to_pop:
+                self.arp_table.pop(k, None)
+
+    def prune_pending_pings(self, now_time: Optional[float] = None):
+        """Cleans expired pending pings based on TTL (5s), independent of incoming ICMP packets."""
+        with self._lock:
+            self._prune_pending_pings_locked(now_time)
+
+    def _prune_pending_pings_locked(self, now_time: Optional[float] = None):
+        t = now_time or time.time()
+        expired = [k for k, v in self.pending_pings.items() if t - v.get("time", 0.0) > 5.0]
+        for k in expired:
+            lost = self.pending_pings.pop(k, None)
+            if lost:
+                m_entry = self.ping_matrix.get((lost["src_ip"], lost["dst_ip"]))
+                if m_entry and m_entry.get("status") == "waiting":
+                    m_entry["status"] = "timeout"
+        if len(self.pending_pings) >= 1000:
+            excess = len(self.pending_pings) - 1000 + 1
+            sorted_keys = sorted(self.pending_pings.keys(), key=lambda k: self.pending_pings[k].get("time", 0.0))[:excess]
+            for k in sorted_keys:
+                self.pending_pings.pop(k, None)
+
     def register_violation_callback(self, callback: Callable[[Dict[str, Any]], Any]):
         """Registers a callback to be invoked when a LAN policy violation is detected."""
         with self._policy_alert_lock:
@@ -191,68 +244,69 @@ class LanTrafficTracker:
                     return None  # Whitelisted by security rule
                 elif rule_eval.action_mode == "alert":
                     violation_type = "rule_alert"
-                    severity = rule_eval.severity.upper() if hasattr(rule_eval, "severity") else Severity.CRITICAL.value
+                    severity = (rule_eval.severity or Severity.CRITICAL.value).lower() if hasattr(rule_eval, "severity") else Severity.CRITICAL.value
                     description = f"[{rule_eval.rule_name}] Сетевое правило зафиксировало подозрительное соединение: {src_dev['name']} ({src_ip}) -> {dst_dev['name']} ({dst_ip}):{port or ''}"
 
-        # Identify policy preset for source device if not matched by custom rule
+        # Identify policy preset for source device ONLY if not already flagged by custom security rule
         preset_id = src_dev.get("preset_id")
-        preset = None
-        if preset_id and preset_id in self.presets_cache:
-            preset = self.presets_cache[preset_id]
-        else:
-            profile = src_dev.get("profile")
-            if profile == "smart_tv":
-                preset = self.presets_cache.get("preset_smart_tv")
-                preset_id = "preset_smart_tv"
-            elif profile == "camera":
-                preset = self.presets_cache.get("preset_camera")
-                preset_id = "preset_camera"
-            elif profile in ("iot", "iot_strict", "iot_permissive"):
-                preset = self.presets_cache.get("preset_iot")
-                preset_id = "preset_iot"
-            elif profile == "trusted":
-                preset = self.presets_cache.get("preset_trusted")
-                preset_id = "preset_trusted"
-
-        if not preset:
-            return None
-
-        # Trusted profile or preset has unrestricted access
-        if preset_id == "preset_trusted" or src_dev.get("profile") == "trusted":
-            return None
-
-        rules = preset.get("rules") or {}
-        if not rules:
-            return None
-
-        allowed_services = rules.get("allowed_services", [])
-        alert_services = rules.get("alert_services", [])
-        blocked_services = rules.get("blocked_services", [])
-        lan_to_lan_policy = rules.get("lan_to_lan_policy", "allow_all")
-
-        # Custom allowed ports on device
-        custom_allowed = set()
-        raw_custom = src_dev.get("custom_allowed_ports")
-        if raw_custom:
-            if isinstance(raw_custom, list):
-                for p in raw_custom:
-                    try:
-                        custom_allowed.add(int(p))
-                    except (ValueError, TypeError):
-                        pass
-            elif isinstance(raw_custom, str):
-                for part in raw_custom.replace(";", ",").split(","):
-                    p_str = part.strip()
-                    if p_str.isdigit():
-                        custom_allowed.add(int(p_str))
-
-        # Check router / infrastructure exceptions
-        router_ips = {"192.168.1.1", "192.168.0.1", "192.168.2.1"}
-        is_router_dst = dst_ip in router_ips
-        is_infra_port = port in (53, 67, 68, 123)
-        is_multicast_dst = dst_ip in MULTICAST_NAMES or dst_ip.endswith(".255") or dst_ip.startswith("224.") or dst_ip == "255.255.255.255"
+        lan_to_lan_policy = "rules_engine" if violation_type == "rule_alert" else "allow_all"
 
         if violation_type is None:
+            preset = None
+            if preset_id and preset_id in self.presets_cache:
+                preset = self.presets_cache[preset_id]
+            else:
+                profile = src_dev.get("profile")
+                if profile == "smart_tv":
+                    preset = self.presets_cache.get("preset_smart_tv")
+                    preset_id = "preset_smart_tv"
+                elif profile == "camera":
+                    preset = self.presets_cache.get("preset_camera")
+                    preset_id = "preset_camera"
+                elif profile in ("iot", "iot_strict", "iot_permissive"):
+                    preset = self.presets_cache.get("preset_iot")
+                    preset_id = "preset_iot"
+                elif profile == "trusted":
+                    preset = self.presets_cache.get("preset_trusted")
+                    preset_id = "preset_trusted"
+
+            if not preset:
+                return None
+
+            # Trusted profile or preset has unrestricted access
+            if preset_id == "preset_trusted" or src_dev.get("profile") == "trusted":
+                return None
+
+            rules = preset.get("rules") or {}
+            if not rules:
+                return None
+
+            allowed_services = rules.get("allowed_services", [])
+            alert_services = rules.get("alert_services", [])
+            blocked_services = rules.get("blocked_services", [])
+            lan_to_lan_policy = rules.get("lan_to_lan_policy", "allow_all")
+
+            # Custom allowed ports on device
+            custom_allowed = set()
+            raw_custom = src_dev.get("custom_allowed_ports")
+            if raw_custom:
+                if isinstance(raw_custom, list):
+                    for p in raw_custom:
+                        try:
+                            custom_allowed.add(int(p))
+                        except (ValueError, TypeError):
+                            pass
+                elif isinstance(raw_custom, str):
+                    for part in raw_custom.replace(";", ",").split(","):
+                        p_str = part.strip()
+                        if p_str.isdigit():
+                            custom_allowed.add(int(p_str))
+
+            # Check router / infrastructure exceptions
+            is_router_dst = self._is_router_entity(dst_ip)
+            is_infra_port = port in (53, 67, 68, 123)
+            is_multicast_dst = dst_ip in MULTICAST_NAMES or dst_ip.endswith(".255") or dst_ip.startswith("224.") or dst_ip == "255.255.255.255"
+
             # 1. Blocked services check
             if port is not None and any(_matches_service_rule(r, port) for r in blocked_services):
                 violation_type = "blocked_service"
@@ -423,6 +477,24 @@ class LanTrafficTracker:
             logger.debug("LanTrafficTracker packet error: %s", e)
         return None
 
+    @staticmethod
+    def _is_router_entity(ip: Optional[str]) -> bool:
+        if not ip:
+            return False
+        try:
+            from keenguard.core.routers import router_manager
+            return router_manager.is_router_entity(ip=ip)
+        except Exception:
+            return ip in ("192.168.1.1", "192.168.0.1", "192.168.2.1")
+
+    @staticmethod
+    def _get_router_platform_name() -> str:
+        try:
+            from keenguard.core.routers import router_manager
+            return router_manager.platform_name or "Keenetic"
+        except Exception:
+            return "Keenetic"
+
     def _get_device_info(self, mac: Optional[str], ip: Optional[str], devices_map: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Resolves friendly name, vendor and icon for an IP or MAC."""
         def _get_attr(dev, key, default=None):
@@ -476,8 +548,9 @@ class LanTrafficTracker:
             icon = _get_attr(dev_match, "icon", "laptop")
             clean_mac = clean_mac or (_get_attr(dev_match, "mac") or "").upper()
 
-        if ip in ("192.168.1.1", "192.168.0.1", "192.168.2.1"):
-            name = "Роутер Keenetic (Шлюз)"
+        if self._is_router_entity(ip):
+            p_name = self._get_router_platform_name()
+            name = f"Роутер {p_name} (Шлюз)"
             icon = "shield"
 
         return {
@@ -502,9 +575,12 @@ class LanTrafficTracker:
         now_ts = datetime.now(timezone.utc).isoformat()
 
         # Update ARP cache
-        self.arp_table[src_ip] = src_mac
-        if op == 2 and dst_ip:
-            self.arp_table[dst_ip] = dst_mac
+        with self._lock:
+            if src_ip not in self.arp_table or (op == 2 and dst_ip and dst_ip not in self.arp_table):
+                self._prune_arp_table_locked()
+            self.arp_table[src_ip] = src_mac
+            if op == 2 and dst_ip:
+                self.arp_table[dst_ip] = dst_mac
 
         src_dev = self._get_device_info(src_mac, src_ip, devices_map)
         dst_dev = self._get_device_info(dst_mac, dst_ip, devices_map)
@@ -572,6 +648,7 @@ class LanTrafficTracker:
             ping_key = (src_ip, dst_ip, icmp_id, icmp_seq)
 
             with self._lock:
+                self._prune_pending_pings_locked(now_time)
                 self.pending_pings[ping_key] = {
                     "time": now_time,
                     "src_ip": src_ip,
@@ -580,6 +657,8 @@ class LanTrafficTracker:
                     "seq": icmp_seq
                 }
                 # Update matrix
+                if (src_ip, dst_ip) not in self.ping_matrix:
+                    self._prune_ping_matrix_locked()
                 matrix_entry = self.ping_matrix[(src_ip, dst_ip)]
                 matrix_entry["sent"] += 1
                 matrix_entry["last_sent_time"] = now_ts
@@ -601,6 +680,8 @@ class LanTrafficTracker:
                     rtt_ms = 1.0
 
                 # Update matrix
+                if (dst_ip, src_ip) not in self.ping_matrix:
+                    self._prune_ping_matrix_locked()
                 matrix_entry = self.ping_matrix[(dst_ip, src_ip)]
                 matrix_entry["received"] += 1
                 matrix_entry["last_reply_time"] = now_ts
@@ -623,13 +704,7 @@ class LanTrafficTracker:
 
         # Clean old pending pings (> 5 seconds considered lost / unreplied)
         with self._lock:
-            expired = [k for k, v in self.pending_pings.items() if now_time - v["time"] > 5.0]
-            for k in expired:
-                lost = self.pending_pings.pop(k, None)
-                if lost:
-                    m_entry = self.ping_matrix.get((lost["src_ip"], lost["dst_ip"]))
-                    if m_entry and m_entry["status"] == "waiting":
-                        m_entry["status"] = "timeout"
+            self._prune_pending_pings_locked(now_time)
 
         self._pkt_counter += 1
         clean_mac = (src_mac or "icmp").replace(":", "")[-4:].lower()
@@ -713,6 +788,8 @@ class LanTrafficTracker:
 
         # Update flows matrix
         with self._lock:
+            if (src_ip, dst_ip) not in self.flows:
+                self._prune_flows_locked()
             flow = self.flows[(src_ip, dst_ip)]
             flow["packet_count"] += 1
             flow["byte_count"] += len(pkt)
@@ -720,6 +797,7 @@ class LanTrafficTracker:
             if not flow["first_seen"]:
                 flow["first_seen"] = now_ts
             flow["last_seen"] = now_ts
+            flow["last_seen_epoch"] = time.time()
             flow["last_summary"] = summary
 
         self._pkt_counter += 1
@@ -810,11 +888,14 @@ class LanTrafficTracker:
             summary = f"{proto_name} (Keenetic): {src_dev['name']} -> {dst_dev['name']}:{dport}"
 
             with self._lock:
+                if (src, dst) not in self.flows:
+                    self._prune_flows_locked()
                 flow = self.flows[(src, dst)]
                 flow["packet_count"] += int(entry.get("packets", 1) or 1)
                 flow["byte_count"] += int(entry.get("bytes", 64) or 64)
                 flow["protocols"].add(proto_name)
                 flow["last_seen"] = now_ts
+                flow["last_seen_epoch"] = time.time()
                 flow["last_summary"] = summary
 
                 # Add to event stream if new or active
@@ -887,6 +968,7 @@ class LanTrafficTracker:
         """Returns aggregated ping monitoring pairs: who pings whom, RTT, success rates."""
         result = []
         with self._lock:
+            self._prune_pending_pings_locked()
             for (src_ip, dst_ip), stats in list(self.ping_matrix.items()):
                 sent = stats["sent"]
                 recv = stats["received"]
@@ -976,6 +1058,7 @@ class LanTrafficTracker:
     def get_stats(self) -> Dict[str, Any]:
         """Returns summary statistics of LAN activity."""
         with self._lock:
+            self._prune_pending_pings_locked()
             total_events = len(self.events)
             ping_events = sum(1 for e in self.events if e["comm_type"] in ("icmp_ping", "icmp_reply"))
             arp_events = sum(1 for e in self.events if e["comm_type"] in ("arp_query", "arp_reply"))

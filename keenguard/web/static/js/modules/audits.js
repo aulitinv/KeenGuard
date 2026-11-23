@@ -57,7 +57,7 @@ async function populateAuditDeviceSelect() {
     }
 }
 
-async function startNetworkAuditQuick(scope = 'all', duration = 0) {
+async function startNetworkAuditQuick(scope = 'all', duration = 300) {
     try {
         const res = await fetch('/api/audit/network/start', {
             method: 'POST',
@@ -231,12 +231,12 @@ async function loadActiveAudits() {
                                     <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">Идет захват</span>
                                 </div>
                                 <div class="text-[11px] text-slate-400 font-mono mt-0.5">
-                                    ${devIp} &bull; ${session.mac} ${session.vendor ? `&bull; ${escapeHtml(session.vendor)}` : ''}
+                                    ${escapeHtml(devIp)} &bull; ${escapeHtml(session.mac)} ${session.vendor ? `&bull; ${escapeHtml(session.vendor)}` : ''}
                                 </div>
                             </div>
                         </div>
                         <div class="flex items-center space-x-2 shrink-0">
-                            <button onclick="stopTrafficAuditFromTab('${session.mac}')" class="px-3.5 py-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-sm">
+                            <button data-mac="${escapeHtml(session.mac)}" onclick="stopTrafficAuditFromTab(this.dataset.mac)" class="px-3.5 py-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-sm">
                                 <i data-lucide="square" class="w-3.5 h-3.5"></i>
                                 <span>Остановить и сформировать отчет</span>
                             </button>
@@ -433,7 +433,7 @@ function renderAuditReportsTable() {
         }
 
         const pcapBtn = r.pcap_file ? `
-            <a href="/api/audit/pcap/${r.pcap_file}" download title="Скачать .PCAP файл" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 transition border border-slate-700 inline-flex items-center">
+            <a href="/api/audit/pcap/${encodeURIComponent(r.pcap_file)}" download="${escapeHtml(r.pcap_file)}" title="Скачать .PCAP файл" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 transition border border-slate-700 inline-flex items-center">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
             </a>
         ` : '';
@@ -443,7 +443,7 @@ function renderAuditReportsTable() {
             `<div class="font-medium text-cyan-300 flex items-center space-x-1.5"><i data-lucide="radio" class="w-3.5 h-3.5 text-cyan-400"></i><span>${escapeHtml(r.hostname || 'Сводный аудит сети')}</span></div>
              <div class="text-[11px] text-slate-400 font-mono mt-0.5">Охват: ${escapeHtml(r.scope || 'вся сеть')} &bull; Хостов: ${r.devices_analyzed || (r.top_devices ? r.top_devices.length : 0)}</div>` :
             `<div class="font-medium text-slate-200">${escapeHtml(r.hostname || 'Без имени')}</div>
-             <div class="text-[11px] text-slate-400 font-mono mt-0.5">${r.ip || ''} (${r.mac})</div>`;
+             <div class="text-[11px] text-slate-400 font-mono mt-0.5">${escapeHtml(r.ip || '')} (${escapeHtml(r.mac || '')})</div>`;
 
         return `
             <tr class="hover:bg-slate-800/30 transition">
@@ -462,16 +462,16 @@ function renderAuditReportsTable() {
                 </td>
                 <td class="py-3 px-4 text-right whitespace-nowrap">
                     <div class="flex items-center justify-end space-x-1.5">
-                        <button onclick="openInvestigatorForAudit('${r.id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-medium transition flex items-center space-x-1" title="Интерактивное расследование инцидента (Wizard)">
+                        <button data-report-id="${escapeHtml(r.id)}" onclick="openInvestigatorForAudit(this.dataset.reportId)" class="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-medium transition flex items-center space-x-1" title="Интерактивное расследование инцидента (Wizard)">
                             <i data-lucide="crosshair" class="w-3.5 h-3.5 text-rose-400"></i>
                             <span>Расследовать</span>
                         </button>
-                        <button onclick="openAuditReportById('${r.id}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 text-xs font-medium transition flex items-center space-x-1">
+                        <button data-report-id="${escapeHtml(r.id)}" onclick="openAuditReportById(this.dataset.reportId)" class="px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 text-xs font-medium transition flex items-center space-x-1">
                             <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                             <span>Отчет</span>
                         </button>
                         ${pcapBtn}
-                        <button onclick="deleteAuditReport('${r.id}', event)" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-800/50 transition inline-flex items-center" title="Удалить отчет">
+                        <button data-report-id="${escapeHtml(r.id)}" onclick="deleteAuditReport(this.dataset.reportId, event)" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-800/50 transition inline-flex items-center" title="Удалить отчет">
                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
                     </div>
@@ -651,7 +651,7 @@ function openAuditModal(report) {
         if (dnsList.length > 0) {
             dnsSection.classList.remove('hidden');
             dnsContainer.innerHTML = dnsList.map(dom => `
-                <button onclick="openDomainModal('${escapeHtml(dom)}')" class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border border-slate-700 hover:border-cyan-500/50 font-mono transition cursor-pointer group shadow-sm" title="Нажмите для анализа репутации и инструкции по блокировке">
+                <button data-domain="${escapeHtml(dom)}" onclick="openDomainModal(this.dataset.domain)" class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border border-slate-700 hover:border-cyan-500/50 font-mono transition cursor-pointer group shadow-sm" title="Нажмите для анализа репутации и инструкции по блокировке">
                     <span>${escapeHtml(dom)}</span>
                     <i data-lucide="shield-alert" class="w-3 h-3 text-cyan-400 opacity-60 group-hover:opacity-100"></i>
                 </button>
@@ -666,7 +666,7 @@ function openAuditModal(report) {
     const pcapFile = report.pcap_file || report.pcap_filename;
     if (pcapFile) {
         pcapContainer.innerHTML = `
-            <a href="/api/audit/pcap/${pcapFile}" download class="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-md shadow-cyan-600/20">
+            <a href="/api/audit/pcap/${encodeURIComponent(pcapFile)}" download="${escapeHtml(pcapFile)}" class="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-md shadow-cyan-600/20">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
                 <span>Скачать PCAP-дамп</span>
             </a>
@@ -863,7 +863,7 @@ function openNetworkAuditModal(report) {
                     <div>
                         <div class="flex items-center space-x-2">
                             <span class="font-bold text-white">${escapeHtml(q.hostname || q.mac)}</span>
-                            <span class="text-slate-400 font-mono text-[11px]">${q.ip || 'no-ip'} &bull; ${q.mac}</span>
+                            <span class="text-slate-400 font-mono text-[11px]">${escapeHtml(q.ip || 'no-ip')} &bull; ${escapeHtml(q.mac)}</span>
                         </div>
                         <div class="text-[11px] text-rose-300 mt-0.5">${escapeHtml(q.reason || 'Зафиксирована подозрительная сетевая активность')}</div>
                     </div>
@@ -956,7 +956,7 @@ function openNetworkAuditModal(report) {
                     <tr class="hover:bg-slate-900/50">
                         <td class="py-2 px-3">
                             <div class="font-medium text-slate-200">${escapeHtml(d.hostname || d.mac)}</div>
-                            <div class="text-[11px] text-slate-400 font-mono">${d.ip || ''} &bull; ${d.mac}</div>
+                            <div class="text-[11px] text-slate-400 font-mono">${escapeHtml(d.ip || '')} &bull; ${escapeHtml(d.mac || '')}</div>
                         </td>
                         <td class="py-2 px-3">${categoryBadge}</td>
                         <td class="py-2 px-3 text-center font-mono text-purple-400">${d.flows || 0}</td>
@@ -996,7 +996,7 @@ function openNetworkAuditModal(report) {
     if (pcapCont) {
         if (pcapFile) {
             pcapCont.innerHTML = `
-                <a href="/api/audit/pcap/${encodeURIComponent(pcapFile)}" download class="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-md shadow-cyan-600/20">
+                <a href="/api/audit/pcap/${encodeURIComponent(pcapFile)}" download="${escapeHtml(pcapFile)}" class="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium transition flex items-center space-x-1.5 shadow-md shadow-cyan-600/20">
                     <i data-lucide="download" class="w-3.5 h-3.5"></i>
                     <span>Скачать сетевой PCAP-дамп</span>
                 </a>
@@ -1098,15 +1098,5 @@ async function confirmClearOfflineDevices() {
         console.error('Failed to clear offline devices', e);
         showToast('Ошибка при удалении офлайн-устройств', true);
     }
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
 }
 

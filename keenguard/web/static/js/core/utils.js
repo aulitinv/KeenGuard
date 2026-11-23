@@ -1,8 +1,27 @@
 // ==========================================
 // DOM Safe Guards & Fault-Tolerant Helpers
 // ==========================================
-function safeSetText(id, text) {
-    const el = document.getElementById(id);
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+window.escapeHtml = escapeHtml;
+
+function safeUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    const trimmed = url.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return '';
+    return trimmed;
+}
+window.safeUrl = safeUrl;
+
+function safeSetText(idOrEl, text) {
+    const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
     if (el) {
         el.textContent = text !== null && text !== undefined ? text : '';
         return true;
@@ -120,58 +139,6 @@ const PROFILES = {
     unassigned: { name: "Не назначен", color: "text-slate-400", bg: "bg-slate-500/10", border: "border-slate-500/20", icon: "help-circle" }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    initSidebarState();
-    checkAuthStatus();
-    if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
-    updateDeviceViewModeButtons();
-    updateSnifferDisplayModeButtons();
-    const hideOfflineSaved = localStorage.getItem('kg_hide_offline') === 'true';
-    const hideOfflineCb = document.getElementById('toggle-hide-offline-devices');
-    if (hideOfflineCb) hideOfflineCb.checked = hideOfflineSaved;
-    initSourceFilterCheckboxes();
-    connectWebSocket();
-    refreshAllData();
-    loadLanPresets();
-    initModalDismissHandlers();
-
-    // Periodic refresh
-    setInterval(() => {
-        loadDevices();
-        loadStatus();
-        if (activeTab === 'alerts') loadEvents();
-        if (activeTab === 'smarthome') loadSmartHome();
-        if (activeTab === 'security') loadSecurity();
-        if (activeTab === 'lan') {
-            if (currentLanView === 'log') loadLanCommunications();
-            else if (currentLanView === 'matrix') loadLanPingMatrix();
-            else if (currentLanView === 'topo') loadLanTopology();
-        }
-        if (activeTab === 'packets') loadPacketInspectorLive();
-        if (activeTab === 'tv_forensics') loadTvForensics();
-        if (activeTab === 'dashboard') {
-            loadWifiAudit();
-            checkRouterUpdates();
-            loadSecurityScoreForDashboard();
-            loadL7TrafficSummary();
-        }
-    }, 10000);
-
-    // Fast periodic refresh for live traffic chart on dashboard
-    setInterval(() => {
-        if (activeTab === 'dashboard') {
-            updateLiveTrafficChart();
-        }
-    }, 3500);
-
-    // Fast periodic refresh for active audit sessions
-    setInterval(() => {
-        if (activeTab === 'audits' || activeAuditsCount > 0) {
-            loadActiveAudits();
-        }
-    }, 2500);
-});
-
 function initModalDismissHandlers() {
     const modalIds = [
         'device-modal',
@@ -245,7 +212,7 @@ function closeAnyModal(id) {
     else if (id === 'isolation-wizard-modal') closeIsolationWizardModal();
     else if (id === 'rule-modal') closeRuleModal();
     else if (id === 'rule-conflict-modal') closeRuleConflictModal();
-    else if (id === 'rule-hits-drawer') closeRuleHitsModal();
+    else if (id === 'rule-hits-drawer') closeRuleHitsDrawer();
     else if (id === 'rule-sim-modal') closeRuleSimModal();
 }
 

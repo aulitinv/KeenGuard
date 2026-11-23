@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from keenguard.config import settings
 from keenguard.core.app_classifier import app_classifier
 from keenguard.core.classifier import DeviceClassifier
+from keenguard.core.routers import router_manager
 from keenguard.web.state import (
     get_db,
     get_audit_manager,
@@ -29,6 +30,8 @@ NETWORK_AUDIT_TARGETS = {"NETWORK", "__ALL_NETWORK__", "__IOT_ONLY__", "__UNTRUS
 def _validate_audit_target(target: str) -> str:
     """Validates audit target string (either special keyword or valid IEEE 802 MAC)."""
     cleaned = target.upper()
+    if cleaned == "02:00:00:00:00:01":
+        raise HTTPException(status_code=400, detail="Аудит системного интерфейса WAN запрещен")
     if cleaned in NETWORK_AUDIT_TARGETS:
         return cleaned
     if not DeviceClassifier.is_valid_mac(cleaned):
@@ -51,8 +54,8 @@ async def start_device_audit(mac: str, req: AuditStartRequest):
     db = get_db()
     audit_manager = get_audit_manager()
     mac_upper = _validate_audit_target(mac)
-    dur_sec = req.duration_seconds if req.duration_seconds is not None else 300
-    if mac_upper in ("NETWORK", "__ALL_NETWORK__", "__IOT_ONLY__", "__UNTRUSTED__"):
+    dur_sec = max(10, min(3600, int(req.duration_seconds if req.duration_seconds is not None else 300)))
+    if mac_upper in NETWORK_AUDIT_TARGETS:
         target_scope = "iot_only" if mac_upper == "__IOT_ONLY__" else ("untrusted" if mac_upper == "__UNTRUSTED__" else (req.scope or "all"))
         res = await audit_manager.start_network_audit(
             duration_seconds=dur_sec,
@@ -80,7 +83,7 @@ async def start_device_audit(mac: str, req: AuditStartRequest):
 async def stop_device_audit(mac: str):
     audit_manager = get_audit_manager()
     mac_upper = _validate_audit_target(mac)
-    if mac_upper == "NETWORK":
+    if mac_upper in NETWORK_AUDIT_TARGETS:
         report = await audit_manager.stop_network_audit()
         if not report:
             raise HTTPException(status_code=404, detail="No active network audit session")
@@ -97,7 +100,7 @@ async def stop_device_audit(mac: str):
 @router.post("/api/audit/network/start")
 async def start_network_audit_endpoint(req: NetworkAuditStartRequest):
     audit_manager = get_audit_manager()
-    dur_sec = req.duration_seconds if req.duration_seconds is not None else 300
+    dur_sec = max(10, min(3600, int(req.duration_seconds if req.duration_seconds is not None else 300)))
     res = await audit_manager.start_network_audit(
         duration_seconds=dur_sec,
         scope=req.scope or "all"
@@ -129,7 +132,7 @@ async def get_network_audit_status_endpoint():
 async def get_latest_network_audit_report_endpoint():
     db = get_db()
     reports = await db.get_audit_reports(limit=50)
-    net_reports = [r for r in reports if r.mac == "NETWORK" or r.id.startswith("net_audit_")]
+    net_reports = [r for r in reports if r.mac in ("NETWORK", None) or r.id.startswith("net_audit_")]
     if not net_reports:
         raise HTTPException(status_code=404, detail="Отчет аудита сети не найден")
     r = net_reports[0]
@@ -143,7 +146,7 @@ async def get_latest_network_audit_report_endpoint():
 async def get_audit_status(mac: str):
     audit_manager = get_audit_manager()
     target = _validate_audit_target(mac)
-    if target == "NETWORK":
+    if target in NETWORK_AUDIT_TARGETS:
         status = audit_manager.get_network_audit_status()
         if not status:
             return {"is_active": False}
@@ -173,9 +176,9 @@ async def get_audit_status(mac: str):
 async def get_latest_audit_report(mac: str):
     db = get_db()
     target = _validate_audit_target(mac)
-    if target == "NETWORK":
+    if target in NETWORK_AUDIT_TARGETS:
         reports = await db.get_audit_reports(limit=50)
-        net_reports = [r for r in reports if r.mac == "NETWORK" or r.id.startswith("net_audit_")]
+        net_reports = [r for r in reports if r.mac in ("NETWORK", None) or r.id.startswith("net_audit_")]
         if not net_reports:
             raise HTTPException(status_code=404, detail="No network audit reports found")
         r = net_reports[0]
@@ -263,8 +266,10 @@ async def delete_single_audit_report(report_id: str):
         raise HTTPException(status_code=404, detail="Audit report not found")
     if pcap_file:
         try:
-            dump_path = settings.pcap_dir / pcap_file
-            if dump_path.exists():
+            safe_name = Path(pcap_file).name
+            dump_path = (settings.pcap_dir / safe_name).resolve()
+            base_dir = settings.pcap_dir.resolve()
+            if dump_path.is_relative_to(base_dir) and dump_path.exists():
                 dump_path.unlink()
         except (OSError, FileNotFoundError, PermissionError) as e:
             logger.warning("Could not delete PCAP file %s: %s", pcap_file, e)
@@ -277,10 +282,12 @@ async def delete_single_audit_report(report_id: str):
 async def clear_audit_reports_api(older_than_days: Optional[int] = None):
     db = get_db()
     pcap_files = await db.clear_audit_reports(older_than_days=older_than_days)
+    base_dir = settings.pcap_dir.resolve()
     for pf in pcap_files:
         try:
-            dump_path = settings.pcap_dir / pf
-            if dump_path.exists():
+            safe_name = Path(pf).name
+            dump_path = (settings.pcap_dir / safe_name).resolve()
+            if dump_path.is_relative_to(base_dir) and dump_path.exists():
                 dump_path.unlink()
         except OSError as e:
             logger.debug("Failed to unlink old audit pcap file %s: %s", pf, e)
@@ -327,11 +334,10 @@ async def get_l7_traffic_summary():
     Correlates active router NAT connections with DNS cache and domain signatures.
     """
     db = get_db()
-    k_client = get_keenetic_client()
 
-    # 1. Update app_classifier DNS cache from Keenetic router DNS proxy if available
+    # 1. Update app_classifier DNS cache from router DNS proxy if available
     try:
-        dns_cache = await k_client.get_dns_cache()
+        dns_cache = await router_manager.get_dns_cache()
         if dns_cache:
             for entry in dns_cache:
                 ip = entry.get("ip")
@@ -343,21 +349,20 @@ async def get_l7_traffic_summary():
 
     # 2. Also populate from recent local DB DNS queries
     try:
-        recent_dns = await db.get_dns_queries(limit=100)
+        recent_dns = await db.get_top_dns_queries(limit=100)
         if recent_dns:
             for q in recent_dns:
-                domain = q.get("query_domain") or q.get("domain")
-                answers = q.get("answers") or []
-                for ans in answers:
-                    if isinstance(ans, str) and "." in ans:
-                        app_classifier.cache_dns_resolution(ans, domain)
+                domain = q.get("domain")
+                ip = q.get("ip")
+                if ip and domain and ip != "0.0.0.0":
+                    app_classifier.cache_dns_resolution(ip, domain)
     except Exception as e:
         logger.debug("Failed to query recent DNS queries for L7 classifier: %s", e)
 
     # 3. Pull active NAT flows from router
     nat_entries = []
     try:
-        nat_entries = await k_client.get_nat_table()
+        nat_entries = await router_manager.get_nat_table()
     except Exception as e:
         logger.debug("Failed to pull NAT table for L7 classifier: %s", e)
 
@@ -390,7 +395,8 @@ async def get_l7_traffic_summary():
             })
 
     # 4. Fallback in mock mode if no NAT flows returned
-    if not classified_flows and getattr(k_client, "mock_mode", False):
+    backend = router_manager.get_backend()
+    if not classified_flows and getattr(backend, "mock_mode", False):
         demo_flows = [
             {"src_ip": "192.168.1.10", "dst_ip": "142.250.180.14", "dport": 443, "proto": "tcp", "bytes": 850000, "app_id": "youtube", "name": "YouTube", "category": "streaming", "icon": "video"},
             {"src_ip": "192.168.1.20", "dst_ip": "149.154.167.99", "dport": 443, "proto": "tcp", "bytes": 220000, "app_id": "telegram", "name": "Telegram", "category": "communication", "icon": "send"},

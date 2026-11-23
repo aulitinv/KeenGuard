@@ -4,7 +4,7 @@ import logging
 from typing import Optional, Dict, Any
 import httpx
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel
 
 from keenguard.config import (
@@ -14,7 +14,8 @@ from keenguard.config import (
     save_env_telegram_settings,
     persist_web_auth_settings,
 )
-from keenguard.web.auth import hash_password, is_auth_required
+from keenguard.web.auth import hash_password, is_auth_required, verify_password, revoke_all_sessions
+from keenguard.web.routes.auth import get_current_session_token
 from keenguard.core.forensics import forensics
 from keenguard.core.notifier import notifier
 from keenguard.core.profiles import PROFILE_TEMPLATES
@@ -87,10 +88,35 @@ class SettingsUpdate(BaseModel):
     sniffer_mode: Optional[str] = None
 
 
+def _mask_secret(val: Optional[str]) -> str:
+    if not val:
+        return ""
+    if len(val) <= 4:
+        return "••••"
+    return "••••••••"
+
+
+def _mask_proxy_url(proxy: Optional[str]) -> Optional[str]:
+    if not proxy or "@" not in proxy:
+        return proxy
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(proxy)
+        if parsed.password:
+            netloc = f"{parsed.username}:••••••••@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    except Exception:
+        pass
+    return proxy
+
+
 class NetworkAccessUpdateRequest(BaseModel):
     web_host: Optional[str] = None
     web_auth_enabled: Optional[str] = None
     web_auth_exempt_localhost: Optional[bool] = None
+    old_password: Optional[str] = None
     new_password: Optional[str] = None
 
 
@@ -223,11 +249,12 @@ async def get_app_settings():
         "notification_dedup_window_seconds": getattr(settings, "notification_dedup_window_seconds", 60),
         "web_port": settings.web_port,
         "profiles": PROFILE_TEMPLATES,
-        "telegram_bot_token": settings.telegram_bot_token,
+        "telegram_bot_token": _mask_secret(settings.telegram_bot_token),
+        "telegram_bot_token_set": bool(settings.telegram_bot_token),
         "telegram_chat_id": settings.telegram_chat_id,
         "telegram_enabled": settings.telegram_enabled,
         "telegram_api_url": settings.telegram_api_url,
-        "telegram_proxy": settings.telegram_proxy,
+        "telegram_proxy": _mask_proxy_url(settings.telegram_proxy),
         "new_device_policy_mode": getattr(settings, "new_device_policy_mode", "category"),
         "new_device_category_policies": getattr(settings, "new_device_category_policies", {}),
         "audit_auto_quarantine_suspicious": getattr(settings, "audit_auto_quarantine_suspicious", True),
@@ -268,6 +295,7 @@ async def test_keenetic_auth(req: TestConnRequest):
         ow_user = req.openwrt_username or req.router_user or settings.openwrt_username or "root"
         ow_pwd = req.openwrt_password if (req.openwrt_password and req.openwrt_password.strip()) else settings.openwrt_password
         ow_https = bool(req.openwrt_use_https)
+        is_same_host = (ow_host == settings.openwrt_host and r_type == (settings.router_type or "keenetic"))
         test_backend = OpenWrtBackend(host=ow_host, port=ow_port, username=ow_user, password=ow_pwd, use_https=ow_https)
         try:
             conn_ok = await test_backend.connect()
@@ -283,22 +311,27 @@ async def test_keenetic_auth(req: TestConnRequest):
                 await db.save_setting("openwrt_host", ow_host)
                 await db.save_setting("openwrt_port", str(ow_port))
                 await db.save_setting("openwrt_username", ow_user)
-                if ow_pwd:
-                    await db.save_setting("openwrt_password", ow_pwd)
                 save_env_openwrt_credentials(ow_host, ow_user, ow_pwd, ow_port, ow_https)
+                from keenguard.core.routers import router_manager
+                router_manager.reset_backend()
                 await router_health.update_status(connected=True, model=sys_info.model, version=sys_info.firmware_version)
                 create_tracked_task(do_keenetic_poll())
                 return {"status": "ok", "message": "Подключение к OpenWrt успешно", "model": sys_info.model, "version": sys_info.firmware_version}
             else:
-                await router_health.update_status(connected=False, error="Неверный логин/пароль или OpenWrt ubus недоступен")
+                if is_same_host:
+                    await router_health.update_status(connected=False, error="Неверный логин/пароль или OpenWrt ubus недоступен")
                 return {"status": "error", "message": "Ошибка авторизации в OpenWrt /ubus"}
         except (httpx.HTTPError, ConnectionError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
-            await router_health.update_status(connected=False, error=str(e))
+            if is_same_host:
+                await router_health.update_status(connected=False, error=str(e))
             return {"status": "error", "message": f"Сетевая ошибка OpenWrt: {e}"}
+        finally:
+            await test_backend.aclose()
     else:
         r_host = req.router_host or settings.router_host
         r_user = req.router_user or settings.router_user
         pwd = req.router_password if (req.router_password and req.router_password.strip()) else (keenetic_client.password or settings.router_password)
+        is_same_host = (r_host == settings.router_host and r_type == (settings.router_type or "keenetic"))
         res = await keenetic_client.authenticate(
             host=r_host,
             user=r_user,
@@ -314,12 +347,14 @@ async def test_keenetic_auth(req: TestConnRequest):
             if pwd:
                 settings.router_password = pwd
                 keenetic_client.password = pwd
-                await db.save_setting("router_password", pwd)
                 save_env_router_credentials(r_host, r_user, pwd, settings.router_port)
+            from keenguard.core.routers import router_manager
+            router_manager.reset_backend()
             await router_health.update_status(connected=True, model=res.get("model"), version=res.get("version"))
             create_tracked_task(do_keenetic_poll())
         else:
-            await router_health.update_status(connected=False, error=res.get("message"))
+            if is_same_host:
+                await router_health.update_status(connected=False, error=res.get("message"))
         return res
 
 
@@ -349,14 +384,15 @@ async def save_app_settings(s: SettingsUpdate):
 
     if s.router_password is not None and s.router_password.strip():
         new_pwd = s.router_password.strip()
-        if new_pwd != settings.router_password:
+        if not new_pwd.startswith("••") and new_pwd != settings.router_password:
             settings.router_password = new_pwd
             keenetic_client.password = new_pwd
-            await db.save_setting("router_password", new_pwd)
             router_creds_changed = True
 
     if router_creds_changed:
         save_env_router_credentials(settings.router_host, settings.router_user, keenetic_client.password or "", settings.router_port)
+        from keenguard.core.routers import router_manager
+        router_manager.reset_backend()
 
     if s.router_type is not None and s.router_type.strip():
         new_rt = s.router_type.strip().lower()
@@ -386,9 +422,8 @@ async def save_app_settings(s: SettingsUpdate):
 
     if s.openwrt_password is not None and s.openwrt_password.strip():
         new_op = s.openwrt_password.strip()
-        if new_op != settings.openwrt_password:
+        if not new_op.startswith("••") and new_op != settings.openwrt_password:
             settings.openwrt_password = new_op
-            await db.save_setting("openwrt_password", new_op)
             openwrt_creds_changed = True
 
     if s.openwrt_use_https is not None and s.openwrt_use_https != settings.openwrt_use_https:
@@ -398,6 +433,8 @@ async def save_app_settings(s: SettingsUpdate):
 
     if openwrt_creds_changed:
         save_env_openwrt_credentials(settings.openwrt_host, settings.openwrt_username, settings.openwrt_password, settings.openwrt_port, settings.openwrt_use_https)
+        from keenguard.core.routers import router_manager
+        router_manager.reset_backend()
 
     if s.night_mode_start_hour is not None:
         settings.night_mode_start_hour = max(0, min(23, s.night_mode_start_hour))
@@ -433,14 +470,13 @@ async def save_app_settings(s: SettingsUpdate):
     telegram_changed = False
     if s.telegram_bot_token is not None:
         clean_token = s.telegram_bot_token.strip()
-        if clean_token or not settings.telegram_bot_token:
+        if clean_token and not clean_token.startswith("••"):
             if settings.telegram_bot_token != clean_token:
                 settings.telegram_bot_token = clean_token
-                await db.save_setting("telegram_bot_token", clean_token)
                 telegram_changed = True
     if s.telegram_chat_id is not None:
         clean_chat = s.telegram_chat_id.strip()
-        if clean_chat or not settings.telegram_chat_id:
+        if clean_chat:
             if settings.telegram_chat_id != clean_chat:
                 settings.telegram_chat_id = clean_chat
                 await db.save_setting("telegram_chat_id", clean_chat)
@@ -457,7 +493,9 @@ async def save_app_settings(s: SettingsUpdate):
             telegram_changed = True
     if s.telegram_proxy is not None:
         clean_proxy = s.telegram_proxy.strip() or None
-        if settings.telegram_proxy != clean_proxy:
+        if clean_proxy and "••" in clean_proxy and settings.telegram_proxy:
+            pass  # Do not overwrite with masked proxy
+        elif settings.telegram_proxy != clean_proxy:
             settings.telegram_proxy = clean_proxy
             await db.save_setting("telegram_proxy", clean_proxy or "")
             telegram_changed = True
@@ -645,8 +683,8 @@ async def set_sniffer_mode_endpoint(req: SnifferModeRequest):
         raise HTTPException(status_code=400, detail="Invalid sniffer mode. Must be 'conntrack_passive' or 'promiscuous_active'.")
     db = get_db()
     sniffer = get_sniffer()
-    settings.sniffer_mode = smode
-    await db.save_setting("sniffer_mode", smode)
+    from keenguard.core.config_service import config_service
+    await config_service.set("sniffer_mode", smode, persist_db=True, database=db)
     if sniffer:
         sniffer.set_mode(smode)
     return {
@@ -730,11 +768,52 @@ async def save_new_device_policy_endpoint(req: NewDevicePolicyUpdateRequest):
 
 @router.post("/api/telegram/test")
 async def test_telegram_connection(req: TelegramTestRequest):
-    token = (req.token or settings.telegram_bot_token or "").strip()
+    from urllib.parse import urlparse
+
+    raw_api = (req.api_url.strip() if req.api_url else (settings.telegram_api_url or "https://api.telegram.org")).strip()
+    parsed_api = urlparse(raw_api)
+    if parsed_api.scheme.lower() not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Недопустимая схема Telegram API URL. Разрешены только http:// и https://")
+
+    saved_proxy = (settings.telegram_proxy or "").strip() or None
+    masked_saved_proxy = _mask_proxy_url(settings.telegram_proxy) if settings.telegram_proxy else None
+    raw_proxy = (req.proxy.strip() if req.proxy else None)
+
+    if raw_proxy and ((masked_saved_proxy and raw_proxy == masked_saved_proxy) or "••••" in raw_proxy):
+        cur_proxy = saved_proxy
+        proxy_changed = False
+    else:
+        cur_proxy = raw_proxy
+        proxy_changed = (req.proxy is not None and cur_proxy != saved_proxy)
+
+    if cur_proxy:
+        parsed_proxy = urlparse(cur_proxy)
+        if parsed_proxy.scheme.lower() not in ("http", "https", "socks5", "socks5h"):
+            raise HTTPException(status_code=400, detail="Недопустимая схема прокси. Разрешены только http, https, socks5, socks5h")
+
+    saved_api = (settings.telegram_api_url or "https://api.telegram.org").strip().rstrip("/")
+    cur_api = raw_api.rstrip("/")
+    api_url_changed = (req.api_url is not None and cur_api != saved_api)
+
+    raw_token = (req.token.strip() if req.token else None)
+    if raw_token and raw_token.startswith("••"):
+        raw_token = None
+
+    if api_url_changed or proxy_changed:
+        if not raw_token:
+            raise HTTPException(
+                status_code=400,
+                detail="При изменении api_url или proxy необходимо явно указать token в теле запроса"
+            )
+        token = raw_token
+    else:
+        token = raw_token or (settings.telegram_bot_token or "").strip()
+
+    if not token:
+        raise HTTPException(status_code=400, detail="Токен Telegram бота не указан")
+
     chat_id = (req.chat_id or settings.telegram_chat_id or "").strip()
-    api_url = (req.api_url or settings.telegram_api_url or "https://api.telegram.org").strip()
-    proxy = req.proxy if req.proxy is not None else settings.telegram_proxy
-    res = await notifier.send_test_message(token=token, chat_id=chat_id, api_url=api_url, proxy=proxy)
+    res = await notifier.send_test_message(token=token, chat_id=chat_id, api_url=cur_api, proxy=cur_proxy)
     return res
 
 
@@ -808,7 +887,7 @@ async def get_network_access_settings():
 
 
 @router.post("/api/settings/network_access")
-async def update_network_access_settings(req: NetworkAccessUpdateRequest):
+async def update_network_access_settings(req: NetworkAccessUpdateRequest, request: Request):
     """Updates network binding interface, authentication policy, and administrator password."""
     db = get_db()
     host_changed = False
@@ -831,14 +910,37 @@ async def update_network_access_settings(req: NetworkAccessUpdateRequest):
         await db.save_setting("web_auth_exempt_localhost", "true" if settings.web_auth_exempt_localhost else "false")
 
     if req.new_password is not None and req.new_password.strip():
+        target_hash = settings.web_password_hash
+        target_plain = settings.web_password
+        if target_hash or target_plain:
+            old_pw = req.old_password or ""
+            valid_old = False
+            if target_hash:
+                valid_old = verify_password(old_pw, target_hash)
+            elif target_plain:
+                valid_old = verify_password(old_pw, target_plain)
+            if not valid_old:
+                raise HTTPException(status_code=400, detail="Неверный старый пароль")
+
         new_pw = req.new_password.strip()
         if len(new_pw) < 6:
             raise HTTPException(status_code=400, detail="Пароль должен содержать не менее 6 символов")
+
         new_hash = hash_password(new_pw)
         settings.web_password_hash = new_hash
         settings.web_password = ""
         await db.save_setting("web_password_hash", new_hash)
-        persist_web_auth_settings(web_password_hash=new_hash)
+        persist_web_auth_settings(web_password_hash=new_hash, clear_web_password=True)
+
+        current_token = get_current_session_token(request)
+        revoke_all_sessions(except_token=current_token)
+
+        try:
+            from keenguard.core.config_service import config_service
+            config_service._cache["web_password_hash"] = new_hash
+            config_service._cache["web_password"] = ""
+        except Exception as ex:
+            logger.debug("Failed to sync config_service cache for password: %s", ex)
 
     persist_web_auth_settings(
         web_host=settings.web_host,

@@ -250,7 +250,7 @@ function renderInvestigationReport(rep) {
                             </p>
                             ${target.mac ? `
                                 <div class="pt-2 flex items-center justify-center">
-                                    <button type="button" onclick="openDeviceAuditModal('${escapeHtml(target.mac)}', '${escapeHtml(target.ip || '')}')" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center space-x-1.5">
+                                    <button type="button" data-mac="${escapeHtml(target.mac)}" data-ip="${escapeHtml(target.ip || '')}" onclick="openDeviceAuditModal(this.dataset.mac, this.dataset.ip)" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center space-x-1.5">
                                         <i data-lucide="play" class="w-3.5 h-3.5"></i>
                                         <span>Запустить экспресс-аудит (1 мин)</span>
                                     </button>
@@ -282,9 +282,12 @@ function renderInvestigationReport(rep) {
                     `<div class="font-mono text-slate-400">Прямое обращение по IP</div>`;
 
                 const links = f.intel_links || {};
+                const vtUrl = safeUrl(links.virustotal);
+                const abuseUrl = safeUrl(links.abuseipdb);
+                const ipinfoUrl = safeUrl(links.ipinfo);
                 return `
                     <tr class="hover:bg-slate-800/30 transition">
-                        <td class="py-2.5 px-3 font-mono font-bold text-slate-200">${f.dst_ip}:${f.dst_port}</td>
+                        <td class="py-2.5 px-3 font-mono font-bold text-slate-200">${escapeHtml(f.dst_ip)}:${f.dst_port}</td>
                         <td class="py-2.5 px-3">${domHtml}</td>
                         <td class="py-2.5 px-3">${encBadge}</td>
                         <td class="py-2.5 px-3">
@@ -294,9 +297,9 @@ function renderInvestigationReport(rep) {
                         <td class="py-2.5 px-3">${riskBadge}</td>
                         <td class="py-2.5 px-3 text-right">
                             <div class="flex items-center justify-end space-x-1.5">
-                                ${links.virustotal ? `<a href="${links.virustotal}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded text-[10px] bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-800/50 transition inline-flex items-center space-x-1" title="Проверить в VirusTotal"><span>VT</span><i data-lucide="external-link" class="w-2.5 h-2.5"></i></a>` : ''}
-                                ${links.abuseipdb ? `<a href="${links.abuseipdb}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded text-[10px] bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 transition inline-flex items-center space-x-1" title="Проверить в AbuseIPDB"><span>Abuse</span><i data-lucide="external-link" class="w-2.5 h-2.5"></i></a>` : ''}
-                                ${links.ipinfo ? `<a href="${links.ipinfo}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition inline-flex items-center space-x-1" title="Геолокация и ASN в IPinfo"><span>IP</span><i data-lucide="external-link" class="w-2.5 h-2.5"></i></a>` : ''}
+                                ${vtUrl ? `<a href="${escapeHtml(vtUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded text-[10px] bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-800/50 transition inline-flex items-center space-x-1" title="Проверить в VirusTotal"><span>VT</span><i data-lucide="external-link" class="w-2.5 h-2.5"></i></a>` : ''}
+                                ${abuseUrl ? `<a href="${escapeHtml(abuseUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded text-[10px] bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 transition inline-flex items-center space-x-1" title="Проверить в AbuseIPDB"><span>Abuse</span><i data-lucide="external-link" class="w-2.5 h-2.5"></i></a>` : ''}
+                                ${ipinfoUrl ? `<a href="${escapeHtml(ipinfoUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition inline-flex items-center space-x-1" title="Геолокация и ASN в IPinfo"><span>IP</span><i data-lucide="external-link" class="w-2.5 h-2.5"></i></a>` : ''}
                             </div>
                         </td>
                     </tr>
@@ -319,23 +322,28 @@ function renderInvestigationReport(rep) {
 
             const links = f.intel_links || {};
             const domLinks = f.domain_intel_links || {};
+            const vtUrl = safeUrl(links.virustotal);
+            const abuseUrl = safeUrl(links.abuseipdb);
+            const ipinfoUrl = safeUrl(links.ipinfo);
+            const ciscoUrl = safeUrl(links.cisco_talos);
+            const whoisUrl = safeUrl(domLinks.whois);
 
             cards.push(`
                 <div class="p-4 rounded-xl bg-surface-950 border border-slate-800 space-y-3 shadow-sm hover:border-slate-700 transition">
                     <div class="flex items-start justify-between gap-2 border-b border-slate-800/60 pb-2.5">
                         <div>
                             <h4 class="font-mono font-bold text-sm text-cyan-300 truncate max-w-[240px]" title="${escapeHtml(hostKey)}">${escapeHtml(hostKey)}</h4>
-                            <p class="text-[11px] text-slate-400 font-mono mt-0.5">${f.dst_ip} • ${escapeHtml(f.provider || 'Внешний хост')}</p>
+                            <p class="text-[11px] text-slate-400 font-mono mt-0.5">${escapeHtml(f.dst_ip)} • ${escapeHtml(f.provider || 'Внешний хост')}</p>
                         </div>
                         <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-900 text-slate-400 border border-slate-800 shrink-0">Порт ${f.dst_port}</span>
                     </div>
 
                     <div class="flex flex-wrap gap-2 pt-1">
-                        ${links.virustotal ? `<a href="${links.virustotal}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition flex items-center space-x-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-indigo-400"></i><span>VirusTotal</span></a>` : ''}
-                        ${links.abuseipdb ? `<a href="${links.abuseipdb}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition flex items-center space-x-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-400"></i><span>AbuseIPDB</span></a>` : ''}
-                        ${links.ipinfo ? `<a href="${links.ipinfo}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center space-x-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-cyan-400"></i><span>IPinfo (Гео)</span></a>` : ''}
-                        ${links.cisco_talos ? `<a href="${links.cisco_talos}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center space-x-1.5"><i data-lucide="activity" class="w-3.5 h-3.5 text-emerald-400"></i><span>Cisco Talos</span></a>` : ''}
-                        ${domLinks.whois ? `<a href="${domLinks.whois}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center space-x-1.5"><i data-lucide="info" class="w-3.5 h-3.5 text-amber-400"></i><span>WHOIS</span></a>` : ''}
+                        ${vtUrl ? `<a href="${escapeHtml(vtUrl)}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition flex items-center space-x-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-indigo-400"></i><span>VirusTotal</span></a>` : ''}
+                        ${abuseUrl ? `<a href="${escapeHtml(abuseUrl)}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition flex items-center space-x-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-400"></i><span>AbuseIPDB</span></a>` : ''}
+                        ${ipinfoUrl ? `<a href="${escapeHtml(ipinfoUrl)}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center space-x-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-cyan-400"></i><span>IPinfo (Гео)</span></a>` : ''}
+                        ${ciscoUrl ? `<a href="${escapeHtml(ciscoUrl)}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center space-x-1.5"><i data-lucide="activity" class="w-3.5 h-3.5 text-emerald-400"></i><span>Cisco Talos</span></a>` : ''}
+                        ${whoisUrl ? `<a href="${escapeHtml(whoisUrl)}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center space-x-1.5"><i data-lucide="info" class="w-3.5 h-3.5 text-amber-400"></i><span>WHOIS</span></a>` : ''}
                     </div>
                 </div>
             `);
@@ -344,7 +352,7 @@ function renderInvestigationReport(rep) {
         if (cards.length === 0) {
             if (rep.recent_dns && rep.recent_dns.length > 0) {
                 const dnsItems = rep.recent_dns.slice(0, 8).map(d => `
-                    <button type="button" onclick="document.getElementById('investigator-manual-ip').value='${escapeHtml(d.domain)}'; startInvestigatorManualRun();" class="p-2.5 rounded-xl bg-surface-950 border border-slate-800 hover:border-indigo-500/50 text-left transition space-y-1">
+                    <button type="button" data-domain="${escapeHtml(d.domain)}" onclick="document.getElementById('investigator-manual-ip').value=this.dataset.domain; startInvestigatorManualRun();" class="p-2.5 rounded-xl bg-surface-950 border border-slate-800 hover:border-indigo-500/50 text-left transition space-y-1">
                         <div class="font-mono text-xs font-bold text-cyan-300 truncate">${escapeHtml(d.domain)}</div>
                         <div class="text-[10px] text-slate-400 font-mono">${escapeHtml(d.ip || 'DNS-запрос')} • ${d.last_seen ? new Date(d.last_seen).toLocaleTimeString('ru-RU') : ''}</div>
                         <div class="text-[10px] text-indigo-400 flex items-center space-x-1 pt-0.5">
@@ -442,7 +450,7 @@ function renderInvestigationReport(rep) {
             if (isSmartTv) {
                 if (target.profile !== 'smart_tv') {
                     buttonsHtml += `
-                        <button type="button" onclick="applyInvestigatorProfile('${escapeHtml(target.mac)}', 'smart_tv')" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="applyInvestigatorProfile(this.dataset.mac, 'smart_tv')" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="tv" class="w-4 h-4"></i>
                             <span>Назначить профиль Smart TV</span>
                         </button>
@@ -450,14 +458,14 @@ function renderInvestigationReport(rep) {
                 }
                 if (target.is_blocked_wan) {
                     buttonsHtml += `
-                        <button type="button" onclick="toggleInvestigatorWan('${escapeHtml(target.mac)}', false)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="toggleInvestigatorWan(this.dataset.mac, false)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="globe" class="w-4 h-4"></i>
                             <span>Разблокировать выход в интернет (WAN)</span>
                         </button>
                     `;
                 } else {
                     buttonsHtml += `
-                        <button type="button" onclick="toggleInvestigatorWan('${escapeHtml(target.mac)}', true)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="toggleInvestigatorWan(this.dataset.mac, true)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="shield-ban" class="w-4 h-4"></i>
                             <span>Заблокировать выход в интернет (WAN)</span>
                         </button>
@@ -466,7 +474,7 @@ function renderInvestigationReport(rep) {
             } else if (target.os_type === 'iot') {
                 if (target.profile !== 'iot') {
                     buttonsHtml += `
-                        <button type="button" onclick="applyInvestigatorProfile('${escapeHtml(target.mac)}', 'iot')" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="applyInvestigatorProfile(this.dataset.mac, 'iot')" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="cpu" class="w-4 h-4"></i>
                             <span>Назначить профиль IoT</span>
                         </button>
@@ -474,14 +482,14 @@ function renderInvestigationReport(rep) {
                 }
                 if (target.is_blocked_wan) {
                     buttonsHtml += `
-                        <button type="button" onclick="toggleInvestigatorWan('${escapeHtml(target.mac)}', false)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="toggleInvestigatorWan(this.dataset.mac, false)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="globe" class="w-4 h-4"></i>
                             <span>Разблокировать выход в интернет (WAN)</span>
                         </button>
                     `;
                 } else {
                     buttonsHtml += `
-                        <button type="button" onclick="toggleInvestigatorWan('${escapeHtml(target.mac)}', true)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="toggleInvestigatorWan(this.dataset.mac, true)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="shield-ban" class="w-4 h-4"></i>
                             <span>Заблокировать выход в интернет (WAN)</span>
                         </button>
@@ -490,14 +498,14 @@ function renderInvestigationReport(rep) {
             } else {
                 if (target.is_blocked_wan) {
                     buttonsHtml += `
-                        <button type="button" onclick="toggleInvestigatorWan('${escapeHtml(target.mac)}', false)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="toggleInvestigatorWan(this.dataset.mac, false)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="globe" class="w-4 h-4"></i>
                             <span>Разблокировать выход в интернет (WAN)</span>
                         </button>
                     `;
                 } else {
                     buttonsHtml += `
-                        <button type="button" onclick="toggleInvestigatorWan('${escapeHtml(target.mac)}', true)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="toggleInvestigatorWan(this.dataset.mac, true)" class="w-full px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="shield-ban" class="w-4 h-4"></i>
                             <span>Заблокировать выход в интернет (WAN)</span>
                         </button>
@@ -505,7 +513,7 @@ function renderInvestigationReport(rep) {
                 }
                 if (target.profile !== 'trusted') {
                     buttonsHtml += `
-                        <button type="button" onclick="applyInvestigatorProfile('${escapeHtml(target.mac)}', 'trusted')" class="w-full px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center justify-center space-x-2 shadow-sm">
+                        <button type="button" data-mac="${escapeHtml(target.mac)}" onclick="applyInvestigatorProfile(this.dataset.mac, 'trusted')" class="w-full px-3.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center justify-center space-x-2 shadow-sm">
                             <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
                             <span>Назначить профиль «Доверенный»</span>
                         </button>
@@ -580,13 +588,13 @@ function renderInvestigationReport(rep) {
     const ipBlockInput = document.getElementById('investigator-ip-block-input');
     if (ipBlockInput) {
         ipBlockInput.value = '';
-        const suspIpFlow = (rep.flows || []).find(f => (f.flow_risk === 'warning' || f.flow_risk === 'critical') && isBlockableIpCandidate(f.remote_ip));
+        const suspIpFlow = (rep.flows || []).find(f => (f.flow_risk === 'warning' || f.flow_risk === 'critical') && isBlockableIpCandidate(f.dst_ip || f.remote_ip));
         if (suspIpFlow) {
-            ipBlockInput.value = suspIpFlow.remote_ip;
+            ipBlockInput.value = suspIpFlow.dst_ip || suspIpFlow.remote_ip;
         } else {
-            const anyValidIpFlow = (rep.flows || []).find(f => isBlockableIpCandidate(f.remote_ip));
+            const anyValidIpFlow = (rep.flows || []).find(f => isBlockableIpCandidate(f.dst_ip || f.remote_ip));
             if (anyValidIpFlow) {
-                ipBlockInput.value = anyValidIpFlow.remote_ip;
+                ipBlockInput.value = anyValidIpFlow.dst_ip || anyValidIpFlow.remote_ip;
             }
         }
     }
@@ -646,7 +654,7 @@ function renderPlaybookContent(playbook, activeOs) {
             ${s.command ? `
                 <div class="relative group">
                     <pre class="bg-surface-900 border border-slate-800 rounded-xl p-3 pr-24 text-xs font-mono text-cyan-300 overflow-x-auto select-all"><code>${escapeHtml(s.command)}</code></pre>
-                    <button type="button" onclick="copyInvestigatorCommand(this, '${escapeHtml(s.command.replace(/'/g, "\\'"))}')" class="absolute right-2 top-2 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-medium border border-slate-700 transition flex items-center space-x-1 shadow">
+                    <button type="button" data-command="${escapeHtml(s.command)}" onclick="copyInvestigatorCommand(this, this.dataset.command)" class="absolute right-2 top-2 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-medium border border-slate-700 transition flex items-center space-x-1 shadow">
                         <i data-lucide="copy" class="w-3 h-3"></i>
                         <span>Копировать</span>
                     </button>

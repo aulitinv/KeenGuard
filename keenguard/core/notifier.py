@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import html
 import json
 import logging
 from pathlib import Path
@@ -50,6 +51,40 @@ def get_main_reply_keyboard() -> Dict[str, Any]:
 class TelegramNotifier:
     def __init__(self):
         self.http_timeout = 8.0
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_proxy: Optional[str] = None
+
+    async def _get_client(self, timeout: Optional[float] = None, proxy: Optional[str] = None) -> httpx.AsyncClient:
+        if proxy is not None and proxy != settings.telegram_proxy:
+            client_kwargs: Dict[str, Any] = {"timeout": timeout or self.http_timeout}
+            if proxy.strip():
+                client_kwargs["proxy"] = proxy.strip()
+            return httpx.AsyncClient(**client_kwargs)
+
+        curr_proxy = settings.telegram_proxy
+        is_closed = getattr(self._client, "is_closed", False)
+        if self._client is None or is_closed or self._client_proxy != curr_proxy:
+            if self._client and not is_closed and hasattr(self._client, "aclose"):
+                try:
+                    await self._client.aclose()
+                except RuntimeError:
+                    pass
+            client_kwargs = {"timeout": timeout or self.http_timeout}
+            if curr_proxy and curr_proxy.strip():
+                client_kwargs["proxy"] = curr_proxy.strip()
+            self._client = httpx.AsyncClient(**client_kwargs)
+            self._client_proxy = curr_proxy
+        return self._client
+
+    async def close(self):
+        """Closes the underlying HTTP client session."""
+        if self._client and not getattr(self._client, "is_closed", False) and hasattr(self._client, "aclose"):
+            try:
+                await self._client.aclose()
+            except RuntimeError:
+                pass
+            finally:
+                self._client = None
 
     async def send_message(self, text: str, token: Optional[str] = None,
                            chat_id: Optional[str] = None,
@@ -80,19 +115,16 @@ class TelegramNotifier:
             payload["reply_markup"] = reply_markup
 
         try:
-            client_kwargs = {"timeout": self.http_timeout}
-            if t_proxy and t_proxy.strip():
-                client_kwargs["proxy"] = t_proxy.strip()
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                res = await client.post(url, json=payload)
-                data = res.json()
-                if res.status_code == 200 and data.get("ok"):
-                    logger.info("Telegram message successfully delivered to %s", t_chat)
-                    return {"status": "ok", "message": "Сообщение успешно отправлено", "result": data.get("result")}
-                else:
-                    err = data.get("description", f"HTTP {res.status_code}")
-                    logger.warning("Telegram API error: %s", err)
-                    return {"status": "error", "message": f"Ошибка Telegram: {err}"}
+            client = await self._get_client(timeout=self.http_timeout, proxy=t_proxy)
+            res = await client.post(url, json=payload)
+            data = res.json()
+            if res.status_code == 200 and data.get("ok"):
+                logger.info("Telegram message successfully delivered to %s", t_chat)
+                return {"status": "ok", "message": "Сообщение успешно отправлено", "result": data.get("result")}
+            else:
+                err = data.get("description", f"HTTP {res.status_code}")
+                logger.warning("Telegram API error: %s", err)
+                return {"status": "error", "message": f"Ошибка Telegram: {err}"}
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to deliver Telegram notification: %s", e)
             return {"status": "error", "message": f"Сетевая ошибка отправки: {str(e)}"}
@@ -112,12 +144,12 @@ class TelegramNotifier:
             raw_url = f"https://{raw_url}"
         t_proxy = proxy if proxy is not None else settings.telegram_proxy
 
-        if not t_token or not t_chat:
-            return {"status": "error", "message": "Telegram Bot Token или Chat ID не настроены"}
-
         path_obj = Path(file_path)
         if not path_obj.exists() or not path_obj.is_file():
             return {"status": "error", "message": f"Файл не найден: {path_obj.name}"}
+
+        if not t_token or not t_chat:
+            return {"status": "error", "message": "Telegram Bot Token или Chat ID не настроены"}
 
         url = f"{raw_url}/bot{t_token}/sendDocument"
         data: Dict[str, Any] = {
@@ -129,28 +161,26 @@ class TelegramNotifier:
             data["parse_mode"] = "HTML"
 
         try:
-            client_kwargs = {"timeout": 30.0}
-            if t_proxy and t_proxy.strip():
-                client_kwargs["proxy"] = t_proxy.strip()
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                with open(path_obj, "rb") as f:
-                    file_content = f.read()
-                files = {"document": (path_obj.name, file_content, "application/octet-stream")}
-                res = await client.post(url, data=data, files=files)
-                res_data = res.json()
-                if res.status_code == 200 and res_data.get("ok"):
-                    logger.info("Telegram document %s successfully delivered to %s", path_obj.name, t_chat)
-                    return {"status": "ok", "message": "Документ успешно отправлен", "result": res_data.get("result")}
-                else:
-                    err = res_data.get("description", f"HTTP {res.status_code}")
-                    logger.warning("Telegram API sendDocument error: %s", err)
-                    return {"status": "error", "message": f"Ошибка Telegram: {err}"}
+            client = await self._get_client(timeout=30.0, proxy=t_proxy)
+            with open(path_obj, "rb") as f:
+                file_content = f.read()
+            files = {"document": (path_obj.name, file_content, "application/octet-stream")}
+            res = await client.post(url, data=data, files=files)
+            res_data = res.json()
+            if res.status_code == 200 and res_data.get("ok"):
+                logger.info("Telegram document %s successfully delivered to %s", path_obj.name, t_chat)
+                return {"status": "ok", "message": "Документ успешно отправлен", "result": res_data.get("result")}
+            else:
+                err = res_data.get("description", f"HTTP {res.status_code}")
+                logger.warning("Telegram API sendDocument error: %s", err)
+                return {"status": "error", "message": f"Ошибка Telegram: {err}"}
         except (httpx.HTTPError, OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to deliver Telegram document: %s", e)
             return {"status": "error", "message": f"Сетевая ошибка отправки: {str(e)}"}
 
     async def answer_callback_query(self, callback_query_id: str, text: str = "Выполнено",
-                                    token: Optional[str] = None, api_url: Optional[str] = None) -> bool:
+                                    token: Optional[str] = None, api_url: Optional[str] = None,
+                                    proxy: Optional[str] = None) -> bool:
         """Acknowledges a callback query from an inline keyboard button."""
         t_token = token or settings.telegram_bot_token
         if not t_token:
@@ -158,18 +188,20 @@ class TelegramNotifier:
         raw_url = (api_url or settings.telegram_api_url or "https://api.telegram.org").strip().rstrip("/")
         if not raw_url.startswith(("http://", "https://")):
             raw_url = f"https://{raw_url}"
+        t_proxy = proxy if proxy is not None else settings.telegram_proxy
         url = f"{raw_url}/bot{t_token}/answerCallbackQuery"
         try:
-            async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-                res = await client.post(url, json={"callback_query_id": callback_query_id, "text": text})
-                return res.status_code == 200
+            client = await self._get_client(timeout=self.http_timeout, proxy=t_proxy)
+            res = await client.post(url, json={"callback_query_id": callback_query_id, "text": text})
+            return res.status_code == 200
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Failed to answer callback query: %s", e)
             return False
 
     async def edit_message_text(self, chat_id: Union[int, str], message_id: int, text: str,
                                 reply_markup: Optional[Dict[str, Any]] = None,
-                                token: Optional[str] = None, api_url: Optional[str] = None) -> bool:
+                                token: Optional[str] = None, api_url: Optional[str] = None,
+                                proxy: Optional[str] = None) -> bool:
         """Updates text of an existing message in Telegram."""
         t_token = token or settings.telegram_bot_token
         if not t_token:
@@ -177,6 +209,7 @@ class TelegramNotifier:
         raw_url = (api_url or settings.telegram_api_url or "https://api.telegram.org").strip().rstrip("/")
         if not raw_url.startswith(("http://", "https://")):
             raw_url = f"https://{raw_url}"
+        t_proxy = proxy if proxy is not None else settings.telegram_proxy
         url = f"{raw_url}/bot{t_token}/editMessageText"
         payload: Dict[str, Any] = {
             "chat_id": chat_id,
@@ -188,10 +221,12 @@ class TelegramNotifier:
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
         try:
-            async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-                res = await client.post(url, json=payload)
-                return res.status_code == 200
+            client = await self._get_client(timeout=self.http_timeout, proxy=t_proxy)
+            res = await client.post(url, json=payload)
+            return res.status_code == 200
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            logger.debug("Failed to edit message text: %s", e)
+            return False
             logger.debug("Failed to edit message text: %s", e)
             return False
 
@@ -224,21 +259,23 @@ class TelegramNotifier:
                 logger.debug("Quiet hours active (%02d:00-%02d:00); sending alert silently", start_h, end_h)
 
         icon = SEVERITY_ICONS.get(event.severity, "🔔")
-        title = SEVERITY_TITLES.get(event.severity, "СОБЫТИЕ")
+        title = html.escape(str(SEVERITY_TITLES.get(event.severity, "СОБЫТИЕ")))
+        event_type = html.escape(str(event.event_type or ""))
+        description = html.escape(str(event.description or ""))
 
         lines = [
             f"{icon} <b>KeenGuard: {title}</b>",
             "",
-            f"<b>Событие:</b> <code>{event.event_type}</code>",
-            f"<b>Описание:</b> {event.description}",
+            f"<b>Событие:</b> <code>{event_type}</code>",
+            f"<b>Описание:</b> {description}",
         ]
 
         if event.target_ip or event.target_mac:
-            target_str = f"{event.target_ip or ''} ({event.target_mac or ''})".strip()
+            target_str = html.escape(f"{event.target_ip or ''} ({event.target_mac or ''})".strip())
             lines.append(f"<b>Устройство:</b> <code>{target_str}</code>")
 
         if event.source_ip or event.source_mac:
-            source_str = f"{event.source_name or event.source_ip or ''} ({event.source_mac or ''})".strip()
+            source_str = html.escape(f"{event.source_name or event.source_ip or ''} ({event.source_mac or ''})".strip())
             lines.append(f"<b>Источник:</b> <code>{source_str}</code>")
 
         lines.append(f"<b>Время:</b> <i>{event.timestamp[:19].replace('T', ' ')} UTC</i>")
@@ -293,7 +330,9 @@ class TelegramNotifier:
         reply_markup = {"inline_keyboard": keyboard} if keyboard else None
         text = "\n".join(lines)
         res = await self.send_message(text, reply_markup=reply_markup, disable_notification=disable_notif)
-        return res.get("status") == "ok"
+        if isinstance(res, dict):
+            return res.get("status") == "ok"
+        return bool(res)
 
     async def setup_bot_commands(self) -> bool:
         """Registers bot command list and configures the native [Menu] button in Telegram."""
@@ -312,14 +351,11 @@ class TelegramNotifier:
             {"command": "digest", "description": "🛡️ Сводка безопасности"},
         ]
         try:
-            client_kwargs = {"timeout": self.http_timeout}
-            if t_proxy and t_proxy.strip():
-                client_kwargs["proxy"] = t_proxy.strip()
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                await client.post(f"{raw_url}/bot{t_token}/setMyCommands", json={"commands": commands})
-                await client.post(f"{raw_url}/bot{t_token}/setChatMenuButton", json={"menu_button": {"type": "commands"}})
-                logger.info("Telegram [Menu] button and commands successfully registered.")
-                return True
+            client = await self._get_client(timeout=self.http_timeout, proxy=t_proxy)
+            await client.post(f"{raw_url}/bot{t_token}/setMyCommands", json={"commands": commands})
+            await client.post(f"{raw_url}/bot{t_token}/setChatMenuButton", json={"menu_button": {"type": "commands"}})
+            logger.info("Telegram [Menu] button and commands successfully registered.")
+            return True
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Failed to set Telegram bot commands: %s", e)
             return False

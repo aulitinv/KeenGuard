@@ -16,9 +16,9 @@ class AdGuardHomeProvider(BaseDnsSecurityProvider):
     """Integration with AdGuard Home instances running on router, LAN or VPS."""
 
     def __init__(self, base_url: str = "", username: str = "", password: str = "", url: str = ""):
-        self.base_url = (url or base_url).strip().rstrip("/")
-        self.username = username.strip()
-        self.password = password.strip()
+        self.base_url = (url or base_url or "").strip().rstrip("/")
+        self.username = (username or "").strip()
+        self.password = (password or "").strip()
 
     @property
     def provider_id(self) -> str:

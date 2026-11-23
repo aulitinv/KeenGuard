@@ -177,3 +177,169 @@ def test_template_builder_integrity(html_content: str):
     from keenguard.web.builder import assemble_index_html
     assembled = assemble_index_html()
     assert assembled == html_content, "Assembled templates must match static index.html byte-for-byte"
+
+
+def test_index_serve_no_rebuild_in_production():
+    """Verify GET / does not trigger build_index_html unless dev_reload=True."""
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    from keenguard.web.app import app
+    from keenguard.config import settings
+
+    orig_dev = settings.dev_reload
+    try:
+        settings.dev_reload = False
+        with patch("keenguard.web.builder.build_index_html") as mock_build:
+            client = TestClient(app)
+            res = client.get("/")
+            assert res.status_code == 200
+            assert mock_build.call_count == 0
+
+        settings.dev_reload = True
+        with patch("keenguard.web.builder.build_index_html") as mock_build:
+            client = TestClient(app)
+            res = client.get("/")
+            assert res.status_code == 200
+            assert mock_build.call_count == 1
+    finally:
+        settings.dev_reload = orig_dev
+
+
+def test_template_builder_crlf_compatibility(tmp_path):
+    """Verify that builder handles Windows CRLF (\r\n) line endings seamlessly."""
+    from keenguard.web.builder import assemble_index_html
+
+    base_crlf = (
+        "<!DOCTYPE html>\r\n"
+        "<html>\r\n"
+        "<head><title>Test</title></head>\r\n"
+        "<body>\r\n"
+        "<!-- {{ TABS_CONTENT }} -->\r\n"
+        "<div>Content</div>\r\n"
+        "<!-- {{ MODALS_CONTENT }} -->\r\n"
+        "</body>\r\n"
+        "</html>\r\n"
+    )
+
+    (tmp_path / "base.html").write_text(base_crlf, encoding="utf-8")
+    (tmp_path / "tabs").mkdir()
+    (tmp_path / "modals").mkdir()
+    (tmp_path / "tabs" / "dashboard.html").write_text("<div>Dashboard</div>\r\n", encoding="utf-8")
+    (tmp_path / "modals" / "login_modal.html").write_text("<div>Login</div>\r\n", encoding="utf-8")
+
+    assembled = assemble_index_html(templates_dir=tmp_path)
+    assert "<!-- {{ TABS_CONTENT }} -->" not in assembled
+    assert "<!-- {{ MODALS_CONTENT }} -->" not in assembled
+    assert "<div>Dashboard</div>" in assembled
+    assert "<div>Login</div>" in assembled
+
+
+def test_security_headers_middleware():
+    """Verify standard HTTP security headers are set on web responses."""
+    from fastapi.testclient import TestClient
+    from keenguard.web.app import app
+
+    client = TestClient(app)
+    res = client.get("/")
+    assert res.headers.get("X-Content-Type-Options") == "nosniff"
+    assert res.headers.get("X-Frame-Options") == "DENY"
+    assert res.headers.get("Referrer-Policy") == "no-referrer"
+
+
+def test_cdn_library_versions_pinned(html_content: str):
+    """Verify critical external libraries (Lucide, Chart.js) have pinned semantic versions."""
+    assert "lucide@0.468.0" in html_content or "lucide@" in html_content
+    assert "chart.js@4.4.7" in html_content or "chart.js@" in html_content
+    # Must not use floating latest tags
+    assert "lucide@latest" not in html_content
+    assert "chart.js@latest" not in html_content
+    assert "unpkg.com/lucide\"" not in html_content  # unpinned without version
+
+
+def test_no_inline_onclick_interpolation(js_content: str):
+    """
+    Prevent Stored/DOM XSS:
+    Verify that no JS template contains dangerous inline onclick with interpolated JS strings like
+    onclick="func('${...}')" or onclick="func('${escapeHtml(...)}')".
+    Instead, attributes MUST use data-* attributes with this.dataset.*
+    """
+    dangerous_matches = re.findall(
+        r'onclick\s*=\s*\\?["\'][^"\'>]*\$\{[^}]*escapeHtml[^}]*\}[^"\'>]*\\?["\']',
+        js_content
+    )
+    assert not dangerous_matches, (
+        f"Found forbidden inline onclick with escapeHtml interpolation (use data-* and this.dataset instead):\n"
+        f"{dangerous_matches}"
+    )
+
+    single_quote_interpolation = re.findall(
+        r'onclick\s*=\s*\\?["\'][^"\'>]*\'\$\{[^}]+\}\'[^"\'>]*\\?["\']',
+        js_content
+    )
+    assert not single_quote_interpolation, (
+        f"Found forbidden inline onclick with quoted JS interpolation:\n"
+        f"{single_quote_interpolation}"
+    )
+
+
+def test_single_dom_content_loaded():
+    """Verify only one single DOMContentLoaded listener exists across frontend core and modules."""
+    js_dir = STATIC_DIR / "js"
+    listeners = []
+    for file in [APP_JS] + list(js_dir.rglob("*.js")):
+        text = file.read_text(encoding="utf-8")
+        matches = re.findall(r'document\.addEventListener\(\s*[\'"]DOMContentLoaded[\'"]', text)
+        if matches:
+            listeners.append((file.name, len(matches)))
+
+    assert len(listeners) == 1, f"Expected exactly 1 file registering DOMContentLoaded, found: {listeners}"
+    assert listeners[0][0] == "app.js", f"DOMContentLoaded must be located in app.js, found in {listeners[0][0]}"
+    assert listeners[0][1] == 1, f"app.js must register DOMContentLoaded exactly once"
+
+
+def test_builder_template_assembly_with_backslashes(tmp_path: Path):
+    """
+    Verify that assemble_index_html correctly handles backslashes in templates
+    (e.g., Windows paths 'C:\\Users\\test\\file' and regex backreferences like '\\1', '\\g<0>')
+    without re.error or string corruption.
+    """
+    from keenguard.web.builder import assemble_index_html
+
+    tpl_dir = tmp_path / "templates"
+    tabs_dir = tpl_dir / "tabs"
+    modals_dir = tpl_dir / "modals"
+    tabs_dir.mkdir(parents=True)
+    modals_dir.mkdir(parents=True)
+
+    base_html = (
+        "<!DOCTYPE html>\n<html><body>\n"
+        "<!-- {{ TABS_CONTENT }} -->\n"
+        "<!-- {{ MODALS_CONTENT }} -->\n"
+        "</body></html>"
+    )
+    (tpl_dir / "base.html").write_text(base_html, encoding="utf-8")
+
+    backslash_tab_content = (
+        '<div id="view-dashboard">\n'
+        "  <span>Path: C:\\Users\\test\\file</span>\n"
+        "  <span>Ref: \\1 and \\g<0> and \\2</span>\n"
+        "</div>"
+    )
+    (tabs_dir / "dashboard.html").write_text(backslash_tab_content, encoding="utf-8")
+
+    backslash_modal_content = (
+        '<div id="command-palette-modal">\n'
+        "  <span>RegEx: ^[a-z]\\d+\\s*$</span>\n"
+        "  <span>Escape: \\n \\t \\r \\1</span>\n"
+        "</div>"
+    )
+    (modals_dir / "command_palette.html").write_text(backslash_modal_content, encoding="utf-8")
+
+    assembled = assemble_index_html(templates_dir=tpl_dir)
+
+    assert "C:\\Users\\test\\file" in assembled
+    assert "\\1 and \\g<0> and \\2" in assembled
+    assert "^[a-z]\\d+\\s*$" in assembled
+    assert "\\n \\t \\r \\1" in assembled
+
+

@@ -18,8 +18,8 @@ class NextDnsProvider(BaseDnsSecurityProvider):
     """Integration with NextDNS Cloud DoH/DoT service via official REST API."""
 
     def __init__(self, api_key: str = "", profile_id: str = ""):
-        self.api_key = api_key.strip()
-        self.profile_id = profile_id.strip()
+        self.api_key = (api_key or "").strip()
+        self.profile_id = (profile_id or "").strip()
 
     @property
     def provider_id(self) -> str:

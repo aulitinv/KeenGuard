@@ -167,10 +167,13 @@ const COMMAND_PALETTE_ACTIONS = [
         subtitle: 'Переход в раздел аудита и старт сетевой сессии',
         icon: 'play',
         badge: 'Аудит',
-        action: () => {
-            switchTab('audits');
+        action: async () => {
+            await switchTab('audits');
+            if (typeof populateAuditDeviceSelect === 'function') {
+                await populateAuditDeviceSelect();
+            }
             const select = document.getElementById('audit-launch-device');
-            if (select) select.value = 'NETWORK';
+            if (select) select.value = '__ALL_NETWORK__';
             startTrafficAuditFromTab();
         }
     },
@@ -341,13 +344,13 @@ function renderCommandPaletteResults() {
                         </div>
                     </div>
                     <div class="flex items-center space-x-1.5 shrink-0">
-                        <button onclick="event.stopPropagation(); closeCommandPalette(); openDeviceModal('${dev.mac}');" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Открыть инспектор">
+                        <button data-mac="${escapeHtml(dev.mac)}" onclick="event.stopPropagation(); closeCommandPalette(); openDeviceModal(this.dataset.mac);" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Открыть инспектор">
                             <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
                         </button>
-                        <button onclick="event.stopPropagation(); closeCommandPalette(); switchTab('audits'); startDeviceAuditFromPalette('${dev.mac}');" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Запустить аудит">
+                        <button data-mac="${escapeHtml(dev.mac)}" onclick="event.stopPropagation(); closeCommandPalette(); switchTab('audits'); startDeviceAuditFromPalette(this.dataset.mac);" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Запустить аудит">
                             <i data-lucide="activity" class="w-3.5 h-3.5"></i>
                         </button>
-                        <button onclick="event.stopPropagation(); closeCommandPalette(); switchTab('packets'); filterPacketsByDevice('${dev.mac}');" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Инспектор пакетов">
+                        <button data-mac="${escapeHtml(dev.mac)}" onclick="event.stopPropagation(); closeCommandPalette(); switchTab('packets'); filterPacketsByDevice(this.dataset.mac);" class="cmd-action-btn opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Инспектор пакетов">
                             <i data-lucide="binary" class="w-3.5 h-3.5"></i>
                         </button>
                     </div>
@@ -393,8 +396,11 @@ function executeCommandPaletteItem(idx) {
 }
 window.executeCommandPaletteItem = executeCommandPaletteItem;
 
-function startDeviceAuditFromPalette(mac) {
-    switchTab('audits');
+async function startDeviceAuditFromPalette(mac) {
+    await switchTab('audits');
+    if (typeof populateAuditDeviceSelect === 'function') {
+        await populateAuditDeviceSelect();
+    }
     const select = document.getElementById('audit-launch-device');
     if (select) {
         select.value = mac;
@@ -403,9 +409,12 @@ function startDeviceAuditFromPalette(mac) {
 }
 window.startDeviceAuditFromPalette = startDeviceAuditFromPalette;
 
-function openDeviceAuditModal(mac, ip) {
+async function openDeviceAuditModal(mac, ip) {
     if (!mac) return;
-    switchTab('audits');
+    await switchTab('audits');
+    if (typeof populateAuditDeviceSelect === 'function') {
+        await populateAuditDeviceSelect();
+    }
     const select = document.getElementById('audit-launch-device');
     if (select) {
         select.value = mac;
@@ -465,7 +474,7 @@ window.addEventListener('keydown', e => {
 });
 
 // Setup input listeners on load
-document.addEventListener('DOMContentLoaded', () => {
+function initCommandPaletteInput() {
     const input = document.getElementById('cmd-palette-input');
     if (input) {
         input.addEventListener('input', () => {
@@ -473,7 +482,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderCommandPaletteResults();
         });
     }
-});
+}
+window.initCommandPaletteInput = initCommandPaletteInput;
 
 // Close command palette on click outside
 document.addEventListener('mousedown', e => {

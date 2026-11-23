@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional, Dict, Any
 import httpx
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Query
 from pydantic import BaseModel
 
 from keenguard.config import (
@@ -13,6 +13,8 @@ from keenguard.core.dns_providers import dns_security_manager
 from keenguard.core.domain_analyzer import (
     domain_analyzer,
     TV_BRAND_PRESETS,
+    is_ip_address_string,
+    is_forbidden_or_local_domain,
 )
 from keenguard.core.routers import router_manager
 from keenguard.web.state import (
@@ -84,7 +86,7 @@ CURATED_DNS_PRESETS = {
 
 
 @router.get("/api/dns/queries")
-async def get_dns_queries(limit: int = 100):
+async def get_dns_queries(limit: int = Query(100, ge=1, le=500)):
     db = get_db()
     queries = await db.get_top_dns_queries(limit=limit)
     domains = [q["domain"] for q in queries]
@@ -102,7 +104,7 @@ async def get_dns_queries(limit: int = 100):
 
     if domains:
         try:
-            sinkhole_map = await domain_analyzer.check_sinkholes_batch(domains)
+            sinkhole_map = await domain_analyzer.check_sinkholes_batch(domains, dns_server=router_manager.host)
         except (OSError, TimeoutError, ValueError, TypeError, KeyError) as e:
             logger.debug("Sinkhole batch check error: %s", e)
 
@@ -142,8 +144,9 @@ async def get_dns_queries(limit: int = 100):
                     break
 
         if is_static_sinkhole:
-            blocked_reason = "Заблокирован на Keenetic (0.0.0.0)"
-            effective_provider = "keenetic_sinkhole"
+            platform_name = router_manager.get_backend().platform_name
+            blocked_reason = f"Заблокирован на {platform_name} (0.0.0.0)"
+            effective_provider = "router_sinkhole"
         elif db_provider and is_blocked:
             effective_provider = db_provider
             blocked_reason = db_reason or f"Заблокирован {db_provider} (0.0.0.0)"
@@ -198,7 +201,7 @@ async def analyze_dns_domain(domain: str):
     # Check sinkhole resolution on router
     sinkhole_ip = None
     try:
-        sinkhole_ip = await domain_analyzer.check_domain_sinkhole_async(domain)
+        sinkhole_ip = await domain_analyzer.check_domain_sinkhole_async(domain, dns_server=router_manager.host)
     except (OSError, TimeoutError, ValueError, TypeError, KeyError) as e:
         logger.debug("Sinkhole check error for %s: %s", domain, e)
 
@@ -394,6 +397,12 @@ async def preview_dns_preset_api(preset: str):
 @router.post("/api/dns/sinkhole/block_selected")
 async def block_selected_domains_api(req: BlockSelectedSinkholeRequest):
     domains = [d.lower().strip().strip(".") for d in req.domains if d and "." in d]
+    invalid_domains = [d for d in domains if is_ip_address_string(d) or is_forbidden_or_local_domain(d)]
+    if invalid_domains:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Список содержит недопустимые IP-адреса или защищенные домены: {', '.join(invalid_domains[:5])}"
+        )
     blocked, failed = await router_manager.add_dns_sinkholes(domains)
     await ws_manager.broadcast({"type": "dns_sinkhole_updated", "action": "bulk_blocked", "count": len(blocked)})
     platform_name = router_manager.get_backend().platform_name
@@ -429,6 +438,8 @@ async def block_dns_sinkhole_api(req: DnsSinkholeRequest):
     domain = (req.domain or "").strip().lower().strip(".")
     if not domain or "." not in domain:
         raise HTTPException(status_code=400, detail="Некорректное доменное имя")
+    if is_ip_address_string(domain) or is_forbidden_or_local_domain(domain):
+        raise HTTPException(status_code=400, detail="Нельзя заблокировать IP-адрес или защищенный локальный/роутерный домен")
     success = await router_manager.add_dns_sinkhole(domain)
     platform_name = router_manager.get_backend().platform_name
     if success:
@@ -627,20 +638,15 @@ async def save_dns_provider_config_api(req: DnsProviderConfigUpdate):
     if _is_new_secret(req.pihole_password):
         settings.pihole_password = req.pihole_password.strip()
 
-    # Save to SQLite app_settings
+    # Save non-secret provider options to SQLite app_settings
     await db.save_setting("dns_security_provider", settings.dns_security_provider)
     await db.save_setting("dns_security_sync_interval", str(settings.dns_security_sync_interval))
     await db.save_setting("dns_security_auto_sync", "true" if settings.dns_security_auto_sync else "false")
-    await db.save_setting("nextdns_api_key", settings.nextdns_api_key)
     await db.save_setting("nextdns_profile_id", settings.nextdns_profile_id)
-    await db.save_setting("controld_api_key", settings.controld_api_key)
     await db.save_setting("controld_device_id", settings.controld_device_id)
     await db.save_setting("adguard_url", settings.adguard_url)
     await db.save_setting("adguard_username", settings.adguard_username)
-    await db.save_setting("adguard_password", settings.adguard_password)
     await db.save_setting("pihole_url", settings.pihole_url)
-    await db.save_setting("pihole_api_token", settings.pihole_api_token)
-    await db.save_setting("pihole_password", settings.pihole_password)
 
     # Persist to .env
     save_env_dns_provider_settings(
@@ -683,14 +689,56 @@ async def save_dns_provider_config_api(req: DnsProviderConfigUpdate):
 async def test_dns_provider_api(req: DnsProviderTestRequest):
     """Tests connection to a specified DNS security provider."""
     cfg = dict(req.config_override or {})
-    if cfg.get("nextdns_api_key", "").startswith("••"):
-        cfg["nextdns_api_key"] = settings.nextdns_api_key
-    if cfg.get("controld_api_key", "").startswith("••"):
-        cfg["controld_api_key"] = settings.controld_api_key
-    if cfg.get("adguard_password", "").startswith("••"):
+
+    # 1. AdGuard Home
+    adg_pwd = cfg.get("adguard_password")
+    if isinstance(adg_pwd, str) and adg_pwd.startswith("••"):
+        url_in_cfg = cfg.get("adguard_url")
+        saved_adg_url = (getattr(settings, "adguard_url", "") or "").strip().rstrip("/")
+        if url_in_cfg is not None and url_in_cfg.strip().rstrip("/") != saved_adg_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя использовать маскированный пароль AdGuard при изменении URL сервиса"
+            )
         cfg["adguard_password"] = settings.adguard_password
-    if cfg.get("pihole_api_token", "").startswith("••"):
-        cfg["pihole_api_token"] = settings.pihole_api_token
+
+    # 2. Pi-hole
+    pi_tok = cfg.get("pihole_api_token")
+    pi_pwd = cfg.get("pihole_password")
+    if (isinstance(pi_tok, str) and pi_tok.startswith("••")) or (isinstance(pi_pwd, str) and pi_pwd.startswith("••")):
+        url_in_cfg = cfg.get("pihole_url")
+        saved_pi_url = (getattr(settings, "pihole_url", "") or "").strip().rstrip("/")
+        if url_in_cfg is not None and url_in_cfg.strip().rstrip("/") != saved_pi_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя использовать маскированные учетные данные Pi-hole при изменении URL сервиса"
+            )
+        if isinstance(pi_tok, str) and pi_tok.startswith("••"):
+            cfg["pihole_api_token"] = settings.pihole_api_token
+        if isinstance(pi_pwd, str) and pi_pwd.startswith("••"):
+            cfg["pihole_password"] = settings.pihole_password
+
+    # 3. NextDNS
+    next_key = cfg.get("nextdns_api_key")
+    if isinstance(next_key, str) and next_key.startswith("••"):
+        url_in_cfg = cfg.get("nextdns_url") or cfg.get("api_url")
+        if url_in_cfg is not None and url_in_cfg.strip().rstrip("/") not in ("https://api.nextdns.io", ""):
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя использовать маскированный ключ NextDNS при нестандартном URL"
+            )
+        cfg["nextdns_api_key"] = settings.nextdns_api_key
+
+    # 4. Control D
+    ctrl_key = cfg.get("controld_api_key")
+    if isinstance(ctrl_key, str) and ctrl_key.startswith("••"):
+        url_in_cfg = cfg.get("controld_url") or cfg.get("api_url")
+        if url_in_cfg is not None and url_in_cfg.strip().rstrip("/") not in ("https://api.controld.com", ""):
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя использовать маскированный ключ Control D при нестандартном URL"
+            )
+        cfg["controld_api_key"] = settings.controld_api_key
 
     status = await dns_security_manager.test_provider(req.provider, config_override=cfg if cfg else None)
     return {
@@ -821,12 +869,11 @@ async def get_dns_bypass_status():
     active_sinkholes = []
     active_blackholes = []
     try:
-        from keenguard.web.state import get_keenetic_client
-        k_client = get_keenetic_client()
-        if k_client:
-            dot_blocked = await k_client.is_dot_blocked()
-            active_sinkholes = await k_client.get_active_sinkholes()
-            active_blackholes = await k_client.get_active_ip_blackholes()
+        backend = router_manager.get_backend()
+        if hasattr(backend, "is_dot_blocked"):
+            dot_blocked = await backend.is_dot_blocked()
+        active_sinkholes = await router_manager.get_active_sinkholes()
+        active_blackholes = await router_manager.get_active_ip_blackholes()
     except Exception as e:
         logger.debug("Failed fetching router DNS security status: %s", e)
 
@@ -849,12 +896,17 @@ async def get_dns_bypass_status():
 @router.post("/api/dns/security/toggle-dot")
 async def toggle_dot_blocking(req: ToggleDotRequest):
     """Enables or disables hardware blocking of port 853 TCP/UDP on Keenetic."""
-    from keenguard.web.state import get_keenetic_client
-    k_client = get_keenetic_client()
-    if not k_client:
-        raise HTTPException(status_code=503, detail="Keenetic client is not available")
+    if router_manager.platform_id != "keenetic":
+        raise HTTPException(
+            status_code=501,
+            detail="Аппаратная блокировка DoT (порт 853) поддерживается только на платформе Keenetic"
+        )
 
-    success = await k_client.block_dot_traffic(req.block)
+    backend = router_manager.get_backend()
+    if not hasattr(backend, "block_dot_traffic"):
+        raise HTTPException(status_code=501, detail="Бэкенд не поддерживает блокировку DoT")
+
+    success = await backend.block_dot_traffic(req.block)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update DoT blocking rules on router")
 
@@ -863,13 +915,9 @@ async def toggle_dot_blocking(req: ToggleDotRequest):
 
 @router.post("/api/dns/security/sinkhole-doh")
 async def sinkhole_doh_providers():
-    """Adds static DNS sinkhole records (0.0.0.0) for known DoH providers to Keenetic."""
-    from keenguard.web.state import get_keenetic_client
-    k_client = get_keenetic_client()
-    if not k_client:
-        raise HTTPException(status_code=503, detail="Keenetic client is not available")
-
-    succeeded, failed = await k_client.sinkhole_doh_providers()
+    """Adds static DNS sinkhole records (0.0.0.0) for known DoH providers to router."""
+    from keenguard.core.dns.doh_catalog import DOH_DOMAINS
+    succeeded, failed = await router_manager.add_dns_sinkholes(list(DOH_DOMAINS.keys()))
     return {
         "status": "ok",
         "succeeded_count": len(succeeded),
@@ -880,13 +928,9 @@ async def sinkhole_doh_providers():
 
 @router.post("/api/dns/security/blackhole-doh-ips")
 async def blackhole_doh_ips():
-    """Adds static reject IP routes for known Anycast DoH resolvers to Keenetic."""
-    from keenguard.web.state import get_keenetic_client
-    k_client = get_keenetic_client()
-    if not k_client:
-        raise HTTPException(status_code=503, detail="Keenetic client is not available")
-
-    succeeded, failed = await k_client.blackhole_public_doh_resolvers()
+    """Adds static reject IP routes for known Anycast DoH resolvers to router."""
+    from keenguard.core.dns.doh_catalog import PUBLIC_RESOLVER_IPS
+    succeeded, failed = await router_manager.add_ip_blackholes(list(PUBLIC_RESOLVER_IPS.keys()))
     return {
         "status": "ok",
         "succeeded_count": len(succeeded),

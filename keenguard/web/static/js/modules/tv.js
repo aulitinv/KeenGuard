@@ -29,7 +29,7 @@ async function loadTvForensics() {
             <div class="bg-surface-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
                 <div class="flex items-center justify-between">
                     <span class="font-bold text-sm text-white">${escapeHtml(tv.custom_name || tv.hostname || tv.ip)}</span>
-                    <span class="text-xs text-slate-400 font-mono">${tv.ip}</span>
+                    <span class="text-xs text-slate-400 font-mono">${escapeHtml(tv.ip)}</span>
                 </div>
                 <div class="space-y-2 text-xs">
                     <div class="flex items-center justify-between py-1 border-b border-slate-800/60">
@@ -53,7 +53,7 @@ async function loadTvForensics() {
                                 <span class="text-slate-200 font-medium block">🌙 Пассивный ночной мониторинг</span>
                                 <span class="text-[10px] text-slate-500 block">Запись PCAP при пробуждении (WOL/mDNS)</span>
                             </div>
-                            <input type="checkbox" ${tv.night_mode_enabled ? 'checked' : ''} onchange="toggleTvNight('${tv.mac}', this.checked)" class="w-4 h-4 rounded text-indigo-600 shrink-0">
+                            <input type="checkbox" ${tv.night_mode_enabled ? 'checked' : ''} data-mac="${escapeHtml(tv.mac)}" onchange="toggleTvNight(this.dataset.mac, this.checked)" class="w-4 h-4 rounded text-indigo-600 shrink-0">
                         </label>
                     </div>
                 </div>
@@ -85,14 +85,14 @@ async function loadTvForensics() {
                     <div class="border ${border} rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div class="space-y-1">
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs font-semibold px-2 py-0.5 rounded ${isCrit ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-800 text-slate-300'}">${e.event_type.toUpperCase()}</span>
+                                <span class="text-xs font-semibold px-2 py-0.5 rounded ${isCrit ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-800 text-slate-300'}">${escapeHtml(e.event_type.toUpperCase())}</span>
                                 <span class="text-xs text-slate-500">${timeStr}</span>
                             </div>
                             <p class="text-sm font-medium text-slate-200">${escapeHtml(e.description)}</p>
-                            ${e.source_ip ? `<p class="text-xs text-slate-400">Источник команды: <span class="font-mono text-indigo-300">${e.source_ip} (${e.source_mac || 'MAC N/A'})</span></p>` : ''}
+                            ${e.source_ip ? `<p class="text-xs text-slate-400">Источник команды: <span class="font-mono text-indigo-300">${escapeHtml(e.source_ip)} (${escapeHtml(e.source_mac || 'MAC N/A')})</span></p>` : ''}
                         </div>
                         ${e.pcap_file ? `
-                            <a href="/api/events/pcap/${e.pcap_file}" download class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition shrink-0">
+                            <a href="/api/events/pcap/${encodeURIComponent(e.pcap_file)}" download="${escapeHtml(e.pcap_file)}" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition shrink-0">
                                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
                                 <span>Скачать PCAP</span>
                             </a>
@@ -133,10 +133,7 @@ function renderTvBrandPresets() {
     if (!tvBrandPresetsData || !tvBrandPresetsData.presets) return;
 
     // 1. Update total active sinkholes badge
-    const totalBadge = document.getElementById('tv-sinkholes-total-badge');
-    if (totalBadge) {
-        safeSetText(totalBadge, `${tvBrandPresetsData.active_sinkholes_count || 0} активных правил 0.0.0.0`);
-    }
+    safeSetText('tv-sinkholes-total-badge', `${tvBrandPresetsData.active_sinkholes_count || 0} активных правил 0.0.0.0`);
 
     // 2. Render brand tabs
     const tabsContainer = document.getElementById('tv-brand-preset-tabs');
@@ -149,8 +146,8 @@ function renderTvBrandPresets() {
                 : 'bg-surface-950/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-slate-800';
 
             return `
-                <button type="button" onclick="switchTvBrandTab('${p.id}')" class="px-3.5 py-2 rounded-xl text-xs font-medium transition flex items-center space-x-2 shrink-0 ${tabClass}">
-                    <span>${p.name || p.brand || 'Smart TV'}</span>
+                <button type="button" data-preset-id="${escapeHtml(p.id)}" onclick="switchTvBrandTab(this.dataset.presetId)" class="px-3.5 py-2 rounded-xl text-xs font-medium transition flex items-center space-x-2 shrink-0 ${tabClass}">
+                    <span>${escapeHtml(p.name || p.brand || 'Smart TV')}</span>
                     ${hasDetected ? '<span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">В сети</span>' : ''}
                     <span class="px-1.5 py-0.2 rounded-full text-[10px] ${isActiveTab ? 'bg-indigo-700 text-indigo-100' : 'bg-slate-800 text-slate-400'}">${p.active_count ?? 0}/${p.total_count ?? p.blocked_domains_count ?? 0}</span>
                 </button>
@@ -163,14 +160,8 @@ function renderTvBrandPresets() {
     if (!preset) return;
 
     // Update block button labels
-    const safeLabel = document.getElementById('btn-block-safe-tv-brand-label');
-    if (safeLabel) {
-        safeSetText(safeLabel, `🟢 Заблокировать без риска (${preset.safe_count || 0})`);
-    }
-    const blockLabel = document.getElementById('btn-block-tv-brand-label');
-    if (blockLabel) {
-        safeSetText(blockLabel, `⛔ Блокировать ВСЕ (${preset.total_count || 0})`);
-    }
+    safeSetText('btn-block-safe-tv-brand-label', `🟢 Заблокировать без риска (${preset.safe_count || 0})`);
+    safeSetText('btn-block-tv-brand-label', `⛔ Блокировать ВСЕ (${preset.total_count || 0})`);
 
     // 4. Render active brand details (detected devices, troubleshooting guide, and remote hint)
     const detailsContainer = document.getElementById('tv-brand-preset-details');
@@ -301,7 +292,7 @@ function renderTvBrandPresets() {
                             }
                         </td>
                         <td class="py-3.5 px-4 text-right align-top">
-                            <button type="button" onclick="toggleTvBrandDomain('${escapeHtml(d.domain)}', ${!isBlocked})" class="px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${isBlocked ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700' : 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30'}">
+                            <button type="button" data-domain="${escapeHtml(d.domain)}" data-blocked="${!isBlocked}" onclick="toggleTvBrandDomain(this.dataset.domain, this.dataset.blocked === 'true')" class="px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${isBlocked ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700' : 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30'}">
                                 ${isBlocked ? 'Разблокировать' : '⛔ Блокировать'}
                             </button>
                         </td>

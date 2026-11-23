@@ -1,15 +1,17 @@
 """Stateful Telegram bot polling worker, interactive menus, callbacks, and inline builders."""
 import asyncio
 from datetime import datetime
+import html
 import json
 import logging
 from pathlib import Path
 import re
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Union
 import aiosqlite
 import httpx
 
 from keenguard.config import settings
+from keenguard.core.domain_analyzer import is_ip_address_string, is_forbidden_or_local_domain
 
 logger = logging.getLogger("keenguard.telegram_bot")
 
@@ -21,6 +23,37 @@ class TelegramBotWorker:
         self.running = False
         self._task: Optional[asyncio.Task] = None
         self.last_update_id = 0
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_proxy: Optional[str] = None
+
+    async def _get_client(self, timeout: float = 25.0, proxy: Optional[str] = None) -> httpx.AsyncClient:
+        """Retrieves or creates a pooled httpx.AsyncClient respecting proxy settings."""
+        target_proxy = proxy or settings.telegram_proxy
+        is_closed = getattr(self._client, "is_closed", False)
+        if self._client is None or is_closed or self._client_proxy != target_proxy:
+            if self._client and not is_closed and hasattr(self._client, "aclose"):
+                await self._client.aclose()
+            client_kwargs: Dict[str, Any] = {"timeout": timeout}
+            if target_proxy:
+                client_kwargs["proxy"] = target_proxy
+            self._client = httpx.AsyncClient(**client_kwargs)
+            self._client_proxy = target_proxy
+        return self._client
+
+    def _is_authorized(self, user_id: str, chat_id: Optional[Union[int, str]]) -> bool:
+        """Strict authorization: verifies user or group against trusted settings."""
+        trusted_chat = str(settings.telegram_chat_id).strip()
+        if not trusted_chat:
+            return False
+        allowed_users = set(str(u).strip() for u in getattr(settings, "telegram_allowed_user_ids", []) if str(u).strip())
+        if user_id in allowed_users:
+            return True
+        if not trusted_chat.startswith("-"):
+            return user_id == trusted_chat
+        else:
+            if str(chat_id) != trusted_chat:
+                return False
+            return user_id in allowed_users if allowed_users else True
 
     async def start(self):
         if self.running or not settings.telegram_enabled or not settings.telegram_bot_token:
@@ -42,6 +75,9 @@ class TelegramBotWorker:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        if self._client and not getattr(self._client, "is_closed", False) and hasattr(self._client, "aclose"):
+            await self._client.aclose()
+            self._client = None
         logger.info("Telegram interactive bot worker stopped.")
 
     async def _poll_loop(self):
@@ -67,12 +103,12 @@ class TelegramBotWorker:
         url = f"{raw_url}/bot{t_token}/getUpdates"
         params = {"offset": self.last_update_id + 1, "timeout": 15}
         try:
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                res = await client.get(url, params=params)
-                if res.status_code == 200:
-                    data = res.json()
-                    if data.get("ok"):
-                        return data.get("result", [])
+            client = await self._get_client(timeout=25.0, proxy=settings.telegram_proxy)
+            res = await client.get(url, params=params)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("ok"):
+                    return data.get("result", [])
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.debug("Telegram getUpdates error: %s", e)
         await asyncio.sleep(3)
@@ -98,8 +134,11 @@ class TelegramBotWorker:
         total_count = len(devices)
         backend = router_manager.get_backend()
         sys_info = await backend.get_system_info()
-        model = sys_info.model or backend.platform_name
-        platform = backend.platform_name
+        platform_raw = backend.platform_name
+        model_raw = sys_info.model or platform_raw
+        platform = html.escape(str(platform_raw))
+        model = html.escape(str(model_raw))
+        host_ip = html.escape(str(getattr(backend, "host", "192.168.1.1")))
 
         # ASCII visual indicators
         dev_bar = render_progress_bar(online_count, total_count) if total_count > 0 else "[──────────]"
@@ -114,7 +153,7 @@ class TelegramBotWorker:
             f"🛡️ <b>KeenGuard Security Status</b>\n\n"
             f"<b>Платформа:</b> {platform}\n"
             f"<b>Роутер:</b> {model}\n"
-            f"<b>Сеть:</b> 192.168.1.1 (Bridge0)\n"
+            f"<b>Сеть:</b> <code>{host_ip}</code> ({platform})\n"
             f"<b>Устройства онлайн:</b> {dev_bar} <b>{online_count}</b> из <b>{total_count}</b>\n"
             f"<b>Гостевой Wi-Fi:</b> {guest_status}\n"
             f"<b>Тихие часы:</b> {qh_status}\n\n"
@@ -181,9 +220,12 @@ class TelegramBotWorker:
             ""
         ]
         for d in page_items:
-            name = d.custom_name or d.hostname or d.vendor or d.mac
+            name = html.escape(str(d.custom_name or d.hostname or d.vendor or d.mac))
+            ip_str = html.escape(str(d.ip or 'No IP'))
+            prof_str = html.escape(str(d.profile))
+            seg_str = html.escape(str(d.segment or 'Home'))
             status_icon = "🚫" if d.is_blocked_wan else "🌐"
-            lines.append(f"• <b>{name}</b> ({d.ip or 'No IP'}) — {status_icon} <code>{d.profile}</code> [<code>{d.segment or 'Home'}</code>]")
+            lines.append(f"• <b>{name}</b> ({ip_str}) — {status_icon} <code>{prof_str}</code> [<code>{seg_str}</code>]")
 
         if not filtered:
             lines.append("<i>В данной категории нет активных устройств.</i>")
@@ -243,13 +285,19 @@ class TelegramBotWorker:
     async def _build_device_detail_payload(self, mac: str) -> Tuple[str, Dict[str, Any]]:
         from keenguard.db.database import db
         clean_mac = mac.upper()
+        clean_mac_esc = html.escape(clean_mac)
         dev = await db.get_device(clean_mac)
         if not dev:
-            return f"❌ Устройство с MAC <code>{clean_mac}</code> не найдено.", {
+            return f"❌ Устройство с MAC <code>{clean_mac_esc}</code> не найдено.", {
                 "inline_keyboard": [[{"text": "◀️ К списку устройств", "callback_data": "cmd:devices"}]]
             }
 
-        name = dev.custom_name or dev.hostname or dev.vendor or dev.mac
+        name = html.escape(str(dev.custom_name or dev.hostname or dev.vendor or dev.mac))
+        mac_esc = html.escape(str(dev.mac))
+        ip_esc = html.escape(str(dev.ip or 'Не назначен'))
+        vendor_esc = html.escape(str(dev.vendor or 'Неизвестно'))
+        prof_esc = html.escape(str(dev.profile))
+        seg_esc = html.escape(str(dev.segment or 'Home'))
         wan_status = "🚫 Заблокирован" if dev.is_blocked_wan else "🌐 Разрешен"
         lan_status = "🔒 Изолирован" if dev.is_isolated_lan else "🏠 Локальная сеть (Bridge0)"
 
@@ -257,11 +305,11 @@ class TelegramBotWorker:
             f"📱 <b>Карточка устройства</b>",
             "",
             f"<b>Имя:</b> {name}",
-            f"<b>MAC:</b> <code>{dev.mac}</code>",
-            f"<b>IP:</b> <code>{dev.ip or 'Не назначен'}</code>",
-            f"<b>Вендор:</b> {dev.vendor or 'Неизвестно'}",
-            f"<b>Профиль:</b> <code>{dev.profile}</code>",
-            f"<b>Сегмент:</b> <code>{dev.segment or 'Home'}</code>",
+            f"<b>MAC:</b> <code>{mac_esc}</code>",
+            f"<b>IP:</b> <code>{ip_esc}</code>",
+            f"<b>Вендор:</b> {vendor_esc}",
+            f"<b>Профиль:</b> <code>{prof_esc}</code>",
+            f"<b>Сегмент:</b> <code>{seg_esc}</code>",
             f"<b>Доступ в WAN:</b> {wan_status}",
             f"<b>Изоляция LAN:</b> {lan_status}",
             "",
@@ -291,12 +339,13 @@ class TelegramBotWorker:
     async def _build_prof_menu_payload(self, mac: str) -> Tuple[str, Dict[str, Any]]:
         from keenguard.db.database import db
         clean_mac = mac.upper()
+        clean_mac_esc = html.escape(clean_mac)
         dev = await db.get_device(clean_mac)
-        name = (dev.custom_name or dev.hostname or clean_mac) if dev else clean_mac
-        cur_prof = dev.profile if dev else "unknown"
+        name = html.escape(str((dev.custom_name or dev.hostname or clean_mac) if dev else clean_mac))
+        cur_prof = html.escape(str(dev.profile if dev else "unknown"))
         text = (
             f"🛡️ <b>Смена профиля безопасности</b>\n\n"
-            f"Устройство: <b>{name}</b> (<code>{clean_mac}</code>)\n"
+            f"Устройство: <b>{name}</b> (<code>{clean_mac_esc}</code>)\n"
             f"Текущий профиль: <code>{cur_prof}</code>\n\n"
             f"<i>Выберите новый профиль:</i>"
         )
@@ -331,12 +380,14 @@ class TelegramBotWorker:
         guest_action = "0" if guest_up else "1"
 
         sys_info = await backend.get_system_info()
-        model = sys_info.model or backend.platform_name
+        platform_esc = html.escape(str(backend.platform_name))
+        model_esc = html.escape(str(sys_info.model or backend.platform_name))
+        guest_iface_esc = html.escape(str(guest_info.get('interface', 'GuestWiFi')))
         text = (
-            f"⚙️ <b>Управление роутером ({backend.platform_name})</b>\n\n"
-            f"<b>Модель:</b> {model}\n"
+            f"⚙️ <b>Управление роутером ({platform_esc})</b>\n\n"
+            f"<b>Модель:</b> {model_esc}\n"
             f"<b>Гостевая сеть Wi-Fi:</b> {guest_label}\n"
-            f"<b>Интерфейс:</b> <code>{guest_info.get('interface', 'GuestWiFi')}</code>\n\n"
+            f"<b>Интерфейс:</b> <code>{guest_iface_esc}</code>\n\n"
             f"<i>Выберите действие:</i>"
         )
         keyboard = {
@@ -365,9 +416,9 @@ class TelegramBotWorker:
         mid = msg.get("message_id")
         orig_text = msg.get("text", "")
 
-        # Strict security check: only accept from authorized chat_id
-        if user_id != trusted_chat and str(chat_id) != trusted_chat:
-            logger.warning("Unauthorized Telegram callback attempt from user_id: %s", user_id)
+        # Strict security check: only accept from authorized user or group
+        if not self._is_authorized(user_id, chat_id):
+            logger.warning("Unauthorized Telegram callback attempt from user_id: %s, chat_id: %s", user_id, chat_id)
             await self.notifier.answer_callback_query(qid, text="Доступ запрещен!")
             return
 
@@ -437,6 +488,11 @@ class TelegramBotWorker:
             from keenguard.core.routers.manager import router_manager
             backend = router_manager.get_backend()
             await backend.toggle_guest_wifi(val)
+            try:
+                from keenguard.web.ws import ws_manager
+                await ws_manager.broadcast({"type": "refresh"})
+            except Exception:
+                pass
             action_result = "📶 Гостевая сеть включена" if val else "📶 Гостевая сеть выключена"
             await self.notifier.answer_callback_query(qid, text=action_result)
             text, keyboard = await self._build_router_payload()
@@ -499,7 +555,13 @@ class TelegramBotWorker:
             block = (action == "block")
             from keenguard.core.profiles import profile_manager
             await profile_manager.toggle_wan(mac, block=block)
-            ans = f"🚫 WAN заблокирован для {mac}" if block else f"🌐 WAN разрешен для {mac}"
+            try:
+                from keenguard.web.ws import ws_manager
+                await ws_manager.broadcast({"type": "refresh"})
+            except Exception:
+                pass
+            clean_mac_esc = html.escape(mac)
+            ans = f"🚫 WAN заблокирован для {clean_mac_esc}" if block else f"🌐 WAN разрешен для {clean_mac_esc}"
             await self.notifier.answer_callback_query(qid, text=ans)
             text, keyboard = await self._build_device_detail_payload(mac)
             if chat_id and mid:
@@ -519,6 +581,11 @@ class TelegramBotWorker:
             mac, target_prof = rest.rsplit(":", 1)
             from keenguard.core.profiles import profile_manager
             await profile_manager.apply_policy(mac, policy_id=target_prof)
+            try:
+                from keenguard.web.ws import ws_manager
+                await ws_manager.broadcast({"type": "refresh"})
+            except Exception:
+                pass
             await self.notifier.answer_callback_query(qid, text=f"Профиль изменен на {target_prof}")
             text, keyboard = await self._build_device_detail_payload(mac)
             if chat_id and mid:
@@ -548,7 +615,9 @@ class TelegramBotWorker:
 
             if pcap_found:
                 await self.notifier.answer_callback_query(qid, text="Отправляю дамп .pcap...")
-                caption = f"📦 <b>Дамп трафика для</b> <code>{mac}</code>\nФайл: <code>{pcap_found.name}</code>"
+                clean_mac_esc = html.escape(mac)
+                pcap_name_esc = html.escape(pcap_found.name)
+                caption = f"📦 <b>Дамп трафика для</b> <code>{clean_mac_esc}</code>\nФайл: <code>{pcap_name_esc}</code>"
                 await self.notifier.send_document(pcap_found, caption=caption, chat_id=chat_id or trusted_chat)
             else:
                 await self.notifier.answer_callback_query(qid, text="Дампы .pcap для устройства не найдены. Запустите аудит трафика.")
@@ -558,7 +627,8 @@ class TelegramBotWorker:
             target = settings.pcap_dir / safe_name
             if target.exists() and target.is_file():
                 await self.notifier.answer_callback_query(qid, text="Отправляю файл дампа...")
-                caption = f"📦 <b>Файл дампа трафика:</b> <code>{safe_name}</code>"
+                safe_name_esc = html.escape(safe_name)
+                caption = f"📦 <b>Файл дампа трафика:</b> <code>{safe_name_esc}</code>"
                 await self.notifier.send_document(target, caption=caption, chat_id=chat_id or trusted_chat)
             else:
                 await self.notifier.answer_callback_query(qid, text=f"Файл {safe_name} не найден на сервере.")
@@ -578,17 +648,20 @@ class TelegramBotWorker:
 
         try:
             backend = router_manager.get_backend()
+            broadcast_refresh = False
             if data.startswith("del_upnp:"):
                 parts = data.split(":")
                 proto = parts[1]
                 port = int(parts[2])
                 await backend.delete_upnp_mapping(proto, port)
                 action_result = f"🚫 Порт UPnP {proto.upper()}/{port} закрыт на роутере"
+                broadcast_refresh = True
             elif data == "wids:enable_pmf":
                 if hasattr(backend, "set_wifi_pmf"):
                     ok = await backend.set_wifi_pmf("required")
                     if ok:
                         action_result = "🛡️ PMF (802.11w) переведён в режим 'Обязательно' (Mandatory). Защита активирована."
+                        broadcast_refresh = True
                     else:
                         action_result = "⚠️ Не удалось включить PMF автоматически. Включите 802.11w в настройках роутера."
                 else:
@@ -599,11 +672,13 @@ class TelegramBotWorker:
                 from keenguard.core.wids import wids_service
                 wids_service.silence_deauth(seconds=secs)
                 action_result = f"🔕 Оповещения Deauth-флуда заглушены на {secs // 3600} ч."
+                broadcast_refresh = True
             elif data == "wids:enable_wpa3":
                 if hasattr(backend, "set_wifi_wpa3"):
                     ok = await backend.set_wifi_wpa3(True)
                     if ok:
                         action_result = "🔒 Режим WPA3-SAE активирован на Wi-Fi интерфейсах роутера."
+                        broadcast_refresh = True
                     else:
                         action_result = "⚠️ Не удалось включить WPA3 автоматически. Включите WPA3-Personal в настройках роутера."
                 else:
@@ -621,7 +696,7 @@ class TelegramBotWorker:
                 mac, dur_str = rest.rsplit(":", 1)
                 dur = int(dur_str)
                 await audit_manager.start_audit(mac=mac, duration_seconds=dur)
-                action_result = f"🔍 Аудит трафика {mac} запущен на {dur // 60} мин"
+                action_result = f"🔍 Аудит трафика {html.escape(mac)} запущен на {dur // 60} мин"
                 asyncio.create_task(self._wait_and_notify_audit_completion(
                     mac=mac,
                     duration_seconds=dur,
@@ -630,22 +705,38 @@ class TelegramBotWorker:
             elif data.startswith("quarantine:"):
                 mac = data.split(":", 1)[1]
                 await profile_manager.quarantine_device(mac, reason="Telegram Bot Callback")
-                action_result = f"🔒 Устройство {mac} отправлено в карантин"
+                action_result = f"🔒 Устройство {html.escape(mac)} отправлено в карантин"
+                broadcast_refresh = True
             elif data.startswith("trust:"):
                 mac = data.split(":", 1)[1]
                 await profile_manager.trust_device(mac)
-                action_result = f"✅ Устройству {mac} назначен профиль 'Доверенное'"
+                action_result = f"✅ Устройству {html.escape(mac)} назначен профиль 'Доверенное'"
+                broadcast_refresh = True
             elif data.startswith("block_dns:"):
-                domain = data.split(":", 1)[1]
-                await backend.add_dns_sinkhole(domain)
-                action_result = f"🚫 Домен {domain} заблокирован в Sinkhole (0.0.0.0)"
+                domain = data.split(":", 1)[1].strip().lower().strip(".")
+                if is_ip_address_string(domain):
+                    action_result = f"⚠️ Ошибка: '{html.escape(domain)}' является IP-адресом, а не доменным именем."
+                elif is_forbidden_or_local_domain(domain):
+                    action_result = f"⚠️ Запрещено блокировать локальные или системные домены управления роутером."
+                else:
+                    await backend.add_dns_sinkhole(domain)
+                    action_result = f"🚫 Домен {html.escape(domain)} заблокирован в Sinkhole (0.0.0.0)"
+                    broadcast_refresh = True
             elif data.startswith("unblock_dns:"):
-                domain = data.split(":", 1)[1]
+                domain = data.split(":", 1)[1].strip().lower().strip(".")
                 await backend.remove_dns_sinkhole(domain)
-                action_result = f"✅ Домен {domain} разблокирован"
+                action_result = f"✅ Домен {html.escape(domain)} разблокирован"
+                broadcast_refresh = True
+
+            if broadcast_refresh:
+                try:
+                    from keenguard.web.ws import ws_manager
+                    await ws_manager.broadcast({"type": "refresh"})
+                except Exception as ws_err:
+                    logger.debug("WS broadcast error after bot action: %s", ws_err)
         except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
             logger.error("Error executing Telegram action %s: %s", data, ex)
-            action_result = f"❌ Ошибка выполнения: {ex}"
+            action_result = f"❌ Ошибка выполнения: {html.escape(str(ex))}"
 
         await self.notifier.answer_callback_query(qid, text=action_result)
         if chat_id and mid and orig_text:
@@ -664,23 +755,25 @@ class TelegramBotWorker:
                 return
             report = reports[0]
             dev = await db.get_device(clean_mac)
-            dev_name = (dev.custom_name or dev.hostname or dev.vendor or clean_mac) if dev else clean_mac
+            dev_name = html.escape(str((dev.custom_name or dev.hostname or dev.vendor or clean_mac) if dev else clean_mac))
+            clean_mac_esc = html.escape(clean_mac)
 
             risk_icons = {"low": "🟢", "medium": "🟡", "high": "🔴", "critical": "🚨"}
             risk_labels = {"low": "Низкий", "medium": "Средний", "high": "Высокий", "critical": "Критический"}
             r_icon = risk_icons.get(report.risk_level.lower(), "ℹ️")
-            r_label = risk_labels.get(report.risk_level.lower(), report.risk_level)
+            r_label = html.escape(str(risk_labels.get(report.risk_level.lower(), report.risk_level)))
 
             mb_transferred = report.total_bytes / (1024 * 1024)
             dur_min = max(1, duration_seconds // 60)
+            summary_esc = html.escape(str(report.summary or 'Проверка завершена без критических замечаний.'))
 
             lines = [
                 f"✅ <b>Аудит трафика завершен ({dur_min} мин)</b>",
                 "",
-                f"<b>Устройство:</b> <b>{dev_name}</b> (<code>{clean_mac}</code>)",
+                f"<b>Устройство:</b> <b>{dev_name}</b> (<code>{clean_mac_esc}</code>)",
                 f"<b>Уровень риска:</b> {r_icon} {r_label}",
                 f"<b>Передано данных:</b> {mb_transferred:.2f} МБ ({report.total_packets} пакетов)",
-                f"<b>Итог:</b> {report.summary or 'Проверка завершена без критических замечаний.'}"
+                f"<b>Итог:</b> {summary_esc}"
             ]
 
             keyboard = {
@@ -699,7 +792,8 @@ class TelegramBotWorker:
             if report.pcap_file:
                 pcap_path = settings.pcap_dir / report.pcap_file
                 if pcap_path.exists() and pcap_path.is_file():
-                    caption = f"📦 <b>Дамп трафика аудита:</b> <code>{report.pcap_file}</code> ({dev_name})"
+                    pcap_esc = html.escape(str(report.pcap_file))
+                    caption = f"📦 <b>Дамп трафика аудита:</b> <code>{pcap_esc}</code> ({dev_name})"
                     await self.notifier.send_document(pcap_path, caption=caption, chat_id=chat_id)
         except (httpx.HTTPError, OSError, json.JSONDecodeError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to deliver audit completion notification for %s: %s", mac, e)
@@ -710,7 +804,7 @@ class TelegramBotWorker:
         text = (message.get("text") or "").strip()
         trusted_chat = str(settings.telegram_chat_id).strip()
 
-        if user_id != trusted_chat and str(chat_id) != trusted_chat:
+        if not self._is_authorized(user_id, chat_id):
             return
 
         clean_cmd = text.split("@")[0].lower().strip()
@@ -741,23 +835,39 @@ class TelegramBotWorker:
                 from keenguard.core.digest import digest_generator
                 await digest_generator.send_digest_to_telegram(force=True)
             elif re.match(r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,10}$', text.strip()):
-                clean_dom = text.strip().lower()
-                text_msg = (
-                    f"🌐 <b>Управление DNS для домена:</b> <code>{clean_dom}</code>\n\n"
-                    f"Выберите действие для добавления или снятия блокировки через Keenetic Sinkhole (0.0.0.0):"
-                )
-                keyboard = {
-                    "inline_keyboard": [
-                        [
-                            {"text": "🚫 Заблокировать (Sinkhole)", "callback_data": f"block_dns:{clean_dom}"},
-                            {"text": "✅ Разблокировать", "callback_data": f"unblock_dns:{clean_dom}"}
-                        ],
-                        [
-                            {"text": "❌ Отмена", "callback_data": "dismiss"}
+                clean_dom = text.strip().lower().strip(".")
+                if is_ip_address_string(clean_dom):
+                    from keenguard.db.database import db
+                    devices = await db.get_all_devices()
+                    target = next((d for d in devices if d.ip == clean_dom), None)
+                    if target:
+                        detail_text, detail_kb = await self._build_device_detail_payload(target.mac)
+                        await self.notifier.send_message(detail_text, reply_markup=detail_kb)
+                    else:
+                        await self.notifier.send_message(f"❌ Устройство с IP <code>{html.escape(clean_dom)}</code> не найдено в сети.")
+                elif is_forbidden_or_local_domain(clean_dom):
+                    clean_dom_esc = html.escape(clean_dom)
+                    await self.notifier.send_message(
+                        f"⚠️ Домен <code>{clean_dom_esc}</code> является системным или локальным доменом управления роутером и защищен от блокировки."
+                    )
+                else:
+                    clean_dom_esc = html.escape(clean_dom)
+                    text_msg = (
+                        f"🌐 <b>Управление DNS для домена:</b> <code>{clean_dom_esc}</code>\n\n"
+                        f"Выберите действие для добавления или снятия блокировки через Keenetic Sinkhole (0.0.0.0):"
+                    )
+                    keyboard = {
+                        "inline_keyboard": [
+                            [
+                                {"text": "🚫 Заблокировать (Sinkhole)", "callback_data": f"block_dns:{clean_dom}"},
+                                {"text": "✅ Разблокировать", "callback_data": f"unblock_dns:{clean_dom}"}
+                            ],
+                            [
+                                {"text": "❌ Отмена", "callback_data": "dismiss"}
+                            ]
                         ]
-                    ]
-                }
-                await self.notifier.send_message(text_msg, reply_markup=keyboard)
+                    }
+                    await self.notifier.send_message(text_msg, reply_markup=keyboard)
             elif re.match(r'^(?:192\.168\.\d+\.\d+|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$', text.strip()):
                 # Direct search by IP
                 from keenguard.db.database import db
@@ -767,7 +877,7 @@ class TelegramBotWorker:
                     detail_text, detail_kb = await self._build_device_detail_payload(target.mac)
                     await self.notifier.send_message(detail_text, reply_markup=detail_kb)
                 else:
-                    await self.notifier.send_message(f"❌ Устройство с IP <code>{text.strip()}</code> не найдено в сети.")
+                    await self.notifier.send_message(f"❌ Устройство с IP <code>{html.escape(text.strip())}</code> не найдено в сети.")
             elif re.match(r'^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$', text.strip()):
                 # Direct search by MAC
                 detail_text, detail_kb = await self._build_device_detail_payload(text.strip().upper())
@@ -787,12 +897,16 @@ class TelegramBotWorker:
                     detail_text, detail_kb = await self._build_device_detail_payload(matches[0].mac)
                     await self.notifier.send_message(detail_text, reply_markup=detail_kb)
                 elif len(matches) > 1:
-                    lines = [f"🔍 <b>Найдено устройств: {len(matches)} по запросу «{text.strip()}»:</b>", ""]
+                    clean_kw = html.escape(text.strip())
+                    lines = [f"🔍 <b>Найдено устройств: {len(matches)} по запросу «{clean_kw}»:</b>", ""]
                     match_buttons = []
                     for d in matches[:8]:
-                        name = d.custom_name or d.hostname or d.vendor or d.mac
-                        lines.append(f"• <b>{name}</b> ({d.ip or 'No IP'}) — <code>{d.profile}</code>")
-                        match_buttons.append([{"text": f"📱 {name[:20]} ({d.ip or 'No IP'})", "callback_data": f"dev:{d.mac}"}])
+                        name_raw = d.custom_name or d.hostname or d.vendor or d.mac
+                        name_esc = html.escape(str(name_raw))
+                        ip_esc = html.escape(str(d.ip or 'No IP'))
+                        prof_esc = html.escape(str(d.profile))
+                        lines.append(f"• <b>{name_esc}</b> ({ip_esc}) — <code>{prof_esc}</code>")
+                        match_buttons.append([{"text": f"📱 {name_raw[:20]} ({d.ip or 'No IP'})", "callback_data": f"dev:{d.mac}"}])
                     match_buttons.append([{"text": "📱 Все устройства", "callback_data": "cmd:devices"}])
                     await self.notifier.send_message("\n".join(lines), reply_markup={"inline_keyboard": match_buttons})
                 else:
@@ -800,4 +914,4 @@ class TelegramBotWorker:
                     await self.notifier.send_message(text_msg, reply_markup=keyboard)
         except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
             logger.error("Error processing Telegram message '%s': %s", text, ex, exc_info=True)
-            await self.notifier.send_message(f"❌ Ошибка обработки команды: {ex}")
+            await self.notifier.send_message(f"❌ Ошибка обработки команды: {html.escape(str(ex))}")

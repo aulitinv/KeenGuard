@@ -266,3 +266,15 @@ class BaseRouterBackend(ABC):
     async def enable_mdns_relay(self) -> bool:
         """Enables mDNS discovery relay between network segments."""
         return True
+
+    async def has_traffic_shaper_component(self) -> bool:
+        """Checks if router supports traffic shaping / bandwidth limits."""
+        return False
+
+    async def set_device_speed_limit(self, mac: str, speed_kbps: int) -> bool:
+        """Sets device bandwidth rate limit in kbps."""
+        return False
+
+    async def get_device_speed_limits(self) -> Dict[str, int]:
+        """Returns mapping of MAC -> speed_limit_kbps from router."""
+        return {}

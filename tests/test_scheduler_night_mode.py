@@ -26,7 +26,12 @@ async def test_scheduler_is_device_active_runs_without_import_error():
     with patch("keenguard.core.scheduler.db.get_device_traffic_history", new_callable=AsyncMock) as mock_hist:
         mock_hist.return_value = []
         is_active = await scheduler._is_device_active(mock_device, threshold_minutes=5)
-        # Device is online and last_seen is right now (< 60s), so it should return True cleanly
+        # Without traffic history or sniffer packets, device in standby correctly reports False
+        assert is_active is False
+
+    with patch("keenguard.core.scheduler.db.get_device_traffic_history", new_callable=AsyncMock) as mock_hist:
+        mock_hist.return_value = [{"rx_rate_kbps": 50.0, "tx_rate_kbps": 10.0}]
+        is_active = await scheduler._is_device_active(mock_device, threshold_minutes=5)
         assert is_active is True
 
 

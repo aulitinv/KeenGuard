@@ -224,15 +224,24 @@ async def _do_keenetic_poll_internal():
     current_devices_map: Dict[str, DeviceRecord] = {}
     seen_macs = set()
 
-    initial_db_device_count = len(await db.get_all_devices())
+    cached_db_devices = await db.get_all_devices()
+    db_devices_by_mac = {d.mac.upper(): d for d in cached_db_devices}
+    initial_db_device_count = len(cached_db_devices)
     is_initial_ingestion = (initial_db_device_count == 0 and len(hosts) > 0)
     if is_initial_ingestion:
         logger.info("Cold start / Initial network sync: importing %d existing devices from router into DB with safe zero-quarantine policy.", len(hosts))
 
+    # Fetch NAT table for domain/lan tracking and camera flow analysis
+    nat_entries = []
+    try:
+        nat_entries = await active_backend.get_nat_table()
+    except Exception as e:
+        logger.debug("NAT / Conntrack fetch error: %s", e)
+
     for h in hosts:
         mac = h.mac.upper()
         seen_macs.add(mac)
-        existing = await db.get_device(mac)
+        existing = db_devices_by_mac.get(mac) or await db.get_device(mac)
 
         is_real_wan_blocked = (getattr(h, "access", "permit") == "deny")
         is_real_lan_isolated = is_host_lan_isolated(getattr(h, "interface", None), h.ip)
@@ -260,8 +269,7 @@ async def _do_keenetic_poll_internal():
                 hname_norm = record.hostname.strip().lower()
                 cand_list = [d for d in current_devices_map.values() if d.mac != mac and d.hostname and d.hostname.strip().lower() == hname_norm]
                 if not cand_list:
-                    all_devs = await db.get_all_devices()
-                    cand_list = [d for d in all_devs if d.mac != mac and d.hostname and d.hostname.strip().lower() == hname_norm]
+                    cand_list = [d for d in db_devices_by_mac.values() if d.mac != mac and d.hostname and d.hostname.strip().lower() == hname_norm]
                 if cand_list:
                     hw_cands = [d for d in cand_list if not DeviceClassifier.is_randomized_mac(d.mac)]
                     online_cands = [d for d in cand_list if d.is_online]
@@ -342,6 +350,8 @@ async def _do_keenetic_poll_internal():
 
             await db.upsert_device(record)
             existing = record
+            cached_db_devices.append(record)
+            db_devices_by_mac[mac] = record
 
             if inherited_from:
                 rot_ev = SecurityEvent(
@@ -398,6 +408,7 @@ async def _do_keenetic_poll_internal():
             await db.upsert_device(existing)
 
         current_devices_map[mac] = existing
+        db_devices_by_mac[mac] = existing
 
         # Traffic rate measurement and history recording
         now_t = time.time()
@@ -421,7 +432,7 @@ async def _do_keenetic_poll_internal():
             )
 
         if existing.profile == "camera":
-            await anomaly_detector.check_camera_upload_leak(existing, h.txbytes)
+            await anomaly_detector.check_camera_upload_leak(existing, h.txbytes, active_nat_flows=nat_entries)
 
     # Poll WAN interface byte counters to calculate real-time network traffic
     try:
@@ -451,8 +462,7 @@ async def _do_keenetic_poll_internal():
         logger.debug("WAN interface traffic polling error: %s", e)
 
     # Mark devices that disappeared from Keenetic active hotspot as offline
-    all_db_devices = await db.get_all_devices()
-    for d in all_db_devices:
+    for d in cached_db_devices:
         if d.is_online and d.mac.upper() not in seen_macs:
             d.is_online = False
             await db.upsert_device(d)
@@ -465,7 +475,8 @@ async def _do_keenetic_poll_internal():
                 )
 
     # Sync Smart TV list with sniffer for targeted pre-wake ring buffering
-    tv_macs = [d.mac.upper() for d in all_db_devices if d.profile == "smart_tv"]
+    all_current_devices = list(db_devices_by_mac.values())
+    tv_macs = [d.mac.upper() for d in all_current_devices if d.profile == "smart_tv"]
     sniffer.set_tracked_tvs(tv_macs, pre_record_seconds=settings.tv_wake_pre_record_seconds)
 
     if upnp_rules:
@@ -479,6 +490,7 @@ async def _do_keenetic_poll_internal():
         logger.debug("Failed to update LAN presets cache: %s", e)
 
     lan_tracker.update_devices_cache(current_devices_map)
+    lan_tracker.prune_pending_pings()
 
     # Periodic DNS cache query (~every 30s)
     _poll_counter += 1
@@ -496,7 +508,6 @@ async def _do_keenetic_poll_internal():
 
     # Track domain activity and LAN inter-device communications from router conntrack/NAT
     try:
-        nat_entries = await active_backend.get_nat_table()
         if nat_entries:
             await dns_tracker.track_nat_connections(nat_entries, current_devices_map)
             lan_tracker.integrate_router_conntrack(nat_entries, devices_map=current_devices_map)
@@ -580,6 +591,12 @@ async def _async_sniffer_dispatch(event_dict: Dict):
         if ev.severity in ("critical", "warning"):
             create_tracked_task(notifier.send_alert(ev))
 
+    elif event_type in ("dot_bypass", "doh_bypass", "external_dns_bypass"):
+        ev = SecurityEvent(**event_dict)
+        await db.record_event(ev)
+        if ev.severity in ("critical", "warning"):
+            create_tracked_task(notifier.send_alert(ev))
+
     await ws_manager.broadcast({"type": "sniffer_event", "event": event_dict})
 
 
@@ -628,7 +645,12 @@ async def _process_lan_violation(violation_dict: Dict[str, Any]):
             if sniffer:
                 create_tracked_task(asyncio.to_thread(sniffer.start_on_demand_capture, duration_seconds=pcap_secs))
 
-    if ev.severity in ("critical", "warning"):
+    # Immediate Telegram alert dispatch respecting rule reaction settings
+    notify_tg = violation_dict.get("notify_telegram", True)
+    tg_mode = violation_dict.get("telegram_mode", "immediate")
+    should_send_telegram = notify_tg and (tg_mode == "immediate" or not matched_rule_id)
+
+    if should_send_telegram and ev.severity in ("critical", "warning"):
         create_tracked_task(notifier.send_alert(ev))
     await ws_manager.broadcast({"type": "sniffer_event", "event": violation_dict})
 
@@ -659,8 +681,6 @@ def _backup_production_database():
             logger.info("Automatic startup database snapshot created: %s", bak_path)
     except Exception as e:
         logger.warning("Could not create startup DB snapshot: %s", e)
-    except Exception as e:
-        logger.warning("Could not create startup DB snapshot: %s", e)
 
 
 @asynccontextmanager
@@ -686,11 +706,19 @@ async def lifespan(app: FastAPI):
     from keenguard.core.config_service import config_service
     await config_service.initialize(database=db)
 
+    # Compile Web UI templates once on startup
+    try:
+        from keenguard.web.builder import build_index_html
+        build_index_html()
+        logger.info("Compiled Web UI templates into index.html on startup")
+    except Exception as ex:
+        logger.debug("Failed to compile Web UI templates on startup: %s", ex)
+
     # Web UI LAN protection: ensure initial password if exposed without one
     from keenguard.web.auth import ensure_initial_credentials
     initial_pwd = ensure_initial_credentials()
     if initial_pwd:
-        logger.warning("KeenGuard Web UI is open to network. Initial password generated: %s", initial_pwd)
+        logger.info("KeenGuard Web UI credentials initialized securely in .env")
 
     # 2. Get active router backend
     from keenguard.core.routers import router_manager
@@ -701,8 +729,6 @@ async def lifespan(app: FastAPI):
         saved_ow_pass = await db.get_setting("openwrt_password")
         if saved_ow_pass and not settings.openwrt_password:
             settings.openwrt_password = saved_ow_pass
-        elif settings.openwrt_password and not saved_ow_pass:
-            await db.save_setting("openwrt_password", settings.openwrt_password)
         saved_ow_host = await db.get_setting("openwrt_host")
         if saved_ow_host:
             settings.openwrt_host = saved_ow_host
@@ -713,12 +739,9 @@ async def lifespan(app: FastAPI):
         saved_pass = await db.get_setting("router_password")
         if saved_pass and not settings.router_password:
             settings.router_password = saved_pass
-        elif settings.router_password and not saved_pass:
-            await db.save_setting("router_password", settings.router_password)
 
         if settings.router_password:
             keenetic_client.password = settings.router_password
-            save_env_router_credentials(settings.router_host, settings.router_user, settings.router_password, settings.router_port)
 
         saved_host = await db.get_setting("router_host")
         if saved_host:
@@ -770,7 +793,7 @@ async def lifespan(app: FastAPI):
     # Wire Traffic Audit Guard callback for suspicious device auto-quarantine
     async def on_audit_suspicious_device(mac: str, ip: str, hostname: str, reason: str):
         dev = await db.get_device(mac)
-        if not should_device_quarantine(dev, reason):
+        if not should_device_quarantine(dev):
             logger.info("Auto-quarantine skipped for device %s (%s) per policy/scope rules: %s", hostname, mac, reason)
             return
 
@@ -795,7 +818,7 @@ async def lifespan(app: FastAPI):
         except Exception as ex:
             logger.error("Error executing audit auto-quarantine for %s: %s", mac, ex)
 
-    audit_manager.on_suspicious_device = on_audit_suspicious_device
+    audit_manager.set_suspicious_callback(on_audit_suspicious_device)
 
     # 11. Start services
     global _poller_running, _poller_task
@@ -823,6 +846,12 @@ async def lifespan(app: FastAPI):
         _poller_task.cancel()
     dns_security_manager.stop_background_sync()
     await telegram_bot_worker.stop()
+    await notifier.close()
+    if active_backend and hasattr(active_backend, "aclose"):
+        try:
+            await active_backend.aclose()
+        except Exception as e:
+            logger.debug("Error closing active backend on shutdown: %s", e)
     sniffer.stop()
     scheduler.stop()
     await db.close()

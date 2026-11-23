@@ -130,6 +130,15 @@ class Database(
                 except Exception as e:
                     logger.warning("Unexpected migration error for column %s: %s", col_def, e)
 
+            # Seed infrastructure WAN interface record for traffic history FK integrity
+            try:
+                await conn.execute("""
+                    INSERT OR IGNORE INTO devices (mac, ip, hostname, custom_name, profile, is_online, segment)
+                    VALUES ('02:00:00:00:00:01', '0.0.0.0', 'WAN', 'Интерфейс WAN', 'unassigned', 1, 'WAN')
+                """)
+            except aiosqlite.OperationalError:
+                await conn.execute("INSERT OR IGNORE INTO devices (mac) VALUES ('02:00:00:00:00:01')")
+
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS lan_policy_presets (
                     id TEXT PRIMARY KEY,
@@ -485,14 +494,23 @@ class Database(
                     source_name TEXT,
                     description TEXT,
                     details_json TEXT,
-                    pcap_file TEXT
+                    pcap_file TEXT,
+                    matched_rule_id TEXT,
+                    matched_rule_name TEXT
                 )
             """)
-            await conn.execute("""
-                INSERT INTO events_new (id, timestamp, event_type, severity, target_mac, target_ip,
-                                        source_mac, source_ip, source_name, description, details_json, pcap_file)
-                SELECT id, timestamp, event_type, severity, target_mac, target_ip,
-                       source_mac, source_ip, source_name, description, details_json, pcap_file
+            col_cursor = await conn.execute("PRAGMA table_info(events)")
+            existing_cols = {col_info[1] for col_info in await col_cursor.fetchall()}
+            target_cols = [
+                "id", "timestamp", "event_type", "severity", "target_mac", "target_ip",
+                "source_mac", "source_ip", "source_name", "description", "details_json", "pcap_file",
+                "matched_rule_id", "matched_rule_name"
+            ]
+            available_cols = [c for c in target_cols if c in existing_cols]
+            cols_str = ", ".join(available_cols)
+            await conn.execute(f"""
+                INSERT INTO events_new ({cols_str})
+                SELECT {cols_str}
                 FROM events
             """)
             await conn.execute("DROP TABLE events")
@@ -507,6 +525,13 @@ class Database(
         row = await cursor.fetchone()
         if row and row[0] and "REFERENCES devices(mac)" not in row[0] and "REFERENCES devices (mac)" not in row[0]:
             logger.info("Migrating table 'traffic_history' to add foreign key constraint...")
+            try:
+                await conn.execute("""
+                    INSERT OR IGNORE INTO devices (mac, ip, hostname, custom_name, profile, is_online, segment)
+                    VALUES ('02:00:00:00:00:01', '0.0.0.0', 'WAN', 'Интерфейс WAN', 'unassigned', 1, 'WAN')
+                """)
+            except aiosqlite.OperationalError:
+                await conn.execute("INSERT OR IGNORE INTO devices (mac) VALUES ('02:00:00:00:00:01')")
             await conn.execute("""
                 DELETE FROM traffic_history
                 WHERE mac IS NOT NULL AND mac NOT IN (SELECT mac FROM devices)

@@ -15,6 +15,18 @@ class DeviceRepository(BaseRepository):
 
     def _row_to_device(self, r: aiosqlite.Row) -> DeviceRecord:
         keys = r.keys()
+        ports_val = None
+        if "custom_allowed_ports" in keys and r["custom_allowed_ports"]:
+            raw_ports = r["custom_allowed_ports"]
+            if isinstance(raw_ports, list):
+                ports_val = raw_ports
+            elif isinstance(raw_ports, str):
+                try:
+                    parsed = json.loads(raw_ports)
+                    ports_val = parsed if isinstance(parsed, list) else [parsed]
+                except (json.JSONDecodeError, ValueError):
+                    ports_val = [p.strip() for p in raw_ports.replace(",", " ").split() if p.strip()]
+
         return DeviceRecord(
             mac=r["mac"],
             ip=r["ip"],
@@ -37,7 +49,7 @@ class DeviceRepository(BaseRepository):
             preset_id=r["preset_id"] if "preset_id" in keys else None,
             designated_nvr_ip=r["designated_nvr_ip"] if "designated_nvr_ip" in keys else None,
             auto_quarantine_override=r["auto_quarantine_override"] if ("auto_quarantine_override" in keys and r["auto_quarantine_override"]) else "profile_default",
-            custom_allowed_ports=json.loads(r["custom_allowed_ports"]) if ("custom_allowed_ports" in keys and r["custom_allowed_ports"] and isinstance(r["custom_allowed_ports"], str)) else (r["custom_allowed_ports"] if "custom_allowed_ports" in keys else None),
+            custom_allowed_ports=ports_val,
             tv_pre_record_seconds=r["tv_pre_record_seconds"] if "tv_pre_record_seconds" in keys else None,
             tv_post_record_seconds=r["tv_post_record_seconds"] if "tv_post_record_seconds" in keys else None,
             tv_day_mode=r["tv_day_mode"] if "tv_day_mode" in keys else None,
@@ -184,16 +196,22 @@ class DeviceRepository(BaseRepository):
                 return self._row_to_device(row)
         return None
 
-    async def get_all_devices(self) -> List[DeviceRecord]:
+    async def get_all_devices(self, include_infrastructure: bool = False) -> List[DeviceRecord]:
         async with self.get_connection() as conn:
             conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute("SELECT * FROM devices ORDER BY is_online DESC, last_seen DESC")
+            if include_infrastructure:
+                cursor = await conn.execute("SELECT * FROM devices ORDER BY is_online DESC, last_seen DESC")
+            else:
+                cursor = await conn.execute("SELECT * FROM devices WHERE mac != '02:00:00:00:00:01' ORDER BY is_online DESC, last_seen DESC")
             rows = await cursor.fetchall()
             return [self._row_to_device(r) for r in rows]
 
     async def delete_device(self, mac: str) -> bool:
         """Deletes a device from the database by MAC address."""
         clean_mac = mac.upper()
+        if clean_mac == "02:00:00:00:00:01":
+            logger.warning("Attempted to delete protected infrastructure device 02:00:00:00:00:01, rejecting.")
+            return False
         async with self.get_connection() as conn:
             # Explicit cleanup of dependent records for fallback / legacy DBs
             await conn.execute("DELETE FROM dns_device_queries WHERE mac = ?", (clean_mac,))
@@ -207,7 +225,7 @@ class DeviceRepository(BaseRepository):
     async def delete_offline_devices(self) -> int:
         """Deletes all devices that are currently offline (is_online = 0)."""
         async with self.get_connection() as conn:
-            cursor = await conn.execute("SELECT mac FROM devices WHERE is_online = 0")
+            cursor = await conn.execute("SELECT mac FROM devices WHERE is_online = 0 AND mac != '02:00:00:00:00:01'")
             offline_macs = [row[0] for row in await cursor.fetchall()]
             if not offline_macs:
                 return 0
@@ -216,7 +234,7 @@ class DeviceRepository(BaseRepository):
                 await conn.execute("DELETE FROM traffic_history WHERE mac = ?", (omac,))
                 await conn.execute("DELETE FROM iot_payload_logs WHERE mac = ?", (omac,))
                 await conn.execute("DELETE FROM lan_communications WHERE src_mac = ? OR dst_mac = ?", (omac, omac))
-            del_cursor = await conn.execute("DELETE FROM devices WHERE is_online = 0")
+            del_cursor = await conn.execute("DELETE FROM devices WHERE is_online = 0 AND mac != '02:00:00:00:00:01'")
             await conn.commit()
             return del_cursor.rowcount
 

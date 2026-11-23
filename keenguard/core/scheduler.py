@@ -67,9 +67,10 @@ class BackgroundScheduler:
                         self._last_audit_day = current_day
                         logger.info("Triggering scheduled IoT/Device audit...")
                         try:
-                            await self._run_scheduled_audit()
-                        except (httpx.HTTPError, aiosqlite.Error, KeyError, TypeError, ValueError) as e:
-                            logger.error("Error running scheduled audit: %s", e)
+                            from keenguard.web.workers import create_tracked_task
+                            create_tracked_task(self._run_scheduled_audit())
+                        except Exception:
+                            asyncio.create_task(self._run_scheduled_audit())
 
                 # 3. Daily DB & Storage Cleanup (04:00 or >= 24h interval)
                 now_epoch = time.time()
@@ -179,22 +180,32 @@ class BackgroundScheduler:
             sn = get_sniffer()
             buf = sn.ring_buffers.get(d.mac.upper())
             if buf and len(buf) > 0:
-                latest = buf.get_all()[-1]
-                pkt_time = getattr(latest, "time", 0)
-                if pkt_time and (time.time() - pkt_time) < (threshold_minutes * 60):
-                    return True
-
-            # 3. Check online status and last_seen
-            if d.is_online and d.last_seen:
-                try:
-                    dt = datetime.fromisoformat(d.last_seen)
-                    if (datetime.now(timezone.utc) - dt).total_seconds() < 60:
+                meta_packets = buf.get_packets_with_meta()
+                if meta_packets:
+                    latest = meta_packets[-1]
+                    pkt_time = latest[0] if isinstance(latest, (tuple, list)) else getattr(latest, "time", 0)
+                    if pkt_time and (time.time() - pkt_time) < (threshold_minutes * 60):
                         return True
-                except (ValueError, TypeError):
-                    pass
         except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
             logger.debug("Error checking device activity for %s: %s", getattr(d, "mac", ""), e)
         return False
+
+    async def _get_persisted_night_blocked_macs(self) -> set[str]:
+        try:
+            import json
+            val = await db.get_setting("night_mode_blocked_macs")
+            if val:
+                return set(json.loads(val))
+        except Exception as e:
+            logger.debug("Error loading night_mode_blocked_macs: %s", e)
+        return set()
+
+    async def _save_persisted_night_blocked_macs(self, macs: set[str]):
+        try:
+            import json
+            await db.save_setting("night_mode_blocked_macs", json.dumps(list(macs)))
+        except Exception as e:
+            logger.debug("Error saving night_mode_blocked_macs: %s", e)
 
     async def _check_night_mode_transitions(self, now: Optional[datetime] = None):
         """Monitors and manages Smart Night Mode transitions and inactivity deferrals."""
@@ -245,18 +256,24 @@ class BackgroundScheduler:
                                 from keenguard.core.profiles import profile_manager
                                 await profile_manager.toggle_wan(d.mac, block=True)
                                 state["wan_blocked_by_night_mode"] = True
+                                blocked_set = await self._get_persisted_night_blocked_macs()
+                                blocked_set.add(mac)
+                                await self._save_persisted_night_blocked_macs(blocked_set)
                                 logger.info("Smart Night Mode: WAN blocked for %s", d.hostname or mac)
                             except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
                                 logger.error("Failed to block WAN in night mode for %s: %s", mac, ex)
 
             else:
                 # Daytime / Morning: unblock WAN immediately when night mode window ends
-                if state.get("wan_blocked_by_night_mode"):
+                blocked_set = await self._get_persisted_night_blocked_macs()
+                if state.get("wan_blocked_by_night_mode") or mac in blocked_set:
                     try:
                         from keenguard.core.profiles import profile_manager
                         await profile_manager.toggle_wan(d.mac, block=False)
                         state["wan_blocked_by_night_mode"] = False
                         state["in_night_mode"] = False
+                        blocked_set.discard(mac)
+                        await self._save_persisted_night_blocked_macs(blocked_set)
                         logger.info("Smart Night Mode: WAN unblocked in morning for %s", d.hostname or mac)
                     except (httpx.HTTPError, ConnectionError, RuntimeError, aiosqlite.Error, KeyError, TypeError, ValueError) as ex:
                         logger.error("Failed to unblock WAN in morning for %s: %s", mac, ex)
@@ -310,24 +327,33 @@ class BackgroundScheduler:
         """Disables temporary security rules whose temporary_until time has elapsed."""
         try:
             rules = await db.get_rules()
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_utc = datetime.now(timezone.utc)
             for r in rules:
-                if r.enabled and r.temporary_until and r.temporary_until < now_iso:
-                    logger.info("Temporary rule '%s' (%s) expired at %s; disabling.", r.name, r.id, r.temporary_until)
-                    await db.toggle_rule(r.id, enabled=False)
-                    from keenguard.core.rules.matcher import rule_matcher
-                    refreshed = await db.get_rules()
-                    rule_matcher.load_rules(refreshed)
+                if r.enabled and r.temporary_until:
                     try:
-                        from keenguard.web.ws import ws_manager
-                        await ws_manager.broadcast({
-                            "type": "rules_updated",
-                            "action": "expired",
-                            "rule_id": r.id,
-                            "enabled": False
-                        })
-                    except Exception:
-                        pass
+                        exp_dt = datetime.fromisoformat(r.temporary_until)
+                        if exp_dt.tzinfo is None:
+                            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                        else:
+                            exp_dt = exp_dt.astimezone(timezone.utc)
+                        if exp_dt <= now_utc:
+                            logger.info("Temporary rule '%s' (%s) expired at %s; disabling.", r.name, r.id, r.temporary_until)
+                            await db.toggle_rule(r.id, enabled=False)
+                            from keenguard.core.rules.matcher import rule_matcher
+                            refreshed = await db.get_rules()
+                            rule_matcher.load_rules(refreshed)
+                            try:
+                                from keenguard.web.ws import ws_manager
+                                await ws_manager.broadcast({
+                                    "type": "rules_updated",
+                                    "action": "expired",
+                                    "rule_id": r.id,
+                                    "enabled": False
+                                })
+                            except Exception:
+                                pass
+                    except (ValueError, TypeError) as parse_err:
+                        logger.debug("Failed parsing temporary_until '%s' for rule %s: %s", r.temporary_until, r.id, parse_err)
         except Exception as e:
             logger.debug("Failed checking temporary rules expiration: %s", e)
 

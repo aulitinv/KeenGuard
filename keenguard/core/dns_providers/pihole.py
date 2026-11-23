@@ -32,9 +32,9 @@ class PiHoleProvider(BaseDnsSecurityProvider):
     """Integration with Pi-hole DNS sinkhole running in local network."""
 
     def __init__(self, base_url: str = "", api_token: str = "", password: str = "", url: str = ""):
-        self.base_url = (url or base_url).strip().rstrip("/")
-        self.api_token = api_token.strip()
-        self.password = password.strip()
+        self.base_url = (url or base_url or "").strip().rstrip("/")
+        self.api_token = (api_token or "").strip()
+        self.password = (password or "").strip()
 
     @property
     def provider_id(self) -> str:

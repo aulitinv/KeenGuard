@@ -5,13 +5,98 @@ identifies IoT vendors, detects telemetry and advertising trackers, evaluates ri
 and provides remediation and inspection advice for Keenetic routers.
 """
 import asyncio
+import ipaddress
 import logging
 import re
+import socket
+import struct
+import time
 from typing import Dict, Any, List, Optional, Tuple
 
 from keenguard.db.database import db
 
 logger = logging.getLogger("keenguard.domain_analyzer")
+
+# Shared forbidden domains and validation helpers
+FORBIDDEN_SINKHOLE_DOMAINS = {
+    "localhost",
+    "my.keenetic.net",
+    "keenetic.net",
+    "router",
+    "router.lan",
+    "gateway",
+}
+
+
+def is_ip_address_string(val: str) -> bool:
+    """Checks if a string is a valid IPv4 or IPv6 address."""
+    if not val:
+        return False
+    try:
+        ipaddress.ip_address(str(val).strip())
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def is_forbidden_or_local_domain(domain: str) -> bool:
+    """Checks if a domain is a protected local or router administration domain."""
+    if not domain:
+        return False
+    d = domain.lower().strip().strip(".")
+    if d in FORBIDDEN_SINKHOLE_DOMAINS:
+        return True
+    if d.endswith((".keenetic.link", ".keenetic.pro", ".local", ".lan", ".home")):
+        return True
+    return False
+
+
+def parse_dns_a_record(data: bytes) -> Optional[str]:
+    """Parses raw DNS response bytes and extracts the first IPv4 (A) record, skipping CNAMEs and handling compression."""
+    if len(data) < 12:
+        return None
+    try:
+        _id, _flags, qdcount, ancount, _nscount, _arcount = struct.unpack("!HHHHHH", data[:12])
+        if ancount <= 0:
+            return None
+
+        offset = 12
+
+        def _skip_name(cur_offset: int) -> int:
+            while cur_offset < len(data):
+                b = data[cur_offset]
+                if b == 0:
+                    return cur_offset + 1
+                elif (b & 0xC0) == 0xC0:
+                    return cur_offset + 2
+                else:
+                    cur_offset += 1 + b
+            return cur_offset
+
+        # Skip question section
+        for _ in range(qdcount):
+            offset = _skip_name(offset)
+            offset += 4  # QTYPE (2) + QCLASS (2)
+            if offset > len(data):
+                return None
+
+        # Parse answers
+        for _ in range(ancount):
+            offset = _skip_name(offset)
+            if offset + 10 > len(data):
+                break
+            rr_type, _rr_class, _ttl, rdlength = struct.unpack("!HHIH", data[offset:offset+10])
+            offset += 10
+            if offset + rdlength > len(data):
+                break
+            rdata = data[offset:offset+rdlength]
+            offset += rdlength
+
+            if rr_type == 1 and rdlength == 4:
+                return socket.inet_ntoa(rdata)
+    except Exception:
+        return None
+    return None
 
 # Category metadata definitions
 CATEGORIES: Dict[str, Dict[str, Any]] = {
@@ -109,7 +194,6 @@ KNOWN_DOMAIN_RULES: List[Tuple[str, str, str, str, str]] = [
     ("wttr.in", "iot_cloud", "wttr.in Weather", "Служба метеоданных для скриптов и виджетов автоматизации", "safe"),
     ("lge.com", "iot_cloud", "LG Electronics", "Облачные сервисы и экосистема LG Smart TV (webOS)", "safe"),
     ("lgtvsdp.com", "iot_cloud", "LG Smart TV", "Платформа приложений и медиа-сервисов LG webOS SDP", "safe"),
-    ("lgtvcommon.com", "iot_cloud", "LG Smart TV", "Инфраструктурные сервисы LG Smart TV", "safe"),
     ("hicloud.com", "iot_cloud", "Huawei Cloud", "Облачная платформа устройств и экосистемы Huawei HiCloud", "safe"),
 
     # --- Telemetry, Analytics & Crash Reporting ---
@@ -124,8 +208,6 @@ KNOWN_DOMAIN_RULES: List[Tuple[str, str, str, str, str]] = [
     ("mixpanel.com", "telemetry", "Mixpanel", "Продуктовая аналитика и трекинг действий пользователей Mixpanel", "telemetry"),
     ("amplitude.com", "telemetry", "Amplitude", "Система поведенческой аналитики Amplitude", "telemetry"),
     ("metrics.data.hicloud.com", "telemetry", "Huawei HiCloud", "Телеметрия и сбор данных устройств Huawei HiCloud", "telemetry"),
-    ("tracking.miui.com", "telemetry", "Xiaomi MIUI", "Сбор телеметрии оболочки MIUI и устройств Xiaomi", "telemetry"),
-    ("data.mistat.xiaomi.com", "telemetry", "Xiaomi MiStat", "Статистика использования и аналитика приложений Xiaomi", "telemetry"),
     ("appmetrica.yandex.net", "telemetry", "Yandex AppMetrica", "Аналитика мобильных приложений Яндекс AppMetrica", "telemetry"),
     ("metrika.yandex.ru", "telemetry", "Яндекс Метрика", "Счетчик веб-аналитики Яндекс Метрика", "telemetry"),
     ("google-analytics.com", "telemetry", "Google Analytics", "Сбор статистики посещаемости Google Analytics", "telemetry"),
@@ -134,10 +216,6 @@ KNOWN_DOMAIN_RULES: List[Tuple[str, str, str, str, str]] = [
     ("settings-win.data.microsoft.com", "telemetry", "Microsoft Settings Telemetry", "Сбор телеметрии настроек Windows", "telemetry"),
     ("v10.events.data.microsoft.com", "telemetry", "Microsoft Telemetry", "Телеметрия компонентов Windows 10/11", "telemetry"),
     ("browser.pipe.aria.microsoft.com", "telemetry", "Microsoft Edge / Aria", "Телеметрия браузера Microsoft Edge и сервисов Aria", "telemetry"),
-    ("samsungcloudsolution.com", "telemetry", "Samsung Smart TV", "Служба телеметрии и обновлений Samsung Smart TV", "telemetry"),
-    ("samsungacr.com", "telemetry", "Samsung ACR", "Система автоматического распознавания контента Samsung Smart TV", "telemetry"),
-    ("samsungqbe.com", "telemetry", "Samsung TV Telemetry", "Сбор диагностических данных телевизоров Samsung", "telemetry"),
-    ("ngfts.lge.com", "telemetry", "LG Smart TV Telemetry", "Сбор телеметрии и краш-репортов LG Smart TV", "telemetry"),
     ("pinpu.online", "telemetry", "Pinpu / Webhook Proxy", "Внешний шлюз передачи данных или вебхуков", "telemetry"),
     ("mobicont.ru", "telemetry", "Mobicont", "Служба маршрутизации сообщений и шлюз передачи данных", "telemetry"),
     ("telemetry.mozilla.org", "telemetry", "Mozilla Telemetry", "Сбор телеметрии браузера Firefox", "telemetry"),
@@ -145,8 +223,6 @@ KNOWN_DOMAIN_RULES: List[Tuple[str, str, str, str, str]] = [
     # --- Advertising & Trackers ---
     ("doubleclick.net", "advertising", "Google DoubleClick", "Рекламная сеть и сервер показа баннеров Google DoubleClick", "ad"),
     ("googleads.g.doubleclick.net", "advertising", "Google Ads", "Сервер доставки рекламы Google Ads", "ad"),
-    ("adservice.google.com", "advertising", "Google AdService", "Рекламный сервис Google AdService", "ad"),
-    ("pagead2.googlesyndication.com", "advertising", "Google AdSense", "Показ контекстной рекламы Google AdSense", "ad"),
     ("an.yandex.ru", "advertising", "Рекламная сеть Яндекса", "Сервер рекламных баннеров и объявлений РСЯ", "ad"),
     ("adfox.ru", "advertising", "Яндекс AdFox", "Система управления интернет-рекламой AdFox", "ad"),
     ("unityads.unity3d.com", "advertising", "Unity Ads", "Рекламная сеть для мобильных игр Unity Ads", "ad"),
@@ -564,22 +640,27 @@ class DomainAnalyzer:
             try:
                 s.sendto(packet, (dns_server, 53))
                 data, _ = s.recvfrom(512)
-                ans_offset = 12 + len(qname) + 4
-                if len(data) >= ans_offset + 12:
-                    rdlen = struct.unpack('!H', data[ans_offset+10:ans_offset+12])[0]
-                    ip = socket.inet_ntoa(data[ans_offset+12:ans_offset+12+rdlen])
-                    return ip
+                return parse_dns_a_record(data)
             except Exception:
                 return None
             finally:
                 s.close()
-            return None
 
         resolved_ip = None
         try:
             resolved_ip = await loop.run_in_executor(None, _query)
         except Exception:
             resolved_ip = None
+
+        if len(self._sinkhole_cache) >= 2000:
+            expired = [k for k, (_, ts) in self._sinkhole_cache.items() if now - ts >= 600]
+            for k in expired:
+                self._sinkhole_cache.pop(k, None)
+            if len(self._sinkhole_cache) >= 2000:
+                excess = len(self._sinkhole_cache) - 2000 + 1
+                oldest_keys = sorted(self._sinkhole_cache.keys(), key=lambda k: self._sinkhole_cache[k][1])[:excess]
+                for k in oldest_keys:
+                    self._sinkhole_cache.pop(k, None)
 
         self._sinkhole_cache[clean_d] = (resolved_ip, now)
         return resolved_ip
@@ -660,9 +741,25 @@ class DomainAnalyzer:
                 tracker_category=tracker_category,
             )
 
-        # 3. Exact or suffix match against built-in curated catalog
+        # 3. Exact match against built-in curated catalog first
         for pattern, cat, vendor, desc, risk in KNOWN_DOMAIN_RULES:
-            if clean_d == pattern or clean_d.endswith("." + pattern) or (pattern in clean_d and "." not in pattern):
+            if clean_d == pattern:
+                return self._build_verdict(
+                    cat, clean_d,
+                    vendor=vendor,
+                    description=desc,
+                    risk_level=risk,
+                    ip=ip,
+                    is_blocked=is_blocked,
+                    blocked_reason=blocked_reason,
+                    blocked_by_provider=blocked_by_provider,
+                    filter_list=filter_list,
+                    tracker_category=tracker_category,
+                )
+
+        # 4. Suffix match (more specific / longer patterns evaluated first)
+        for pattern, cat, vendor, desc, risk in sorted(KNOWN_DOMAIN_RULES, key=lambda r: len(r[0]), reverse=True):
+            if clean_d.endswith("." + pattern) or (pattern in clean_d and "." not in pattern):
                 return self._build_verdict(
                     cat, clean_d,
                     vendor=vendor,

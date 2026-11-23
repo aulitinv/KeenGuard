@@ -88,7 +88,8 @@ async def test_build_status_payload():
 
         assert "KeenGuard Security Status" in text
         assert "Keenetic Hero 4G" in text
-        assert "192.168.1.1 (Bridge0)" in text
+        assert "192.168.1.1" in text
+        assert "KeeneticOS" in text
         assert "Устройства онлайн:" in text
         assert "1</b> из <b>2" in text
         assert "Гостевой Wi-Fi:</b> ✅ Включена" in text

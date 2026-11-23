@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 import httpx
-from keenguard.core.keenetic.models import UPnPMapping, is_unsafe_ip_for_blackhole
+from keenguard.core.keenetic.models import UPnPMapping, is_unsafe_ip_for_blackhole, is_rci_success
 
 logger = logging.getLogger("keenguard.keenetic.filtering")
 
@@ -49,7 +49,7 @@ class KeeneticFilteringMixin:
 
         payload = [{"no": "upnp", "rule": {"protocol": protocol, "port": ext_port}}]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        return resp is not None and resp.status_code == 200
+        return is_rci_success(resp)
 
     async def set_wifi_pmf(self, mode: str = "required") -> bool:
         """Sets Protected Management Frames (802.11w) on Wi-Fi access points."""
@@ -63,7 +63,7 @@ class KeeneticFilteringMixin:
             {"system": {"configuration": {"save": {}}}}
         ]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        return resp is not None and resp.status_code == 200
+        return is_rci_success(resp)
 
     async def set_wifi_wpa3(self, enable: bool = True) -> bool:
         """Enables WPA3-SAE encryption on Wi-Fi access points."""
@@ -78,7 +78,7 @@ class KeeneticFilteringMixin:
             {"system": {"configuration": {"save": {}}}}
         ]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        return resp is not None and resp.status_code == 200
+        return is_rci_success(resp)
 
     async def add_dns_sinkholes(self, domains: List[str]) -> Tuple[List[str], List[str]]:
         """
@@ -186,11 +186,13 @@ class KeeneticFilteringMixin:
                 data = resp.json()
                 if isinstance(data, list):
                     for idx, d in enumerate(clean_domains):
-                        if idx < len(data):
-                            item = data[idx]
-                            host_res = item.get("ip", {}).get("host", {})
+                        # Each domain has 2 commands (IPv4 and IPv6)
+                        item_v4 = data[idx * 2] if idx * 2 < len(data) else {}
+                        item_v6 = data[idx * 2 + 1] if idx * 2 + 1 < len(data) else {}
+                        has_error = False
+                        for item in (item_v4, item_v6):
+                            host_res = item.get("ip", {}).get("host", {}) or item.get("ipv6", {}).get("host", {})
                             statuses = host_res.get("status", [])
-                            has_error = False
                             if isinstance(statuses, list):
                                 for s in statuses:
                                     # code 22544392 is 'no such record', which still means the record is absent
@@ -198,10 +200,14 @@ class KeeneticFilteringMixin:
                                         has_error = True
                                         logger.warning("Keenetic RCI error removing sinkhole %s: %s", d, s.get("message"))
                                         break
-                            if has_error:
-                                failed.append(d)
-                            else:
-                                succeeded.append(d)
+                            elif isinstance(host_res, dict) and host_res.get("status") == "error" and host_res.get("code") != "22544392":
+                                has_error = True
+                                break
+                            elif item.get("status") == "error" and item.get("code") != "22544392":
+                                has_error = True
+                                break
+                        if has_error:
+                            failed.append(d)
                         else:
                             succeeded.append(d)
                 else:
@@ -291,7 +297,7 @@ class KeeneticFilteringMixin:
                     for idx, ip in enumerate(valid_ips):
                         if idx < len(data):
                             item = data[idx]
-                            route_res = item.get("ip", {}).get("route", {})
+                            route_res = item.get("ipv6", {}).get("route", {}) if ":" in ip else item.get("ip", {}).get("route", {})
                             statuses = route_res.get("status", [])
                             has_error = False
                             if isinstance(statuses, list):
@@ -300,6 +306,8 @@ class KeeneticFilteringMixin:
                                         has_error = True
                                         logger.warning("Keenetic RCI error adding IP blackhole %s: %s", ip, s.get("message"))
                                         break
+                            elif not is_rci_success(item):
+                                has_error = True
                             if has_error:
                                 failed.append(ip)
                             else:
@@ -338,7 +346,7 @@ class KeeneticFilteringMixin:
         failed: List[str] = []
 
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        if resp and resp.status_code == 200:
+        if resp and is_rci_success(resp):
             succeeded = clean_ips
         else:
             failed = clean_ips
@@ -359,7 +367,7 @@ class KeeneticFilteringMixin:
                     lines = data[0].get("show", {}).get("running-config", {}).get("message", [])
                     for line in lines:
                         clean_line = line.strip()
-                        if clean_line.startswith("ip route ") and "reject" in clean_line:
+                        if (clean_line.startswith("ip route ") or clean_line.startswith("ipv6 route ")) and "reject" in clean_line:
                             parts = clean_line.split()
                             if len(parts) >= 3:
                                 target_ip = parts[2].split("/")[0]
@@ -393,7 +401,7 @@ class KeeneticFilteringMixin:
             {"system": {"configuration": {"save": {}}}}
         ]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        if resp and resp.status_code == 200:
+        if resp and is_rci_success(resp):
             return True
         # Fallback to Bridge1
         payload_fallback = [
@@ -401,7 +409,7 @@ class KeeneticFilteringMixin:
             {"system": {"configuration": {"save": {}}}}
         ]
         resp_fb = await self._send_request("POST", "/rci/", json_data=payload_fallback)
-        return resp_fb is not None and resp_fb.status_code == 200
+        return resp_fb is not None and is_rci_success(resp_fb)
 
     async def get_guest_wifi_status(self) -> Dict[str, Any]:
         """Checks whether Guest Wi-Fi (GuestWiFi / Bridge1) is enabled on Keenetic."""
@@ -423,25 +431,83 @@ class KeeneticFilteringMixin:
             logger.debug("Failed getting guest wifi status: %s", e)
         return {"enabled": False, "interface": "GuestWiFi"}
 
+    async def get_bridge0_in_acl(self) -> Optional[str]:
+        """
+        Extracts any access-group name currently bound to 'Bridge0 in' from running-config.
+        Returns the ACL name or None.
+        """
+        if getattr(self, "mock_mode", False):
+            return getattr(self, "_mock_bridge0_in_acl", None)
+        try:
+            resp = await self._send_request("POST", "/rci/", json_data=[{"show": {"running-config": {}}}])
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    lines = data[0].get("show", {}).get("running-config", {}).get("message", [])
+                    in_bridge0 = False
+                    for line in lines:
+                        clean = line.strip()
+                        if clean.startswith("interface Bridge0"):
+                            in_bridge0 = True
+                            parts = clean.split()
+                            if "access-group" in parts and "in" in parts:
+                                idx = parts.index("access-group")
+                                if idx + 1 < len(parts):
+                                    return parts[idx + 1]
+                            continue
+                        elif in_bridge0 and clean.startswith("interface "):
+                            in_bridge0 = False
+
+                        if in_bridge0:
+                            parts = clean.split()
+                            if "access-group" in parts and "in" in parts:
+                                idx = parts.index("access-group")
+                                if idx + 1 < len(parts):
+                                    return parts[idx + 1]
+        except Exception as e:
+            logger.debug("Failed checking running-config for Bridge0 ACL: %s", e)
+        return None
+
     async def block_dot_traffic(self, enable: bool = True) -> bool:
         """
         Enforces blocking or unblocking of outbound DoT (DNS-over-TLS, port 853 TCP/UDP)
         to prevent clients from bypassing Keenetic local DNS filtering.
+        Binds created ACL rules to Bridge0 interface to enforce hardware packet drops.
         """
         logger.info("Setting DoT (port 853) block state on Keenetic: %s", "BLOCK" if enable else "ALLOW")
         if getattr(self, "mock_mode", False):
             return self._mock_block_dot(enable)
 
         if enable:
+            existing_acl = await self.get_bridge0_in_acl()
+            if existing_acl and not existing_acl.startswith("_keenguard_"):
+                logger.warning(
+                    "Cannot bind DoT ACL to Bridge0 in: custom user ACL '%s' is already bound. Aborting to avoid overwriting user configuration.",
+                    existing_acl
+                )
+                return False
+
+            acl_v4 = "_keenguard_bridge0_in"
+            acl_v6 = "_keenguard_bridge0_in_v6"
             payload = [
-                {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_tcp", "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
-                {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_udp", "action": "deny", "protocol": "udp", "dst-port": 853}}}},
-                {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_tcp", "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
-                {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_udp", "action": "deny", "protocol": "udp", "dst-port": 853}}}},
+                {"ip": {"access-list": {"rule": {"name": acl_v4, "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
+                {"ip": {"access-list": {"rule": {"name": acl_v4, "action": "deny", "protocol": "udp", "dst-port": 853}}}},
+                {"ip": {"access-list": {"rule": {"name": acl_v4, "action": "permit", "protocol": "ip"}}}},
+                {"ipv6": {"access-list": {"rule": {"name": acl_v6, "action": "deny", "protocol": "tcp", "dst-port": 853}}}},
+                {"ipv6": {"access-list": {"rule": {"name": acl_v6, "action": "deny", "protocol": "udp", "dst-port": 853}}}},
+                {"ipv6": {"access-list": {"rule": {"name": acl_v6, "action": "permit", "protocol": "ipv6"}}}},
+                {"interface": {"Bridge0": {"ip": {"access-group": {"name": acl_v4, "in": True}}}}},
+                {"interface": {"Bridge0": {"ipv6": {"access-group": {"name": acl_v6, "in": True}}}}},
                 {"system": {"configuration": {"save": {}}}}
             ]
         else:
             payload = [
+                {"no": {"interface": {"Bridge0": {"ip": {"access-group": {"name": "_keenguard_bridge0_in"}}}}}},
+                {"no": {"interface": {"Bridge0": {"ipv6": {"access-group": {"name": "_keenguard_bridge0_in_v6"}}}}}},
+                {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_bridge0_in"}}}}},
+                {"no": {"ipv6": {"access-list": {"rule": {"name": "_keenguard_bridge0_in_v6"}}}}},
+                {"no": {"interface": {"Bridge0": {"ip": {"access-group": {"name": "_keenguard_block_dot_tcp"}}}}}},
+                {"no": {"interface": {"Bridge0": {"ipv6": {"access-group": {"name": "_keenguard_block_dot_v6_tcp"}}}}}},
                 {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_tcp"}}}}},
                 {"no": {"ip": {"access-list": {"rule": {"name": "_keenguard_block_dot_udp"}}}}},
                 {"no": {"ipv6": {"access-list": {"rule": {"name": "_keenguard_block_dot_v6_tcp"}}}}},
@@ -449,7 +515,10 @@ class KeeneticFilteringMixin:
                 {"system": {"configuration": {"save": {}}}}
             ]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        return resp is not None and resp.status_code == 200
+        success = is_rci_success(resp)
+        if not success:
+            logger.warning("Keenetic RCI error or ACL binding failure when configuring DoT block rules")
+        return success
 
     async def is_dot_blocked(self) -> bool:
         """Checks if DoT blocking rules are active on Keenetic."""
@@ -462,7 +531,12 @@ class KeeneticFilteringMixin:
                 data = resp.json()
                 if isinstance(data, list) and data:
                     lines = data[0].get("show", {}).get("running-config", {}).get("message", [])
-                    return any("_keenguard_block_dot" in l or ("dst-port 853" in l and "deny" in l) for l in lines)
+                    return any(
+                        "_keenguard_bridge0_in" in l
+                        or "_keenguard_block_dot" in l
+                        or ("dst-port 853" in l and "deny" in l)
+                        for l in lines
+                    )
         except Exception as e:
             logger.debug("Failed checking DoT block state on router: %s", e)
         return False
@@ -516,7 +590,7 @@ class KeeneticFilteringMixin:
                 {"system": {"configuration": {"save": {}}}}
             ]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        return resp is not None and resp.status_code == 200
+        return is_rci_success(resp)
 
     async def get_device_speed_limits(self) -> Dict[str, int]:
         """Returns mapping of MAC -> speed_limit_kbps from Keenetic hotspot hosts."""

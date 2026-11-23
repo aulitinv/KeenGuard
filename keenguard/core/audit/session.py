@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import struct
+import threading
 from typing import Dict, Any, List, Optional
 from scapy.all import Packet, IP, IPv6, TCP, UDP, Raw
 
@@ -13,6 +14,7 @@ from keenguard.core.audit.geoip import KNOWN_SERVICES, is_lan_ip, identify_geoip
 from keenguard.core.audit.report import build_device_audit_report, build_network_audit_report, save_pcap_packets
 from keenguard.core.app_classifier import app_classifier
 from keenguard.core.dissector import PacketDissector
+from keenguard.core.routers.manager import router_manager
 
 logger = logging.getLogger("keenguard.audit.session")
 
@@ -22,7 +24,7 @@ def evaluate_lan_access_policy(
     dst_ip: str,
     dport: int,
     designated_nvr_ip: Optional[str] = None,
-    custom_allowed_ports: Optional[str] = None,
+    custom_allowed_ports: Optional[Any] = None,
     preset_rules: Optional[Dict[str, Any]] = None,
     proto: str = "TCP",
     bytes_transferred: int = 0,
@@ -34,7 +36,7 @@ def evaluate_lan_access_policy(
     is_blocked: True if this violates policy and is a candidate for quarantine
     """
     # Router local gateway
-    if dst_ip == "192.168.1.1":
+    if router_manager.is_router_entity(ip=dst_ip) or dst_ip == "192.168.1.1":
         if dport in (53, 67, 68, 123):
             return "safe", False
         if dport in (80, 443, 22, 23, 8080):
@@ -49,7 +51,10 @@ def evaluate_lan_access_policy(
     # Check custom allowed ports
     if custom_allowed_ports:
         try:
-            allowed_set = set(str(p).strip() for p in custom_allowed_ports.replace(",", " ").split())
+            if isinstance(custom_allowed_ports, (list, tuple, set)):
+                allowed_set = {str(p).strip() for p in custom_allowed_ports if str(p).strip()}
+            else:
+                allowed_set = set(str(p).strip() for p in str(custom_allowed_ports).replace(",", " ").split() if str(p).strip())
             if str(dport) in allowed_set:
                 return "safe", False
         except (AttributeError, ValueError) as err:
@@ -137,10 +142,24 @@ def evaluate_lan_access_policy(
 
 
 def should_device_quarantine(
-    profile: str,
+    device_or_profile: Any,
     override: Optional[str] = None,
     scope: Optional[str] = None
 ) -> bool:
+    """
+    Determines whether a device should be automatically quarantined based on its profile,
+    per-device quarantine override, and global auto_quarantine_scope setting.
+    Accepts either a DeviceRecord object or a profile name string as first argument.
+    """
+    if isinstance(device_or_profile, DeviceRecord) or hasattr(device_or_profile, "profile"):
+        profile = getattr(device_or_profile, "profile", "unassigned")
+        if override not in ("always_quarantine", "never_quarantine", "profile_default"):
+            override = getattr(device_or_profile, "auto_quarantine_override", "profile_default")
+    elif isinstance(device_or_profile, str):
+        profile = device_or_profile
+    else:
+        profile = "unassigned"
+
     override = override or "profile_default"
     scope = scope or getattr(settings, "auto_quarantine_scope", "iot_camera")
 
@@ -148,6 +167,14 @@ def should_device_quarantine(
         return True
     if override == "never_quarantine":
         return False
+
+    if scope == "disabled":
+        return False
+    if scope == "custom_devices":
+        return False
+    if scope == "all_except_trusted":
+        return profile != "trusted"
+    return profile in ("camera", "iot", "unassigned")
 
     if scope == "disabled":
         return False
@@ -184,6 +211,46 @@ def extract_dns_query(pkt: Packet) -> Optional[str]:
     except (struct.error, IndexError, AttributeError, ValueError, UnicodeDecodeError) as e:
         logger.debug("DNS packet parse exception: %s", e)
     return None
+
+
+def extract_dns_answers(pkt: Packet) -> List[tuple[str, str]]:
+    """
+    Extracts (ip, domain) pairs from DNS response packets (A and AAAA records).
+    Returns only verified DNS resolution answers, preventing DNS cache poisoning.
+    """
+    results: List[tuple[str, str]] = []
+    try:
+        from scapy.layers.dns import DNS, DNSRR
+        dns_pkt = None
+        if pkt.haslayer(DNS):
+            dns_pkt = pkt[DNS]
+        elif UDP in pkt and (pkt[UDP].dport == 53 or pkt[UDP].sport == 53):
+            raw_payload = bytes(pkt[UDP].payload)
+            if raw_payload:
+                dns_pkt = DNS(raw_payload)
+
+        if dns_pkt and getattr(dns_pkt, "qr", 0) == 1 and (getattr(dns_pkt, "an", None) or (getattr(dns_pkt, "ancount", 0) and dns_pkt.ancount > 0)):
+            i = 1
+            while True:
+                try:
+                    rr = dns_pkt.getlayer(DNSRR, i)
+                    if not rr:
+                        break
+                    if rr.type in (1, 28):
+                        rrname = rr.rrname
+                        if isinstance(rrname, bytes):
+                            rrname = rrname.decode("utf-8", errors="replace")
+                        domain = rrname.rstrip(".").lower()
+                        rdata = str(rr.rdata)
+                        if domain and rdata:
+                            results.append((rdata, domain))
+                    i += 1
+                except Exception:
+                    i += 1
+                    continue
+    except Exception as e:
+        logger.debug("DNS response parse exception: %s", e)
+    return results
 
 
 def extract_http_inspection(pkt: Packet) -> Optional[Dict[str, Any]]:
@@ -292,6 +359,7 @@ class AuditSession:
         self._hw_capture_active: bool = False
         self._poller_task: Optional[asyncio.Task] = None
         self._tasks: set = set()
+        self._lock = threading.Lock()
 
     def _create_task(self, coro):
         task = asyncio.create_task(coro)
@@ -300,20 +368,23 @@ class AuditSession:
         return task
 
     def add_packet(self, pkt: Packet):
-        if len(self.packets) < 5000:
-            self.packets.append(pkt)
+        with self._lock:
+            if len(self.packets) < 5000:
+                self.packets.append(pkt)
 
         # Inspect DNS in packet via Scapy
         domain = extract_dns_query(pkt)
         if domain:
-            self.dns_queries[domain] = {
-                "domain": domain,
-                "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
-                "last_seen": datetime.now(timezone.utc).isoformat()
-            }
-            if IP in pkt:
-                app_classifier.cache_dns_resolution(pkt[IP].dst, domain)
-                app_classifier.cache_dns_resolution(pkt[IP].src, domain)
+            with self._lock:
+                self.dns_queries[domain] = {
+                    "domain": domain,
+                    "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
+                    "last_seen": datetime.now(timezone.utc).isoformat()
+                }
+
+        # Safe DNS answer caching (never cache pkt[IP].src/dst from queries to prevent cache poisoning)
+        for resolved_ip, resolved_domain in extract_dns_answers(pkt):
+            app_classifier.cache_dns_resolution(resolved_ip, resolved_domain)
 
         # Inspect TLS SNI for L7 app classification
         sni = PacketDissector.extract_tls_sni(pkt)
@@ -324,9 +395,10 @@ class AuditSession:
         http_info = extract_http_inspection(pkt)
         if http_info:
             dedup_key = f"{http_info['method']}_{http_info['host']}_{http_info['path']}"
-            if not any(f"{h['method']}_{h['host']}_{h['path']}" == dedup_key for h in self.http_inspections):
-                if len(self.http_inspections) < 100:
-                    self.http_inspections.append(http_info)
+            with self._lock:
+                if not any(f"{h['method']}_{h['host']}_{h['path']}" == dedup_key for h in self.http_inspections):
+                    if len(self.http_inspections) < 100:
+                        self.http_inspections.append(http_info)
 
     def update_nat_entries(self, entries: List[Dict[str, Any]], on_suspicious_callback=None):
         for e in entries:
@@ -356,7 +428,7 @@ class AuditSession:
             is_hub = self.profile == "smart_home_hub" or (self.profile == "unassigned" and any(k in (self.hostname or "").lower() for k in ["spruthub", "homeassistant", "hassio", "haos", "hubitat", "zigbee2mqtt"]))
             is_discovery = dst_ip.endswith(".255") or dst_ip == "255.255.255.255" or dst_ip.startswith("224.") or dst_ip.startswith("239.") or dport in (54321, 5353, 1900, 5683)
 
-            if is_lan and dst_ip != "192.168.1.1":
+            if is_lan and not router_manager.is_router_entity(ip=dst_ip) and dst_ip != "192.168.1.1":
                 if is_hub and is_discovery:
                     risk = "safe"  # Normal smart home peripheral discovery
                 else:
@@ -449,6 +521,12 @@ class AuditSession:
     def generate_report(self) -> Dict[str, Any]:
         return build_device_audit_report(self)
 
+    def save_pcap(self, pcap_dir: Optional[Path] = None) -> Optional[str]:
+        with self._lock:
+            pkts = list(self.packets)
+        saved = save_pcap_packets(pkts, self.pcap_filename, pcap_dir)
+        return self.pcap_filename if saved else None
+
 
 class NetworkAuditSession:
     """Network-wide traffic audit session capturing NAT flows and packets across all LAN hosts."""
@@ -473,6 +551,7 @@ class NetworkAuditSession:
         self.pcap_filename = f"{self.session_id}.pcap"
         self._poller_task: Optional[asyncio.Task] = None
         self._tasks: set = set()
+        self._lock = threading.Lock()
 
     def _create_task(self, coro):
         task = asyncio.create_task(coro)
@@ -493,26 +572,30 @@ class NetworkAuditSession:
         return self.total_packets_up + self.total_packets_down
 
     def add_packet(self, pkt: Packet):
-        if len(self.packets) < 15000:
-            self.packets.append(pkt)
+        with self._lock:
+            if len(self.packets) < 15000:
+                self.packets.append(pkt)
 
         domain = extract_dns_query(pkt)
         if domain:
-            self.dns_queries[domain] = {
-                "domain": domain,
-                "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
-                "last_seen": datetime.now(timezone.utc).isoformat()
-            }
-            if IP in pkt:
-                app_classifier.cache_dns_resolution(pkt[IP].dst, domain)
-                app_classifier.cache_dns_resolution(pkt[IP].src, domain)
+            with self._lock:
+                self.dns_queries[domain] = {
+                    "domain": domain,
+                    "count": self.dns_queries.get(domain, {}).get("count", 0) + 1,
+                    "last_seen": datetime.now(timezone.utc).isoformat()
+                }
+
+        # Safe DNS answer caching
+        for resolved_ip, resolved_domain in extract_dns_answers(pkt):
+            app_classifier.cache_dns_resolution(resolved_ip, resolved_domain)
 
         # Inspect TLS SNI for L7 app classification
         sni = PacketDissector.extract_tls_sni(pkt)
         if sni and IP in pkt:
             app_classifier.cache_dns_resolution(pkt[IP].dst, sni)
 
-    def update_nat_table(self, nat_entries: List[Dict[str, Any]], devices_by_ip: Dict[str, Any], on_suspicious_callback=None, presets_dict: Optional[Dict[str, Any]] = None):
+    def update_nat_table(self, nat_entries: List[Dict[str, Any]], devices_by_ip: Optional[Dict[str, Any]] = None, on_suspicious_callback=None, presets_dict: Optional[Dict[str, Any]] = None):
+        devices_by_ip = devices_by_ip or {}
         for e in nat_entries:
             src_ip = e.get("src", "")
             dst_ip = e.get("dst", "")
@@ -551,10 +634,6 @@ class NetworkAuditSession:
                 }
 
             d_stat = self.device_stats[src_ip]
-            d_stat["bytes_up"] = max(d_stat["bytes_up"], b_up)
-            d_stat["bytes_down"] = max(d_stat["bytes_down"], b_down)
-            d_stat["packets_up"] = max(d_stat["packets_up"], p_up)
-            d_stat["packets_down"] = max(d_stat["packets_down"], p_down)
 
             total_b = b_up + b_down
             total_p = p_up + p_down
@@ -572,7 +651,7 @@ class NetworkAuditSession:
             risk = service_info.get("risk", "safe")
 
             # Check Lateral Movement & internal probes using role-based policy
-            if is_lan and dst_ip != "192.168.1.1":
+            if is_lan and not router_manager.is_router_entity(ip=dst_ip) and dst_ip != "192.168.1.1":
                 is_discovery = dst_ip.endswith(".255") or dst_ip == "255.255.255.255" or dst_ip.startswith("224.") or dst_ip.startswith("239.") or dport in (54321, 5353, 1900, 5683)
                 if not is_discovery:
                     dst_dev = devices_by_ip.get(dst_ip)
@@ -683,6 +762,14 @@ class NetworkAuditSession:
                 self.flows[flow_key]["packets_down"] = max(self.flows[flow_key]["packets_down"], p_down)
                 self.flows[flow_key]["last_seen"] = datetime.now(timezone.utc).isoformat()
 
+        for ip, d_stat in self.device_stats.items():
+            dev_flows = [f for f in self.flows.values() if f.get("src_ip") == ip]
+            d_stat["flows_count"] = len(dev_flows)
+            d_stat["bytes_up"] = sum(f.get("bytes_up", 0) for f in dev_flows)
+            d_stat["bytes_down"] = sum(f.get("bytes_down", 0) for f in dev_flows)
+            d_stat["packets_up"] = sum(f.get("packets_up", 0) for f in dev_flows)
+            d_stat["packets_down"] = sum(f.get("packets_down", 0) for f in dev_flows)
+
         self.total_bytes_up = sum(d["bytes_up"] for d in self.device_stats.values())
         self.total_bytes_down = sum(d["bytes_down"] for d in self.device_stats.values())
         self.total_packets_up = sum(d["packets_up"] for d in self.device_stats.values())
@@ -698,5 +785,7 @@ class NetworkAuditSession:
         return self.generate_network_report()
 
     def save_pcap(self, pcap_dir: Optional[Path] = None) -> Optional[str]:
-        saved = save_pcap_packets(self.packets, self.pcap_filename, pcap_dir)
+        with self._lock:
+            pkts = list(self.packets)
+        saved = save_pcap_packets(pkts, self.pcap_filename, pcap_dir)
         return self.pcap_filename if saved else None

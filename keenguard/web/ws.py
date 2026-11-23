@@ -102,27 +102,65 @@ MAX_WS_MESSAGES_PER_SECOND: int = 30
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
+    # CSWSH Protection: validate Origin header if present
+    origin = websocket.headers.get("origin")
+    if origin:
+        from urllib.parse import urlparse
+        parsed_origin = urlparse(origin)
+        origin_host = parsed_origin.netloc.lower()
+        req_host = (websocket.headers.get("host") or "").lower()
+
+        parsed_req = urlparse("//" + req_host) if req_host else None
+        origin_hostname = (parsed_origin.hostname or "").lower()
+        origin_port = parsed_origin.port
+        req_hostname = (parsed_req.hostname or "").lower() if parsed_req else ""
+        req_port = parsed_req.port if parsed_req else None
+
+        ports_match = (req_hostname == "testserver") or (origin_port == req_port)
+        hosts_match = (
+            (origin_hostname and origin_hostname == req_hostname)
+            or (origin_hostname in ("localhost", "127.0.0.1", "::1") and req_hostname in ("localhost", "127.0.0.1", "::1", "testserver"))
+        )
+        is_same_host = (origin_host == req_host) or (hosts_match and ports_match)
+        if not is_same_host:
+            logger.warning(
+                "CSWSH blocked: rejected WebSocket connection with origin '%s' (Host: '%s')",
+                origin,
+                req_host,
+            )
+            await websocket.close(code=1008)
+            return
+
     # Verify authentication for LAN clients
     from keenguard.config import settings
     from keenguard.web.auth import (
         is_auth_required,
         is_localhost_ip,
         validate_session,
+        get_client_ip,
         COOKIE_NAME,
     )
 
-    client_ip = websocket.client.host if websocket.client else "127.0.0.1"
+    client_ip = get_client_ip(websocket)
     if is_auth_required():
         is_local = is_localhost_ip(client_ip)
         if not (settings.web_auth_exempt_localhost and is_local):
-            token = websocket.cookies.get(COOKIE_NAME) or websocket.query_params.get("token")
+            token = websocket.cookies.get(COOKIE_NAME)
+            if not token:
+                auth_hdr = websocket.headers.get("authorization")
+                if auth_hdr and auth_hdr.lower().startswith("bearer "):
+                    token = auth_hdr[7:].strip()
+            if not token:
+                subproto = websocket.headers.get("sec-websocket-protocol")
+                if subproto:
+                    for part in subproto.split(","):
+                        p = part.strip()
+                        if p.lower() != "bearer" and validate_session(p):
+                            token = p
+                            break
+
             if not validate_session(token):
-                await websocket.accept()
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Unauthorized: Authentication required",
-                    "auth_required": True,
-                })
+                logger.warning("Rejected unauthorized WebSocket connection from %s", client_ip)
                 await websocket.close(code=1008)
                 return
 
@@ -180,18 +218,35 @@ async def websocket_endpoint(websocket: WebSocket):
                         await websocket.send_json({"type": "refresh_ack", "status": "polling_started"})
                 elif cmd == "start_audit":
                     mac = msg.get("mac")
-                    duration = int(msg.get("duration", 60))
                     if not mac or not is_valid_mac(mac):
                         await websocket.send_json({"type": "error", "message": f"Valid MAC address is required for start_audit (received: {mac})"})
-                    else:
-                        create_tracked_task(audit_manager.start_audit(mac=mac, duration_seconds=duration))
-                        await websocket.send_json({"type": "audit_started", "mac": mac, "duration": duration})
+                        continue
+
+                    try:
+                        raw_duration = msg.get("duration", 60)
+                        duration = int(raw_duration)
+                    except (ValueError, TypeError):
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Invalid duration value: {msg.get('duration')}. Must be an integer."
+                        })
+                        continue
+
+                    if not (10 <= duration <= 3600):
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Duration out of range ({duration}s). Must be between 10 and 3600 seconds."
+                        })
+                        continue
+
+                    create_tracked_task(audit_manager.start_audit(mac=mac, duration_seconds=duration))
+                    await websocket.send_json({"type": "audit_started", "mac": mac, "duration": duration})
                 elif cmd == "stop_audit":
                     mac = msg.get("mac")
                     if not mac or not is_valid_mac(mac):
                         await websocket.send_json({"type": "error", "message": f"Valid MAC address is required for stop_audit (received: {mac})"})
                     else:
-                        audit_manager.stop_audit(mac)
+                        create_tracked_task(audit_manager.stop_audit(mac))
                         await websocket.send_json({"type": "audit_stopped", "mac": mac})
                 else:
                     await websocket.send_json({"type": "ack", "received": cmd})

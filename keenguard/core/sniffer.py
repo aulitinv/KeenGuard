@@ -102,6 +102,16 @@ PORT_NAMES = {
 }
 
 class NetworkSniffer:
+    DEFAULT_BPF_FILTER = (
+        "icmp or arp or "
+        "(udp and (port 7 or port 9 or port 53 or port 123 or port 853 or port 1900 or port 5353 or port 5683 or "
+        "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
+        "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or port 853 or "
+        "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
+        "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
+        "port 6667 or port 6668 or port 8443 or port 9999))"
+    )
+
     def __init__(self):
         self.running = False
         self._thread: Optional[threading.Thread] = None
@@ -538,19 +548,8 @@ class NetworkSniffer:
             from scapy.all import sniff
             logger.info("Starting network sniffer thread (interface=%s)...", interface or "default")
             try:
-                # BPF filter targeting ICMP, ARP, broadcast/multicast UDP, DNS, NTP, SSDP, mDNS, CoAP,
-                # and TCP on web/IoT/camera/sensitive ports (HTTPS 443, HTTP 80/8080/8000, RTSP 554, MQTT 1883/8883, DLNA 8200, etc.)
-                bpf = (
-                    "icmp or arp or "
-                    "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683 or "
-                    "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
-                    "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or "
-                    "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
-                    "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
-                    "port 6667 or port 6668 or port 8443 or port 9999))"
-                )
                 sniff_kwargs = {
-                    "filter": bpf,
+                    "filter": self.DEFAULT_BPF_FILTER,
                     "prn": self._process_packet,
                     "store": 0,
                     "stop_filter": lambda _: (not self.running) or (getattr(settings, "sniffer_mode", "") != "promiscuous_active")
@@ -572,23 +571,27 @@ class NetworkSniffer:
         settings.sniffer_mode = mode
         logger.info("Sniffer mode changed from '%s' to '%s'", old_mode, mode)
 
+        try:
+            from keenguard.core.config_service import config_service
+            config_service._cache["sniffer_mode"] = mode
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    loop.create_task(config_service.set("sniffer_mode", mode, persist_db=True))
+            except RuntimeError:
+                pass
+        except Exception as e:
+            logger.debug("Failed to update config_service in sniffer.set_mode: %s", e)
+
         if mode == "promiscuous_active":
             if self.running and (not self._thread or not self._thread.is_alive()):
                 def _sniff_worker():
                     from scapy.all import sniff
                     logger.info("Starting network sniffer thread (promiscuous_active, interface=%s)...", interface or "default")
                     try:
-                        bpf = (
-                            "icmp or arp or "
-                            "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683 or "
-                            "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
-                            "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or "
-                            "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
-                            "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
-                            "port 6667 or port 6668 or port 8443 or port 9999))"
-                        )
                         sniff_kwargs = {
-                            "filter": bpf,
+                            "filter": self.DEFAULT_BPF_FILTER,
                             "prn": self._process_packet,
                             "store": 0,
                             "stop_filter": lambda _: (not self.running) or (getattr(settings, "sniffer_mode", "") != "promiscuous_active")
@@ -612,19 +615,10 @@ class NetworkSniffer:
         def _timed_worker():
             from scapy.all import sniff
             logger.info("Starting on-demand timed capture (duration=%ds, iface=%s)...", duration_seconds, interface or "default")
-            bpf = (
-                "icmp or arp or "
-                "(udp and (port 7 or port 9 or port 53 or port 123 or port 1900 or port 5353 or port 5683 or "
-                "port 6667 or port 6668 or port 1982 or port 9999 or port 54321)) or "
-                "(tcp and (port 21 or port 22 or port 23 or port 80 or port 443 or port 554 or "
-                "port 1883 or port 8883 or port 139 or port 445 or port 1433 or port 3306 or "
-                "port 3389 or port 5000 or port 5555 or port 8000 or port 8080 or port 8200 or "
-                "port 6667 or port 6668 or port 8443 or port 9999))"
-            )
             stop_time = time.time() + duration_seconds
             try:
                 sniff_kwargs = {
-                    "filter": bpf,
+                    "filter": self.DEFAULT_BPF_FILTER,
                     "prn": self._process_packet,
                     "store": 0,
                     "timeout": duration_seconds,

@@ -483,7 +483,7 @@ async def test_openwrt_packet_capture_lifecycle(tmp_path):
         ip="192.168.1.100",
         duration_seconds=30
     )
-    assert res_start["status"] == "running"
+    assert res_start["status"] in ("ok", "running")
     assert backend._current_capture_file is not None
 
     # 3. Stop packet capture

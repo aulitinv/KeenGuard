@@ -2,6 +2,7 @@
 import logging
 from typing import Dict, Any
 import httpx
+from keenguard.core.keenetic.models import is_rci_success
 
 logger = logging.getLogger("keenguard.keenetic.policies")
 
@@ -17,7 +18,7 @@ class KeeneticPoliciesMixin:
 
         payload = [{"ip": {"hotspot": {"host": {"mac": mac.lower(), "access": access}}}}]
         resp = await self._send_request("POST", "/rci/", json_data=payload)
-        success = resp is not None and resp.status_code == 200
+        success = is_rci_success(resp)
         if success:
             logger.warning("HARDWARE MUTATION APPLIED: Keenetic host %s access set to '%s'", mac, access)
         else:
@@ -81,12 +82,14 @@ class KeeneticPoliciesMixin:
 
     async def set_dlna_access(self, mac: str, ip: str, allow: bool) -> bool:
         """
-        Control DLNA (port 8200) access for a specific device via Keenetic ip policy.
+        Control DLNA (port 8200) access for a specific device via Keenetic ip policy or access-list.
+        When using access-list fallback, binds it to Bridge0 interface to ensure hardware enforcement.
         """
         if getattr(self, "mock_mode", False):
             return self._mock_set_dlna_access(mac, ip, allow)
 
         comment = f"keenguard-dlna-{mac.replace(':', '').lower()}"
+        acl_name = f"_keenguard_dlna_{mac.replace(':', '').lower()}"
 
         if not allow and ip:
             payload = [{"ip": {"policy": {
@@ -97,27 +100,50 @@ class KeeneticPoliciesMixin:
                 "dst-port": "8200",
                 "comment": comment
             }}}]
-        else:
-            payload = [{"no": {"ip": {"policy": {"comment": comment}}}}]
-
-        resp = await self._send_request("POST", "/rci/", json_data=payload)
-        if resp and resp.status_code == 200:
-            action = "разрешён" if allow else "заблокирован"
-            logger.info("DLNA access %s for %s (%s)", action, mac, ip)
-            return True
-
-        # Fallback: access-list
-        if not allow and ip:
-            payload2 = [{"access-list": {
-                "keenguard-dlna": {
-                    "deny": {"protocol": "tcp", "src": f"host {ip}",
-                             "dst-port": "8200"}
-                }
-            }}]
-            resp2 = await self._send_request("POST", "/rci/", json_data=payload2)
-            if resp2 and resp2.status_code == 200:
-                logger.info("DLNA access blocked via access-list for %s", mac)
+            resp = await self._send_request("POST", "/rci/", json_data=payload)
+            if is_rci_success(resp):
+                action = "заблокирован"
+                logger.info("DLNA access %s for %s (%s) via ip policy", action, mac, ip)
                 return True
 
-        logger.warning("Could not enforce DLNA rule for %s via RCI.", mac)
-        return False
+            # Check if any ACL is already bound to Bridge0 in before binding fallback ACL
+            existing_acl = await self.get_bridge0_in_acl() if hasattr(self, "get_bridge0_in_acl") else None
+            if existing_acl:
+                logger.warning(
+                    "Cannot bind DLNA ACL to Bridge0 in for %s: interface already has ACL '%s' bound. Aborting to avoid conflict.",
+                    mac, existing_acl
+                )
+                return False
+
+            # Fallback: access-list bound to Bridge0 interface with trailing permit any
+            payload2 = [
+                {"ip": {"access-list": {
+                    "rule": {
+                        "name": acl_name,
+                        "action": "deny",
+                        "protocol": "tcp",
+                        "src": ip,
+                        "dst": self.host,
+                        "dst-port": 8200
+                    }
+                }}},
+                {"ip": {"access-list": {"rule": {"name": acl_name, "action": "permit", "protocol": "ip"}}}},
+                {"interface": {"Bridge0": {"ip": {"access-group": {"name": acl_name, "in": True}}}}},
+                {"system": {"configuration": {"save": {}}}}
+            ]
+            resp2 = await self._send_request("POST", "/rci/", json_data=payload2)
+            if is_rci_success(resp2):
+                logger.info("DLNA access blocked via access-list and access-group for %s", mac)
+                return True
+
+            logger.warning("Could not enforce DLNA rule for %s via RCI (policy and ACL binding failed).", mac)
+            return False
+        else:
+            payload = [
+                {"no": {"ip": {"policy": {"comment": comment}}}},
+                {"no": {"interface": {"Bridge0": {"ip": {"access-group": {"name": acl_name}}}}}},
+                {"no": {"ip": {"access-list": {"rule": {"name": acl_name}}}}},
+                {"system": {"configuration": {"save": {}}}}
+            ]
+            resp = await self._send_request("POST", "/rci/", json_data=payload)
+            return is_rci_success(resp)

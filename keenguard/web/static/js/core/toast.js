@@ -1,7 +1,7 @@
 // ==========================================
 // Toast Notification Subsystem
 // ==========================================
-function showToast(msg, isError = false) {
+function showToast(msg, typeOrIsError = 'info') {
     let container = document.getElementById('kg-toast-container');
     if (!container) {
         container = document.createElement('div');
@@ -9,10 +9,20 @@ function showToast(msg, isError = false) {
         container.className = 'fixed bottom-5 right-5 z-[9999] flex flex-col space-y-2 pointer-events-none';
         document.body.appendChild(container);
     }
+
+    let styleClass = 'bg-slate-900/95 text-slate-100 border-indigo-500/40';
+    if (typeOrIsError === true || typeOrIsError === 'error') {
+        styleClass = 'bg-rose-950/90 text-rose-200 border-rose-500/50';
+    } else if (typeOrIsError === 'success') {
+        styleClass = 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50';
+    } else if (typeOrIsError === 'warning') {
+        styleClass = 'bg-amber-950/90 text-amber-200 border-amber-500/50';
+    } else {
+        styleClass = 'bg-slate-900/95 text-slate-100 border-indigo-500/40';
+    }
+
     const toast = document.createElement('div');
-    toast.className = `px-4 py-2.5 rounded-xl text-xs font-medium shadow-xl transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-auto flex items-center space-x-2 border ${
-        isError ? 'bg-rose-950/90 text-rose-200 border-rose-500/50' : 'bg-slate-900/95 text-slate-100 border-indigo-500/40'
-    }`;
+    toast.className = `px-4 py-2.5 rounded-xl text-xs font-medium shadow-xl transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-auto flex items-center space-x-2 border ${styleClass}`;
     toast.innerHTML = `<span>${escapeHtml(msg)}</span>`;
     container.appendChild(toast);
     requestAnimationFrame(() => {

@@ -30,12 +30,12 @@ async function loadUpnp() {
                         <tbody class="divide-y divide-slate-800/60">
                             ${upnpList.map(r => `
                                 <tr>
-                                    <td class="py-2.5 font-mono text-rose-400 font-bold">${r.ext_port}</td>
-                                    <td class="py-2.5 font-mono text-slate-300">${r.int_ip || r.client_ip || r.ip || '—'}:${r.int_port || r.port}</td>
-                                    <td class="py-2.5 uppercase font-mono">${r.protocol}</td>
+                                    <td class="py-2.5 font-mono text-rose-400 font-bold">${Number(r.ext_port)}</td>
+                                    <td class="py-2.5 font-mono text-slate-300">${escapeHtml(r.int_ip || r.client_ip || r.ip || '—')}:${Number(r.int_port || r.port || 0)}</td>
+                                    <td class="py-2.5 uppercase font-mono">${escapeHtml(r.protocol)}</td>
                                     <td class="py-2.5 text-slate-400">${escapeHtml(r.description || 'N/A')}</td>
                                     <td class="py-2.5 text-right">
-                                        <button onclick="deleteUpnp('${r.protocol}', ${r.ext_port})" class="px-2.5 py-1 text-[11px] rounded bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30">
+                                        <button data-protocol="${escapeHtml(r.protocol)}" data-port="${Number(r.ext_port)}" onclick="deleteUpnp(this.dataset.protocol, Number(this.dataset.port))" class="px-2.5 py-1 text-[11px] rounded bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30">
                                             Удалить
                                         </button>
                                     </td>
@@ -231,7 +231,7 @@ async function openEventModal(eventId, timestamp) {
 
         if (e.target_mac) {
             extraActionsContainer.innerHTML += `
-                <button onclick="closeEventModal(); openDeviceModal('${e.target_mac}');" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center space-x-1.5 transition shadow-lg shadow-indigo-600/20">
+                <button data-mac="${escapeHtml(e.target_mac)}" onclick="closeEventModal(); openDeviceModal(this.dataset.mac);" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center space-x-1.5 transition shadow-lg shadow-indigo-600/20">
                     <i data-lucide="activity" class="w-3.5 h-3.5"></i>
                     <span>Открыть карточку устройства и аудит</span>
                 </button>
@@ -249,7 +249,7 @@ async function openEventModal(eventId, timestamp) {
                 </div>
                 <div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-900 border border-slate-800">
                     <span class="text-slate-400">Инициатор в локальной сети (WOL/AirPlay):</span>
-                    <span class="font-mono text-slate-300 font-medium">${culpritDisplay}</span>
+                    <span class="font-mono text-slate-300 font-medium">${escapeHtml(culpritDisplay)}</span>
                 </div>
                 <div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-900 border border-slate-800">
                     <span class="text-slate-400">Захвачено пакетов в буфере:</span>
@@ -263,7 +263,7 @@ async function openEventModal(eventId, timestamp) {
 
         if (e.target_mac) {
             extraActionsContainer.innerHTML += `
-                <button onclick="closeEventModal(); openDeviceModal('${e.target_mac}');" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center space-x-1.5 transition shadow-lg shadow-indigo-600/20">
+                <button data-mac="${escapeHtml(e.target_mac)}" onclick="closeEventModal(); openDeviceModal(this.dataset.mac);" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center space-x-1.5 transition shadow-lg shadow-indigo-600/20">
                     <i data-lucide="tv" class="w-3.5 h-3.5"></i>
                     <span>Криминалистика ТВ</span>
                 </button>
@@ -276,9 +276,9 @@ async function openEventModal(eventId, timestamp) {
                     ⚠️ <b>Несанкционированное сканирование:</b> Зафиксирована попытка обращения к закрытому сервисному порту устройства.
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div class="p-2 rounded bg-surface-900 border border-slate-800/80"><span class="text-slate-500 block text-[10px]">Порт:</span> <span class="font-mono font-bold text-white">${dt.port || 'Не указан'}</span></div>
+                    <div class="p-2 rounded bg-surface-900 border border-slate-800/80"><span class="text-slate-500 block text-[10px]">Порт:</span> <span class="font-mono font-bold text-white">${escapeHtml(String(dt.port || 'Не указан'))}</span></div>
                     <div class="p-2 rounded bg-surface-900 border border-slate-800/80"><span class="text-slate-500 block text-[10px]">Сервис:</span> <span class="font-bold text-white">${escapeHtml(dt.service || '')}</span></div>
-                    <div class="p-2 rounded bg-surface-900 border border-slate-800/80"><span class="text-slate-500 block text-[10px]">Протокол:</span> <span class="font-mono text-slate-300">${dt.protocol || 'TCP'}</span></div>
+                    <div class="p-2 rounded bg-surface-900 border border-slate-800/80"><span class="text-slate-500 block text-[10px]">Протокол:</span> <span class="font-mono text-slate-300">${escapeHtml(dt.protocol || 'TCP')}</span></div>
                     <div class="p-2 rounded bg-surface-900 border border-slate-800/80"><span class="text-slate-500 block text-[10px]">Статус:</span> <span class="text-emerald-400 font-bold">${dt.action === 'blocked' ? 'ЗАБЛОКИРОВАНО' : 'ОБНАРУЖЕНО'}</span></div>
                 </div>
             </div>
@@ -303,7 +303,7 @@ async function openEventModal(eventId, timestamp) {
 
     if (e.pcap_file) {
         extraActionsContainer.innerHTML += `
-            <a href="/api/events/pcap/${e.pcap_file}" download class="px-3.5 py-2 rounded-xl bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 text-xs font-medium flex items-center space-x-1.5 transition">
+            <a href="/api/events/pcap/${encodeURIComponent(e.pcap_file)}" download="${escapeHtml(e.pcap_file)}" class="px-3.5 py-2 rounded-xl bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 text-xs font-medium flex items-center space-x-1.5 transition">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
                 <span>Скачать дамп PCAP</span>
             </a>
@@ -335,20 +335,20 @@ async function loadEvents() {
             const timeStr = new Date(e.timestamp).toLocaleString();
 
             return `
-                <div onclick="openEventModal(${e.id || 0}, '${escapeHtml(e.timestamp)}')" class="p-3.5 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-indigo-500/60 hover:bg-surface-900/90 transition flex items-start justify-between gap-3 text-xs cursor-pointer group shadow-sm">
+                <div data-event-id="${Number(e.id || 0)}" data-timestamp="${escapeHtml(e.timestamp)}" onclick="openEventModal(Number(this.dataset.eventId), this.dataset.timestamp)" class="p-3.5 rounded-xl bg-surface-950 border border-slate-800/80 hover:border-indigo-500/60 hover:bg-surface-900/90 transition flex items-start justify-between gap-3 text-xs cursor-pointer group shadow-sm">
                     <div class="space-y-1">
                         <div class="flex items-center space-x-2">
-                            <span class="px-2 py-0.5 rounded font-medium border ${badgeColor}">${e.event_type.toUpperCase()}</span>
+                            <span class="px-2 py-0.5 rounded font-medium border ${badgeColor}">${escapeHtml(e.event_type.toUpperCase())}</span>
                             <span class="text-slate-500">${timeStr}</span>
                         </div>
                         <p class="text-slate-200 font-medium">${escapeHtml(e.description)}</p>
                     </div>
                     <div class="flex items-center space-x-2 shrink-0 self-center">
-                        ${e.pcap_file ? `<a href="/api/events/pcap/${e.pcap_file}" download onclick="event.stopPropagation()" class="text-indigo-400 hover:underline shrink-0 px-2 py-1 bg-indigo-950/60 rounded border border-indigo-800/50">PCAP</a>` : ''}
-                        <button onclick="openInvestigatorForEvent(${e.id || 0}, event)" class="p-1.5 rounded-lg bg-surface-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/50 transition" title="Расследовать инцидент в Wizard">
+                        ${e.pcap_file ? `<a href="/api/events/pcap/${encodeURIComponent(e.pcap_file)}" download="${escapeHtml(e.pcap_file)}" onclick="event.stopPropagation()" class="text-indigo-400 hover:underline shrink-0 px-2 py-1 bg-indigo-950/60 rounded border border-indigo-800/50">PCAP</a>` : ''}
+                        <button data-event-id="${Number(e.id || 0)}" onclick="openInvestigatorForEvent(Number(this.dataset.eventId), event)" class="p-1.5 rounded-lg bg-surface-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/50 transition" title="Расследовать инцидент в Wizard">
                             <i data-lucide="crosshair" class="w-3.5 h-3.5 text-rose-400"></i>
                         </button>
-                        <button onclick="deleteEvent(${e.id || 0}, event)" class="p-1.5 rounded-lg bg-surface-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/50 transition" title="Удалить инцидент">
+                        <button data-event-id="${Number(e.id || 0)}" onclick="deleteEvent(Number(this.dataset.eventId), event)" class="p-1.5 rounded-lg bg-surface-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-800/50 transition" title="Удалить инцидент">
                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
                         <span class="text-[11px] text-indigo-400 group-hover:text-indigo-300 group-hover:translate-x-0.5 transition font-semibold flex items-center space-x-1 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
@@ -452,7 +452,6 @@ async function executeClearEvents() {
 
 // Alerts Tab Loader
 async function loadAlerts() {
-    upnpList = upnpList.filter(u => !(u.protocol === protocol && (u.ext_port === port || u.port === port)));
     await loadUpnp();
     await loadEvents();
 }
@@ -653,7 +652,7 @@ function renderAuditResult(report) {
         if (dnsList.length > 0) {
             dnsSec.classList.remove('hidden');
             dnsContainer.innerHTML = dnsList.map(dom => `
-                <button onclick="openDomainModal('${escapeHtml(dom)}')" class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 font-mono transition cursor-pointer" title="Нажмите для анализа и блокировки в Keenetic">
+                <button data-domain="${escapeHtml(dom)}" onclick="openDomainModal(this.dataset.domain)" class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 font-mono transition cursor-pointer" title="Нажмите для анализа и блокировки в Keenetic">
                     <span>${escapeHtml(dom)}</span>
                     <i data-lucide="shield-alert" class="w-2.5 h-2.5 text-cyan-400"></i>
                 </button>
@@ -902,7 +901,7 @@ function renderSecurityChecklist(items) {
                 `;
             } else if (act.type === 'toggle_tv_night') {
                 actionBtnHtml = `
-                    <button onclick="toggleChecklistTvNight('${act.mac}', ${act.target_enable})"
+                    <button data-mac="${escapeHtml(act.mac)}" data-enable="${Boolean(act.target_enable)}" onclick="toggleChecklistTvNight(this.dataset.mac, this.dataset.enable === 'true')"
                             class="px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center space-x-1.5 ${act.target_enable ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'}">
                         <i data-lucide="${act.target_enable ? 'moon' : 'sun'}" class="w-3.5 h-3.5"></i>
                         <span>${escapeHtml(act.label)}</span>
@@ -964,10 +963,10 @@ function renderSecurityChecklist(items) {
                                         </td>
                                         <td class="py-2.5 px-2.5 text-center">
                                             ${dev.is_blocked_wan 
-                                                ? `<button onclick="toggleChecklistDeviceDirect('${dev.mac}', 'wan', false)" class="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 inline-flex items-center space-x-1 transition" title="Интернет заблокирован. Нажмите, чтобы разрешить выход">
+                                                ? `<button data-mac="${escapeHtml(dev.mac)}" onclick="toggleChecklistDeviceDirect(this.dataset.mac, 'wan', false)" class="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 inline-flex items-center space-x-1 transition" title="Интернет заблокирован. Нажмите, чтобы разрешить выход">
                                                      <i data-lucide="shield-off" class="w-3 h-3"></i><span>Блок WAN</span>
                                                    </button>`
-                                                : `<button onclick="toggleChecklistDeviceDirect('${dev.mac}', 'wan', true)" class="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 inline-flex items-center space-x-1 transition" title="Интернет разрешен. Нажмите, чтобы заблокировать">
+                                                : `<button data-mac="${escapeHtml(dev.mac)}" onclick="toggleChecklistDeviceDirect(this.dataset.mac, 'wan', true)" class="px-2.5 py-1 rounded-lg text-[10px] font-medium bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 inline-flex items-center space-x-1 transition" title="Интернет разрешен. Нажмите, чтобы заблокировать">
                                                      <i data-lucide="globe" class="w-3 h-3"></i><span>WAN Открыт</span>
                                                    </button>`
                                             }
@@ -1073,10 +1072,10 @@ function renderSecurityChecklist(items) {
                             <div class="p-3 rounded-lg bg-surface-900 border border-slate-800/80 flex items-center justify-between gap-2">
                                 <div>
                                     <div class="font-medium text-xs text-slate-200">${escapeHtml(c.name)}</div>
-                                    <div class="text-[10px] font-mono text-slate-400">${c.ip} • ${c.mac}</div>
+                                    <div class="text-[10px] font-mono text-slate-400">${escapeHtml(c.ip)} • ${escapeHtml(c.mac)}</div>
                                 </div>
                                 <div class="flex items-center space-x-1.5">
-                                    <button onclick="toggleChecklistDeviceDirect('${c.mac}', 'wan', ${!c.is_blocked_wan})" class="px-2 py-1 rounded text-[10px] font-medium transition ${c.is_blocked_wan ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}" title="Блокировать/разрешить интернет для камеры">
+                                    <button data-mac="${escapeHtml(c.mac)}" data-block="${!c.is_blocked_wan}" onclick="toggleChecklistDeviceDirect(this.dataset.mac, 'wan', this.dataset.block === 'true')" class="px-2 py-1 rounded text-[10px] font-medium transition ${c.is_blocked_wan ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}" title="Блокировать/разрешить интернет для камеры">
                                         ${c.is_blocked_wan ? 'NVR-only (WAN блок)' : 'WAN открыт'}
                                     </button>
                                     <span class="px-2 py-1 rounded text-[10px] font-medium ${c.is_isolated_lan ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-800 text-slate-400 border border-slate-700'}" title="${c.is_isolated_lan ? 'Изолирована в отдельном сегменте' : 'В общей сети Bridge0'}">
@@ -1106,7 +1105,7 @@ function renderSecurityChecklist(items) {
                             <div class="p-3 rounded-lg bg-surface-900 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                                 <div class="space-y-1.5">
                                     <div class="font-medium text-xs text-slate-200">${escapeHtml(t.name)}</div>
-                                    <div class="text-[10px] font-mono text-slate-400">${t.ip} • ${t.mac}</div>
+                                    <div class="text-[10px] font-mono text-slate-400">${escapeHtml(t.ip)} • ${escapeHtml(t.mac)}</div>
                                     <div class="flex items-center space-x-1.5 text-[9px]">
                                         ${t.is_isolated_lan 
                                             ? '<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">🔒 Изолирован (Guest)</span>'
@@ -1119,7 +1118,7 @@ function renderSecurityChecklist(items) {
                                     </div>
                                 </div>
                                 <div class="flex items-center space-x-1.5 self-end sm:self-auto">
-                                    <button onclick="toggleChecklistTvNight('${t.mac}', ${!t.night_mode_enabled})" class="px-2.5 py-1 rounded text-[10px] font-medium transition ${t.night_mode_enabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'}">
+                                    <button data-mac="${escapeHtml(t.mac)}" data-enable="${!t.night_mode_enabled}" onclick="toggleChecklistTvNight(this.dataset.mac, this.dataset.enable === 'true')" class="px-2.5 py-1 rounded text-[10px] font-medium transition ${t.night_mode_enabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'}">
                                         ${t.night_mode_enabled ? '🌙 Ночной мониторинг вкл' : 'Сон выкл'}
                                     </button>
                                 </div>
@@ -1170,11 +1169,11 @@ function renderSecurityChecklist(items) {
                                     <div class="p-2.5 rounded-lg bg-surface-900 border border-slate-800/80 flex items-center justify-between">
                                         <div>
                                             <div class="font-medium text-xs text-slate-200">${escapeHtml(qd.name)}</div>
-                                            <div class="text-[10px] font-mono text-slate-400">${qd.ip} • ${qd.mac}</div>
+                                            <div class="text-[10px] font-mono text-slate-400">${escapeHtml(qd.ip)} • ${escapeHtml(qd.mac)}</div>
                                             <div class="text-[9px] text-slate-500">Домены: ${qd.observed_domains && qd.observed_domains.length > 0 ? escapeHtml(qd.observed_domains.join(', ')) : 'DNS-запросов нет'}</div>
                                         </div>
                                         <div class="flex items-center space-x-1">
-                                            <button onclick="openDeviceModal('${qd.mac}')" class="px-2 py-1 rounded bg-indigo-600/20 text-indigo-300 text-[10px] hover:bg-indigo-600/30 transition">
+                                            <button data-mac="${escapeHtml(qd.mac)}" onclick="openDeviceModal(this.dataset.mac)" class="px-2 py-1 rounded bg-indigo-600/20 text-indigo-300 text-[10px] hover:bg-indigo-600/30 transition">
                                                 Проверить
                                             </button>
                                         </div>
@@ -1523,7 +1522,7 @@ async function applySecurityWizard() {
         if (res.ok && data.status === 'ok') {
             if (feedback) {
                 feedback.className = 'p-3 rounded-xl text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-2';
-                feedback.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 shrink-0 text-emerald-400"></i><span>${data.message || 'Политики успешно применены!'} Обновлено устройств: TV=${data.tv_updated_count}, Сенсоров=${data.sensors_blocked_count}.</span>`;
+                feedback.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 shrink-0 text-emerald-400"></i><span>${escapeHtml(data.message || 'Политики успешно применены!')} Обновлено устройств: TV=${Number(data.tv_updated_count || 0)}, Сенсоров=${Number(data.sensors_blocked_count || 0)}.</span>`;
                 feedback.classList.remove('hidden');
                 if (window.lucide) lucide.createIcons();
             }
@@ -1543,7 +1542,7 @@ async function applySecurityWizard() {
     } catch (e) {
         if (feedback) {
             feedback.className = 'p-3 rounded-xl text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-2';
-            feedback.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0 text-rose-400"></i><span>Ошибка: ${e.message}</span>`;
+            feedback.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0 text-rose-400"></i><span>Ошибка: ${escapeHtml(e.message)}</span>`;
             feedback.classList.remove('hidden');
             if (window.lucide) lucide.createIcons();
         }

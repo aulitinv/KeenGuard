@@ -461,7 +461,8 @@ function buildTopologyDomElements() {
             }
         }
 
-        const shortLabel = n.type === 'segment' ? 'Bridge0' : ((n.label || '').length > 14 ? (n.label || '').substring(0, 12) + '…' : (n.label || ''));
+        const rawLabel = n.type === 'segment' ? (n.label || n.details?.interface || n.id || 'Сегмент') : (n.label || '');
+        const shortLabel = rawLabel.length > 14 ? rawLabel.substring(0, 12) + '…' : rawLabel;
         const cursor = 'cursor-pointer';
 
         return `

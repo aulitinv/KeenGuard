@@ -35,6 +35,24 @@ class KeeneticBaseClient:
         self.router_macs: Set[str] = set()
         self._capture_supported: Optional[bool] = None
         self._mock_captures: Dict[str, Dict[str, Any]] = {}
+        self.verify_tls: bool = getattr(settings, "router_verify_tls", False)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Returns or instantiates a persistent reusable HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=6.0,
+                verify=self.verify_tls
+            )
+        return self._client
+
+    async def aclose(self):
+        """Closes the underlying HTTP client session."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def authenticate(self, host: Optional[str] = None, user: Optional[str] = None,
                            password: Optional[str] = None) -> Dict[str, Any]:
@@ -58,7 +76,11 @@ class KeeneticBaseClient:
 
         async with self._auth_lock:
             try:
-                async with httpx.AsyncClient(base_url=base_url, timeout=6.0, verify=False) as client:
+                if self._client and not self._client.is_closed:
+                    await self._client.aclose()
+                    self._client = None
+
+                async with httpx.AsyncClient(base_url=base_url, timeout=6.0, verify=self.verify_tls) as client:
                     r1 = await client.get("/auth")
                     if r1.status_code == 200:
                         self._cookies = dict(r1.cookies)
@@ -145,15 +167,15 @@ class KeeneticBaseClient:
             return await self.authenticate()
 
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0, verify=False) as client:
-                resp = await client.get("/rci/show/version", cookies=self._cookies)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return {"status": "ok", "version": data.get("title", "KeeneticOS"), "model": data.get("model", "Keenetic")}
-                elif resp.status_code == 401:
-                    return await self.authenticate()
-                else:
-                    return {"status": "error", "message": f"HTTP {resp.status_code}: {resp.text}"}
+            client = self._get_client()
+            resp = await client.get("/rci/show/version", cookies=self._cookies)
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"status": "ok", "version": data.get("title", "KeeneticOS"), "model": data.get("model", "Keenetic")}
+            elif resp.status_code == 401:
+                return await self.authenticate()
+            else:
+                return {"status": "error", "message": f"HTTP {resp.status_code}: {resp.text}"}
         except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
             logger.warning("Keenetic connection test failed (unreachable): %s", e)
             return {"status": "unreachable", "message": str(e)}
@@ -166,17 +188,17 @@ class KeeneticBaseClient:
         if self.mock_mode or not self._cookies:
             return
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0, verify=False) as client:
-                resp = await client.get("/rci/show/interface", cookies=self._cookies)
-                if resp.status_code == 200:
-                    for name, iface in resp.json().items():
-                        if isinstance(iface, dict):
-                            ip = iface.get("address")
-                            mac = iface.get("mac")
-                            if ip:
-                                self.router_ips.add(ip)
-                            if mac:
-                                self.router_macs.add(mac.upper())
+            client = self._get_client()
+            resp = await client.get("/rci/show/interface", cookies=self._cookies)
+            if resp.status_code == 200:
+                for name, iface in resp.json().items():
+                    if isinstance(iface, dict):
+                        ip = iface.get("address")
+                        mac = iface.get("mac")
+                        if ip:
+                            self.router_ips.add(ip)
+                        if mac:
+                            self.router_macs.add(mac.upper())
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError) as e:
             logger.debug("Could not refresh router interfaces: %s", e)
 
@@ -199,18 +221,19 @@ class KeeneticBaseClient:
             if auth_res.get("status") != "ok":
                 return None
 
+        client = self._get_client()
         for attempt in range(2):
             try:
-                async with httpx.AsyncClient(base_url=self.base_url, timeout=6.0, verify=False) as client:
-                    if method.upper() == "GET":
-                        resp = await client.get(path, cookies=self._cookies)
-                    else:
-                        resp = await client.post(path, json=json_data, cookies=self._cookies)
+                if method.upper() == "GET":
+                    resp = await client.get(path, cookies=self._cookies)
+                else:
+                    resp = await client.post(path, json=json_data, cookies=self._cookies)
 
-                    if resp.status_code == 401 and attempt == 0:
-                        await self.authenticate()
-                        continue
-                    return resp
+                if resp.status_code == 401 and attempt == 0:
+                    await self.authenticate()
+                    client = self._get_client()
+                    continue
+                return resp
             except (httpx.HTTPError, ConnectionError, TimeoutError) as e:
                 logger.error("Keenetic request error (%s %s): %s", method, path, e)
                 return None

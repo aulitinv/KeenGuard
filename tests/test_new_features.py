@@ -121,6 +121,8 @@ async def test_telegram_custom_gateway_and_proxy(monkeypatch):
             return MockResponse()
 
     monkeypatch.setattr("httpx.AsyncClient", MockAsyncClient)
+    await notifier.close()
+    notifier._client = None
 
     # 1. Test custom Cloudflare worker gateway without trailing slash
     res = await notifier.send_message(

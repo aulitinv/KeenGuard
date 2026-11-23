@@ -1,5 +1,5 @@
 """Network Topology Map API route.
-Aggregates Keenetic RCI interfaces, segments, hotspot hosts, and database records
+Aggregates router interfaces, segments, hotspot hosts, and database records
 into an interactive graph (nodes and links) reflecting real L2/L3 hardware architecture.
 """
 from typing import Dict, Any, List, Optional
@@ -8,9 +8,11 @@ import logging
 from fastapi import APIRouter
 
 from keenguard.core.keenetic import is_host_lan_isolated
+from keenguard.core.routers import router_manager
+from keenguard.core.dns_providers import dns_security_manager
 from keenguard.web.state import (
     get_db,
-    get_keenetic_client,
+    get_router_health,
 )
 
 logger = logging.getLogger("keenguard.web.routes.topology")
@@ -22,10 +24,10 @@ router = APIRouter(tags=["topology"])
 async def get_network_topology() -> Dict[str, Any]:
     """
     Returns nodes and links representing the physical and logical network topology:
-    Internet WAN -> Router -> Segments (Bridge0/Bridge1) -> Interfaces (Wi-Fi 2.4/5GHz, LAN) -> Devices.
+    Internet WAN -> Router -> Segments (Bridge0/Bridge1/br-lan) -> Interfaces (Wi-Fi 2.4/5GHz, LAN) -> Devices.
     """
-    client = get_keenetic_client()
     db = get_db()
+    router_health = get_router_health()
 
     # 1. Fetch DB devices
     db_devices_map: Dict[str, Any] = {}
@@ -36,46 +38,55 @@ async def get_network_topology() -> Dict[str, Any]:
     except Exception as e:
         logger.warning("Error fetching devices from DB for topology: %s", e)
 
-    # 2. Fetch live Keenetic data
+    # 2. Fetch live Router data via router_manager
     hotspot_hosts_map: Dict[str, Any] = {}
     router_info: Dict[str, Any] = {}
-    wan_status: Dict[str, Any] = {}
+    wan_ip = ""
     segments: List[Dict[str, Any]] = []
 
     try:
-        hosts = await client.get_hotspot_hosts()
+        hosts = await router_manager.get_hosts()
         for h in hosts:
             hotspot_hosts_map[h.mac.upper()] = h
     except Exception as e:
-        logger.debug("Error fetching hotspot hosts from Keenetic: %s", e)
+        logger.debug("Error fetching hosts from router_manager: %s", e)
 
     try:
-        router_info = await client.get_device_info()
+        sys_info = await router_manager.get_system_info()
+        router_info = {
+            "model": sys_info.model or router_manager.platform_name,
+            "version": sys_info.firmware_version or ("OpenWrt" if router_manager.platform_id == "openwrt" else "KeeneticOS"),
+        }
     except Exception as e:
         logger.debug("Error fetching router info: %s", e)
 
     try:
-        wan_status = await client.get_wan_status()
+        wan_ip = (await router_manager.get_wan_ip()) or getattr(router_health, "wan_ip", "") or ""
     except Exception as e:
-        logger.debug("Error fetching WAN status: %s", e)
+        logger.debug("Error fetching WAN IP: %s", e)
 
     try:
-        segments = await client.get_segments()
+        segments = await router_manager.get_network_segments()
     except Exception as e:
         logger.debug("Error fetching segments: %s", e)
 
     if not segments:
-        segments = [
-            {"id": "Home", "name": "Домашняя сеть", "interface": "Bridge0", "subnet": "192.168.1.0/24", "security_level": "trusted"},
-            {"id": "Guest", "name": "Гостевой сегмент", "interface": "Bridge1", "subnet": "10.1.30.0/24", "security_level": "isolated"},
-        ]
+        if router_manager.platform_id == "openwrt":
+            segments = [
+                {"id": "Home", "name": "LAN", "interface": "br-lan", "subnet": "192.168.1.0/24", "security_level": "trusted"}
+            ]
+        else:
+            segments = [
+                {"id": "Home", "name": "Домашняя сеть", "interface": "Bridge0", "subnet": "192.168.1.0/24", "security_level": "trusted"},
+                {"id": "Guest", "name": "Гостевой сегмент", "interface": "Bridge1", "subnet": "10.1.30.0/24", "security_level": "isolated"},
+            ]
 
     nodes: List[Dict[str, Any]] = []
     links: List[Dict[str, Any]] = []
 
     # 3. Add Infrastructure Nodes
-    # WAN / Internet Node
-    is_wan_online = bool(wan_status.get("online", True))
+    # WAN / Internet Node (do not hardcode True: check actual connection state and WAN IP)
+    is_wan_online = bool(router_health.is_connected and (wan_ip or getattr(router_health, "wan_online", False)))
     nodes.append({
         "id": "node_internet",
         "label": "Интернет (WAN)",
@@ -83,48 +94,62 @@ async def get_network_topology() -> Dict[str, Any]:
         "icon": "globe",
         "status": "online" if is_wan_online else "offline",
         "details": {
-            "uptime": wan_status.get("uptime", 0),
-            "ip": wan_status.get("ip", ""),
-            "gateway": wan_status.get("gateway", ""),
+            "uptime": getattr(router_health, "uptime", 0),
+            "ip": wan_ip,
+            "gateway": getattr(router_health, "gateway", ""),
         }
     })
 
-    # Secure DNS / Sinkhole Node
+    # Secure DNS / Sinkhole Node (dynamically check actual sinkhole status)
+    sinkhole_active = False
+    try:
+        active_sinkholes = await router_manager.get_active_sinkholes()
+        sinkhole_active = bool(len(active_sinkholes) > 0 or (dns_security_manager.active_provider_id and dns_security_manager.active_provider_id != "none"))
+    except Exception:
+        sinkhole_active = bool(dns_security_manager.active_provider_id and dns_security_manager.active_provider_id != "none")
+
     nodes.append({
         "id": "node_dns",
         "label": "Безопасный DNS",
         "type": "dns",
         "icon": "shield-check",
-        "status": "online",
+        "status": "online" if sinkhole_active else "idle",
         "details": {
-            "type": "NextDNS / Keenetic DNS-proxy",
-            "sinkhole_active": True
+            "type": f"{dns_security_manager.active_provider_id.capitalize() if dns_security_manager.active_provider_id != 'none' else router_manager.platform_name} DNS",
+            "sinkhole_active": sinkhole_active
         }
     })
 
     # Central Router Node
-    router_model = router_info.get("model") or router_info.get("device") or "Keenetic Router"
-    router_ver = router_info.get("version") or router_info.get("firmware") or "KeeneticOS"
+    router_model = router_info.get("model") or router_manager.platform_name
+    router_ver = router_info.get("version") or ("OpenWrt" if router_manager.platform_id == "openwrt" else "KeeneticOS")
+    lan_ip = getattr(router_manager.get_backend(), "host", "192.168.1.1")
     nodes.append({
         "id": "node_router",
         "label": f"{router_model}",
         "type": "router",
         "icon": "router",
-        "status": "online",
+        "status": "online" if router_health.is_connected else "offline",
         "details": {
             "model": router_model,
             "version": router_ver,
-            "wan_ip": wan_status.get("ip", ""),
-            "lan_ip": "192.168.1.1",
+            "wan_ip": wan_ip,
+            "lan_ip": lan_ip,
         }
     })
 
     links.append({"source": "node_internet", "target": "node_router", "type": "wan", "status": "active" if is_wan_online else "inactive"})
-    links.append({"source": "node_dns", "target": "node_router", "type": "dns", "status": "active"})
+    links.append({"source": "node_dns", "target": "node_router", "type": "dns", "status": "active" if sinkhole_active else "inactive"})
 
     # 4. Add Segments (Bridges)
+    main_iface = segments[0].get("interface", "Bridge0") if segments else "Bridge0"
+    main_seg_id = f"segment_{main_iface}"
+
+    guest_seg = next((s for s in segments if "guest" in s.get("id", "").lower() or s.get("security_level") == "isolated" or "bridge1" in s.get("interface", "").lower()), None)
+    guest_seg_id = f"segment_{guest_seg.get('interface', 'Bridge1')}" if guest_seg else main_seg_id
+
     for seg in segments:
-        iface = seg.get("interface", "Bridge0")
+        iface = seg.get("interface", main_iface)
         seg_id = f"segment_{iface}"
         nodes.append({
             "id": seg_id,
@@ -147,7 +172,7 @@ async def get_network_topology() -> Dict[str, Any]:
             "label": "Wi-Fi 2.4 GHz",
             "type": "access_point",
             "icon": "wifi",
-            "segment_id": "segment_Bridge0",
+            "segment_id": main_seg_id,
             "details": {"band": "2.4 GHz", "standard": "802.11b/g/n/ax"}
         },
         {
@@ -155,7 +180,7 @@ async def get_network_topology() -> Dict[str, Any]:
             "label": "Wi-Fi 5 GHz",
             "type": "access_point",
             "icon": "wifi",
-            "segment_id": "segment_Bridge0",
+            "segment_id": main_seg_id,
             "details": {"band": "5 GHz", "standard": "802.11a/n/ac/ax"}
         },
         {
@@ -163,7 +188,7 @@ async def get_network_topology() -> Dict[str, Any]:
             "label": "Ethernet LAN",
             "type": "access_point",
             "icon": "server",
-            "segment_id": "segment_Bridge0",
+            "segment_id": main_seg_id,
             "details": {"ports": "1-4 (1 Gbps)", "media": "Twisted Pair"}
         },
         {
@@ -171,7 +196,7 @@ async def get_network_topology() -> Dict[str, Any]:
             "label": "Гостевой Wi-Fi",
             "type": "access_point",
             "icon": "wifi",
-            "segment_id": "segment_Bridge1",
+            "segment_id": guest_seg_id,
             "details": {"isolation": "L2 Isolated", "band": "2.4 GHz / 5 GHz"}
         },
     ]
@@ -211,12 +236,14 @@ async def get_network_topology() -> Dict[str, Any]:
         db_segment = (db_dev.segment if db_dev and db_dev.segment else "Home").lower()
 
         # Determine segment and parent AP
-        is_isolated = is_host_lan_isolated(hs_iface, ip) or "bridge1" in hs_iface or "guest" in hs_iface or "guest" in db_segment or is_isolated_lan or profile == "quarantine"
-        if is_isolated:
-            segment_id = "segment_Bridge1"
+        # AGENTS.md Rule 1: We strictly do NOT move devices to Bridge1 just because profile == "quarantine".
+        # Quarantine WAN block in database is NOT physical L2 isolation.
+        is_isolated = is_host_lan_isolated(hs_iface, ip) or "bridge1" in hs_iface or "guest" in hs_iface or "guest" in db_segment or is_isolated_lan
+        if is_isolated and guest_seg:
+            segment_id = guest_seg_id
             parent_ap = "ap_guest"
         else:
-            segment_id = "segment_Bridge0"
+            segment_id = main_seg_id
             if "wifimaster1" in hs_iface or "5g" in hs_iface:
                 parent_ap = "ap_wifi_5"
             elif any(k in hs_iface for k in ["fastethernet", "gigabitethernet", "eth", "lan", "port"]):
@@ -282,9 +309,9 @@ async def get_network_topology() -> Dict[str, Any]:
             "online_devices": sum(1 for d in device_nodes if d["is_online"]),
             "wan_status": "online" if is_wan_online else "offline",
             "l2_realism_note": (
-                "Устройства в сегменте Bridge0 находятся в общем L2-домене "
+                "Устройства в основном сегменте (Bridge0) находятся в общем L2-домене "
                 "(трафик между ними коммутируется аппаратно без участия межсетевого экрана роутера). "
-                "Сегмент Bridge1 аппаратно изолирован от Bridge0 на уровне сетевого моста Keenetic."
+                "Изолированные сегменты (Bridge1 / Guest) аппаратно отделены на уровне роутера."
             )
         }
     }

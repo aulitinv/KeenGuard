@@ -6,6 +6,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from keenguard.config import settings
+
 # Authentication & LAN access guard
 from keenguard.web.routes.auth import is_request_authorized
 
@@ -58,11 +60,12 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 async def serve_index():
-    try:
-        from keenguard.web.builder import build_index_html
-        build_index_html()
-    except Exception as e:
-        logger.debug("Automatic index.html compilation error: %s", e)
+    if getattr(settings, "dev_reload", False):
+        try:
+            from keenguard.web.builder import build_index_html
+            build_index_html()
+        except Exception as e:
+            logger.debug("Automatic index.html compilation error: %s", e)
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))
@@ -97,6 +100,16 @@ PUBLIC_PATH_PREFIXES = (
     "/redoc",
     "/openapi.json",
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Adds standard security hardening headers to all HTTP responses."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @app.middleware("http")

@@ -86,12 +86,16 @@ def assemble_index_html(templates_dir: Optional[Path] = None) -> str:
 
     all_modals_html = "".join(modals_parts)
 
-    assembled = base_content.replace(
-        "<!-- {{ TABS_CONTENT }} -->\n",
-        all_tabs_html
-    ).replace(
-        "<!-- {{ MODALS_CONTENT }} -->\n",
-        all_modals_html
+    import re
+    assembled = re.sub(
+        r"<!--\s*\{\{\s*TABS_CONTENT\s*\}\}\s*-->\r?\n?",
+        lambda _: all_tabs_html,
+        base_content
+    )
+    assembled = re.sub(
+        r"<!--\s*\{\{\s*MODALS_CONTENT\s*\}\}\s*-->\r?\n?",
+        lambda _: all_modals_html,
+        assembled
     )
 
     return assembled

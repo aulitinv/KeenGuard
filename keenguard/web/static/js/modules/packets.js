@@ -116,7 +116,7 @@ async function loadPacketInspectorLive(force = false) {
             const dstLabel = formatDeviceIdentifier(p.dst, p.dst_mac || null, mode);
 
             return `
-                <tr class="${rowClass}" data-pkt-id="${escapeHtml(p.pkt_id)}" onclick="selectPacketForInspection('${escapeHtml(p.pkt_id)}')" title="Нажмите для анализа слоев OSI и Hex-дампа">
+                <tr class="${rowClass}" data-pkt-id="${escapeHtml(p.pkt_id)}" onclick="selectPacketForInspection(this.dataset.pktId)" title="Нажмите для анализа слоев OSI и Hex-дампа">
                     <td class="py-2 px-2.5 text-slate-400">${escapeHtml(p.pkt_id)}</td>
                     <td class="py-2 px-3 text-slate-400 font-mono text-xs" title="${escapeHtml(fullTime)}">${escapeHtml(timeStr)}</td>
                     <td class="py-2 px-3 text-slate-200 font-mono truncate max-w-[150px]" title="${escapeHtml(srcLabel)}">${escapeHtml(srcLabel)}</td>
@@ -481,10 +481,12 @@ async function loadSavedPcapsList() {
 
         container.innerHTML = files.map(f => {
             let catBadge = `<span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-slate-800 text-slate-400">Файл</span>`;
-            if (f.category === 'tv_wake') {
+            if (f.category === 'tv_wake' || f.category === 'ТВ-форензика' || f.category === 'forensics') {
                 catBadge = `<span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-purple-500/20 text-purple-300">Форензика ТВ</span>`;
-            } else if (f.category === 'audit') {
+            } else if (f.category === 'audit' || f.category === 'Аудит устройства') {
                 catBadge = `<span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-indigo-500/20 text-indigo-300">Аудит</span>`;
+            } else if (f.category === 'upload' || f.category === 'Загруженный дамп') {
+                catBadge = `<span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-500/20 text-emerald-300">Загруженный</span>`;
             }
 
             return `
@@ -498,7 +500,7 @@ async function loadSavedPcapsList() {
                             <span>${f.size_kb || 0} КБ</span> • <span>${escapeHtml(f.modified_human || '')}</span>
                         </div>
                     </div>
-                    <button onclick="loadSavedPcapToInspector('${escapeHtml(f.filename)}')" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shrink-0 transition flex items-center space-x-1">
+                    <button data-filename="${escapeHtml(f.filename)}" onclick="loadSavedPcapToInspector(this.dataset.filename)" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shrink-0 transition flex items-center space-x-1">
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         <span>Открыть</span>
                     </button>
@@ -556,7 +558,8 @@ async function handlePcapFileUpload(input) {
         }
         const data = await res.json();
         closePcapSelectorModal();
-        showToast(`Файл обработан: ${data.loaded_packets} пакетов`, 'success');
+        const loadedCount = data.loaded_packets ?? data.total_packets ?? 0;
+        showToast(`Файл обработан: ${loadedCount} пакетов`, 'success');
 
         // Freeze inspector
         packetInspectorFrozen = true;

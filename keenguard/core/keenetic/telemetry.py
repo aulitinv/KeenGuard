@@ -11,59 +11,70 @@ logger = logging.getLogger("keenguard.keenetic.telemetry")
 class KeeneticTelemetryMixin:
     """Methods for discovering hosts, NAT flows, DNS cache, Wi-Fi posture, and firmware."""
 
+    def _get_home_subnet_prefix(self) -> str:
+        """Determines the home /24 subnet prefix based on router host (e.g. '192.168.1.')."""
+        host = getattr(self, "host", "") or "192.168.1.1"
+        parts = host.split(".")
+        if len(parts) == 4 and all(p.isdigit() for p in parts):
+            return f"{parts[0]}.{parts[1]}.{parts[2]}."
+        return "192.168.1."
+
     async def get_hotspot_hosts(self) -> List[HotspotHost]:
         """Pulls the current ARP & device table from Keenetic RAM."""
         if getattr(self, "mock_mode", False):
             return self._mock_get_hotspot_hosts()
 
         resp = await self._send_request("GET", "/rci/show/ip/hotspot")
-        if resp and resp.status_code == 200:
-            raw_hosts = resp.json().get("host", [])
-            result = []
-            for h in raw_hosts:
-                iface = h.get("interface")
-                if isinstance(iface, dict):
-                    iface_name = iface.get("name") or iface.get("id") or "Bridge0"
-                else:
-                    iface_name = str(iface) if iface else None
+        if not resp or resp.status_code != 200:
+            status = resp.status_code if resp else "no response"
+            raise ConnectionError(f"Failed to fetch hotspot hosts from Keenetic: HTTP {status}")
 
-                name_val = h.get("name")
-                if isinstance(name_val, dict):
-                    name_val = name_val.get("name") or name_val.get("id")
+        raw_hosts = resp.json().get("host", [])
+        result = []
+        home_prefix = self._get_home_subnet_prefix()
+        for h in raw_hosts:
+            iface = h.get("interface")
+            if isinstance(iface, dict):
+                iface_name = iface.get("name") or iface.get("id") or "Bridge0"
+            else:
+                iface_name = str(iface) if iface else None
 
-                hname_val = h.get("hostname")
-                if isinstance(hname_val, dict):
-                    hname_val = hname_val.get("name") or hname_val.get("id")
+            name_val = h.get("name")
+            if isinstance(name_val, dict):
+                name_val = name_val.get("name") or name_val.get("id")
 
-                seg_name = "Home"
-                if iface_name:
-                    if "guest" in iface_name.lower() or "bridge1" in iface_name.lower():
-                        seg_name = "Guest"
-                    elif iface_name in ("Home", "Bridge0"):
-                        seg_name = "Home"
-                    else:
-                        seg_name = iface_name
-                elif h.get("ip") and not str(h.get("ip")).startswith("192.168.1.") and h.get("ip") != "0.0.0.0":
+            hname_val = h.get("hostname")
+            if isinstance(hname_val, dict):
+                hname_val = hname_val.get("name") or hname_val.get("id")
+
+            seg_name = "Home"
+            if iface_name:
+                if "guest" in iface_name.lower() or "bridge1" in iface_name.lower():
                     seg_name = "Guest"
+                elif iface_name in ("Home", "Bridge0"):
+                    seg_name = "Home"
+                else:
+                    seg_name = iface_name
+            elif h.get("ip") and not str(h.get("ip")).startswith(home_prefix) and h.get("ip") != "0.0.0.0":
+                seg_name = "Guest"
 
-                result.append(HotspotHost(
-                    mac=str(h.get("mac", "")).upper(),
-                    ip=h.get("ip"),
-                    name=name_val,
-                    hostname=hname_val,
-                    interface=iface_name,
-                    link=h.get("link", "down"),
-                    active=h.get("active", False),
-                    rxbytes=int(h.get("rxbytes", 0) or 0),
-                    txbytes=int(h.get("txbytes", 0) or 0),
-                    uptime=int(h.get("uptime", 0) or 0),
-                    access=str(h.get("access", "permit")),
-                    registered=bool(h.get("registered", False)),
-                    policy=h.get("policy"),
-                    segment=seg_name
-                ))
-            return result
-        return []
+            result.append(HotspotHost(
+                mac=str(h.get("mac", "")).upper(),
+                ip=h.get("ip"),
+                name=name_val,
+                hostname=hname_val,
+                interface=iface_name,
+                link=h.get("link", "down"),
+                active=h.get("active", False),
+                rxbytes=int(h.get("rxbytes", 0) or 0),
+                txbytes=int(h.get("txbytes", 0) or 0),
+                uptime=int(h.get("uptime", 0) or 0),
+                access=str(h.get("access", "permit")),
+                registered=bool(h.get("registered", False)),
+                policy=h.get("policy"),
+                segment=seg_name
+            ))
+        return result
 
     async def get_nat_table(self) -> List[Dict[str, Any]]:
         """Pulls the live active NAT connection table from Keenetic."""
@@ -234,16 +245,19 @@ class KeeneticTelemetryMixin:
                         sec_label = enc.upper()
                         sec_type = "wpa2"
                     else:
-                        sec_label = "WPA2-PSK (AES)"
-                        sec_type = "wpa2"
+                        sec_label = "Неизвестно"
+                        sec_type = "unknown"
 
                 pmf_mode = pmf if pmf and pmf != "disabled" else ("optional" if has_wpa3_mode else "disabled")
                 if pmf_mode not in ("required", "mandatory", "true", "1"):
                     all_pmf = False
 
+                bssid = str(if_obj.get("mac") or if_obj.get("bssid") or "")
                 networks.append({
                     "interface": if_name,
                     "ssid": ssid,
+                    "bssid": bssid,
+                    "mac": bssid,
                     "band": band,
                     "security": sec_label,
                     "encryption": sec_label,
@@ -441,7 +455,8 @@ class KeeneticTelemetryMixin:
         Returns risk level, status title, and actionable advice.
         """
         clean_seg = (segment or "Home").strip()
-        is_isolated = clean_seg == "Guest" or "guest" in clean_seg.lower() or (ip and not ip.startswith("192.168.1.") and ip != "0.0.0.0")
+        home_prefix = self._get_home_subnet_prefix()
+        is_isolated = clean_seg == "Guest" or "guest" in clean_seg.lower() or (ip and not ip.startswith(home_prefix) and ip != "0.0.0.0")
 
         if profile in ("camera", "iot"):
             if not is_isolated:
@@ -454,7 +469,7 @@ class KeeneticTelemetryMixin:
                     "is_isolated": False,
                     "hardware_enforced": False,
                     "recommendation": (
-                        "Устройство находится в основном мосте 'Home' (Bridge0, 192.168.1.0/24). "
+                        f"Устройство находится в основном мосте 'Home' (Bridge0, {home_prefix}0/24). "
                         "L2-трафик между клиентами идет напрямую в обход файрвола роутера. "
                         "Рекомендуется физически перенести устройство в сегмент 'Гостевая сеть' (Bridge1) или выделить отдельный IoT VLAN в KeeneticOS."
                     )

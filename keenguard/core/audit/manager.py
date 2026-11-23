@@ -82,7 +82,7 @@ class TrafficAuditManager:
     async def start_network_audit(self, duration_seconds: int = 300, scope: str = "all") -> Dict[str, Any]:
         async with self._lock:
             if self.active_network_session and self.active_network_session.is_active:
-                await self.stop_network_audit()
+                await self._stop_network_audit_unlocked()
 
             session = NetworkAuditSession(duration_seconds=duration_seconds, scope=scope)
             self.active_network_session = session
@@ -124,62 +124,65 @@ class TrafficAuditManager:
 
     async def stop_network_audit(self) -> Optional[Dict[str, Any]]:
         async with self._lock:
-            session = self.active_network_session
-            if not session or not session.is_active:
-                return None
+            return await self._stop_network_audit_unlocked()
 
-            session.is_active = False
-            db = _get_db()
-            cur_task = asyncio.current_task()
-            if session._poller_task and session._poller_task != cur_task and not session._poller_task.done():
-                session._poller_task.cancel()
+    async def _stop_network_audit_unlocked(self) -> Optional[Dict[str, Any]]:
+        session = self.active_network_session
+        if not session or not session.is_active:
+            return None
 
+        session.is_active = False
+        db = _get_db()
+        cur_task = asyncio.current_task()
+        if session._poller_task and session._poller_task != cur_task and not session._poller_task.done():
+            session._poller_task.cancel()
+
+        try:
+            devices = await db.get_all_devices()
+            devices_by_ip = {d.ip: d for d in devices if d.ip}
+            presets_list = await db.get_presets()
+            presets_dict = {p.id: p for p in presets_list}
+            nat_entries = await router_manager.get_nat_table()
+            session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
+        except (aiosqlite.Error, httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError, AttributeError) as e:
+            logger.warning("Failed to update final NAT table for network audit: %s", e)
+
+        report = session.generate_network_report()
+
+        db_record = AuditReportRecord(
+            id=report["id"],
+            mac=None,
+            ip="0.0.0.0",
+            hostname=f"Аудит всей сети ({report['scope']})",
+            created_at=report["start_time"],
+            duration_seconds=report["duration_seconds"],
+            total_bytes=report["total_bytes"],
+            total_packets=report["total_packets"],
+            risk_level=report["risk_level"],
+            summary=report["findings"][0] if report["findings"] else "Сетевой аудит завершен",
+            report_json=json.dumps(report, ensure_ascii=False),
+            pcap_file=report["pcap_file"]
+        )
+        await db.save_audit_report(db_record)
+
+        await db.record_event(SecurityEvent(
+            event_type="network_audit_completed",
+            severity="warning" if report["risk_level"] in ["medium", "high", "critical"] else "info",
+            target_mac=None,
+            target_ip="0.0.0.0",
+            description=f"Завершен аудит всей сети: {report['devices_count']} устройств, {report['flows_count']} потоков, риск: {report['risk_level']}",
+            details={"devices_count": report["devices_count"], "flows_count": report["flows_count"], "total_bytes": report["total_bytes"], "findings": report["findings"]},
+            pcap_file=report["pcap_file"]
+        ))
+
+        for dq in session.dns_queries.values():
             try:
-                devices = await db.get_all_devices()
-                devices_by_ip = {d.ip: d for d in devices if d.ip}
-                presets_list = await db.get_presets()
-                presets_dict = {p.id: p for p in presets_list}
-                nat_entries = await router_manager.get_nat_table()
-                session.update_nat_table(nat_entries, devices_by_ip, on_suspicious_callback=self.suspicious_callback, presets_dict=presets_dict)
-            except (aiosqlite.Error, httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError, AttributeError) as e:
-                logger.warning("Failed to update final NAT table for network audit: %s", e)
+                await db.record_dns_query(dq["domain"], mac=None, ip="0.0.0.0")
+            except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
+                logger.debug("Failed recording DNS query %s during network audit: %s", dq.get("domain"), e)
 
-            report = session.generate_network_report()
-
-            db_record = AuditReportRecord(
-                id=report["id"],
-                mac="NETWORK",
-                ip="0.0.0.0",
-                hostname=f"Аудит всей сети ({report['scope']})",
-                created_at=report["start_time"],
-                duration_seconds=report["duration_seconds"],
-                total_bytes=report["total_bytes"],
-                total_packets=report["total_packets"],
-                risk_level=report["risk_level"],
-                summary=report["findings"][0] if report["findings"] else "Сетевой аудит завершен",
-                report_json=json.dumps(report, ensure_ascii=False),
-                pcap_file=report["pcap_file"]
-            )
-            await db.save_audit_report(db_record)
-
-            await db.record_event(SecurityEvent(
-                event_type="network_audit_completed",
-                severity="warning" if report["risk_level"] in ["medium", "high", "critical"] else "info",
-                target_mac="NETWORK",
-                target_ip="0.0.0.0",
-                description=f"Завершен аудит всей сети: {report['devices_count']} устройств, {report['flows_count']} потоков, риск: {report['risk_level']}",
-                details={"devices_count": report["devices_count"], "flows_count": report["flows_count"], "total_bytes": report["total_bytes"], "findings": report["findings"]},
-                pcap_file=report["pcap_file"]
-            ))
-
-            for dq in session.dns_queries.values():
-                try:
-                    await db.record_dns_query(dq["domain"], mac="NETWORK", ip="0.0.0.0")
-                except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
-                    logger.debug("Failed recording DNS query %s during network audit: %s", dq.get("domain"), e)
-
-            logger.info("Network traffic audit completed. Report %s saved.", report["id"])
-            return report
+        logger.info("Network traffic audit completed. Report %s saved.", report["id"])
+        return report
 
     async def start_audit(self, mac: str, ip: Optional[str] = None, hostname: Optional[str] = None,
                           vendor: Optional[str] = None, duration_seconds: int = 300,
@@ -187,7 +190,7 @@ class TrafficAuditManager:
         mac = mac.upper()
         async with self._lock:
             if mac in self.active_sessions:
-                await self.stop_audit(mac)
+                await self._stop_audit_unlocked(mac)
 
             db = _get_db()
             dev_profile = profile
@@ -277,83 +280,86 @@ class TrafficAuditManager:
             logger.exception("Error in audit session loop for %s: %s", session.mac, e)
 
     async def stop_audit(self, mac: str) -> Optional[Dict[str, Any]]:
-        mac = mac.upper()
         async with self._lock:
-            session = self.active_sessions.pop(mac, None)
-            if not session:
-                return None
+            return await self._stop_audit_unlocked(mac)
 
-            session.is_active = False
-            db = _get_db()
-            settings = _get_settings()
-            cur_task = asyncio.current_task()
-            if session._poller_task and session._poller_task != cur_task and not session._poller_task.done():
-                session._poller_task.cancel()
+    async def _stop_audit_unlocked(self, mac: str) -> Optional[Dict[str, Any]]:
+        mac = mac.upper()
+        session = self.active_sessions.pop(mac, None)
+        if not session:
+            return None
 
-            if session.ip:
-                try:
-                    entries = await router_manager.get_device_nat_connections(session.ip)
-                    session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
-                except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
-                    logger.warning("Failed updating NAT entries for %s on audit stop: %s", session.ip, e)
+        session.is_active = False
+        db = _get_db()
+        settings = _get_settings()
+        cur_task = asyncio.current_task()
+        if session._poller_task and session._poller_task != cur_task and not session._poller_task.done():
+            session._poller_task.cancel()
 
-            # If hardware capture was active on router, finalize it, download pcap and parse packets
-            backend = router_manager.get_backend()
-            if session._hw_capture_active:
-                try:
-                    cap_file = await backend.stop_packet_capture(interface="Bridge0")
-                    if cap_file:
-                        pcap_dest = settings.pcap_dir / session.pcap_filename
-                        downloaded = await backend.download_capture_file(cap_file, pcap_dest)
-                        if downloaded and pcap_dest.exists():
-                            try:
-                                rci_pkts = list(rdpcap(str(pcap_dest)))
-                                if rci_pkts:
-                                    for p in rci_pkts:
-                                        session.add_packet(p)
-                                    logger.info("Loaded %d hardware packets from %s for audit %s", len(rci_pkts), backend.platform_name, session.session_id)
-                            except (struct.error, OSError, EOFError, KeyError, TypeError, ValueError) as pe:
-                                logger.debug("Error parsing downloaded audit PCAP: %s", pe)
-                    await backend.reset_packet_capture(interface="Bridge0")
-                except (httpx.HTTPError, ConnectionError, RuntimeError, OSError, KeyError, TypeError, ValueError) as e:
-                    logger.error("Error finalizing router capture for audit session %s: %s", session.session_id, e)
+        if session.ip:
+            try:
+                entries = await router_manager.get_device_nat_connections(session.ip)
+                session.update_nat_entries(entries, on_suspicious_callback=self.suspicious_callback)
+            except (httpx.HTTPError, ConnectionError, RuntimeError, KeyError, TypeError, ValueError) as e:
+                logger.warning("Failed updating NAT entries for %s on audit stop: %s", session.ip, e)
 
-            report = session.generate_report()
+        # If hardware capture was active on router, finalize it, download pcap and parse packets
+        backend = router_manager.get_backend()
+        if session._hw_capture_active:
+            try:
+                cap_file = await backend.stop_packet_capture(interface="Bridge0")
+                if cap_file:
+                    pcap_dest = settings.pcap_dir / session.pcap_filename
+                    downloaded = await backend.download_capture_file(cap_file, pcap_dest)
+                    if downloaded and pcap_dest.exists():
+                        try:
+                            rci_pkts = list(await asyncio.to_thread(rdpcap, str(pcap_dest)))
+                            if rci_pkts:
+                                for p in rci_pkts:
+                                    session.add_packet(p)
+                                logger.info("Loaded %d hardware packets from %s for audit %s", len(rci_pkts), backend.platform_name, session.session_id)
+                        except (struct.error, OSError, EOFError, KeyError, TypeError, ValueError) as pe:
+                            logger.debug("Error parsing downloaded audit PCAP: %s", pe)
+                await backend.reset_packet_capture(interface="Bridge0")
+            except (httpx.HTTPError, ConnectionError, RuntimeError, OSError, KeyError, TypeError, ValueError) as e:
+                logger.error("Error finalizing router capture for audit session %s: %s", session.session_id, e)
 
-            db_record = AuditReportRecord(
-                id=report["id"],
-                mac=report["mac"],
-                ip=report["ip"],
-                hostname=report["hostname"],
-                created_at=report["start_time"],
-                duration_seconds=report["duration_seconds"],
-                total_bytes=report["total_bytes"],
-                total_packets=report["total_packets"],
-                risk_level=report["risk_level"],
-                summary=report["findings"][0] if report["findings"] else "Аудит завершен",
-                report_json=json.dumps(report, ensure_ascii=False),
-                pcap_file=report["pcap_file"]
-            )
-            await db.save_audit_report(db_record)
+        report = session.generate_report()
 
-            await db.record_event(SecurityEvent(
-                event_type="audit_completed",
-                severity="warning" if report["risk_level"] in ["medium", "high"] else "info",
-                target_mac=report["mac"],
-                target_ip=report["ip"],
-                description=f"Завершен аудит трафика устройства '{report['hostname']}': {report['flows_count']} потоков, риск: {report['risk_level']}",
-                details={"flows_count": report["flows_count"], "total_bytes": report["total_bytes"], "findings": report["findings"]},
-                pcap_file=report["pcap_file"]
-            ))
+        db_record = AuditReportRecord(
+            id=report["id"],
+            mac=report["mac"],
+            ip=report["ip"],
+            hostname=report["hostname"],
+            created_at=report["start_time"],
+            duration_seconds=report["duration_seconds"],
+            total_bytes=report["total_bytes"],
+            total_packets=report["total_packets"],
+            risk_level=report["risk_level"],
+            summary=report["findings"][0] if report["findings"] else "Аудит завершен",
+            report_json=json.dumps(report, ensure_ascii=False),
+            pcap_file=report["pcap_file"]
+        )
+        await db.save_audit_report(db_record)
 
-            for dq in session.dns_queries.values():
-                try:
-                    await db.record_dns_query(dq["domain"], mac=report["mac"], ip=report["ip"])
-                except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
-                    logger.debug("Failed recording DNS query %s for %s: %s", dq.get("domain"), report.get("mac"), e)
+        await db.record_event(SecurityEvent(
+            event_type="audit_completed",
+            severity="warning" if report["risk_level"] in ["medium", "high"] else "info",
+            target_mac=report["mac"],
+            target_ip=report["ip"],
+            description=f"Завершен аудит трафика устройства '{report['hostname']}': {report['flows_count']} потоков, риск: {report['risk_level']}",
+            details={"flows_count": report["flows_count"], "total_bytes": report["total_bytes"], "findings": report["findings"]},
+            pcap_file=report["pcap_file"]
+        ))
 
-            logger.info("Traffic audit completed for %s. Report %s saved.", mac, report["id"])
-            return report
+        for dq in session.dns_queries.values():
+            try:
+                await db.record_dns_query(dq["domain"], mac=report["mac"], ip=report["ip"])
+            except (aiosqlite.Error, KeyError, TypeError, ValueError) as e:
+                logger.debug("Failed recording DNS query %s for %s: %s", dq.get("domain"), report.get("mac"), e)
+
+        logger.info("Traffic audit completed for %s. Report %s saved.", mac, report["id"])
+        return report
 
     def process_packet(self, pkt: Packet):
         if self.active_network_session and self.active_network_session.is_active:

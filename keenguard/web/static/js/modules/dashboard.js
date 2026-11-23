@@ -1,42 +1,4 @@
 // Data Loaders
-async function refreshAllData() {
-    await Promise.allSettled([
-        loadStatus(),
-        loadDevices(),
-        loadUpnp(),
-        loadEvents()
-    ]);
-    if (activeTab === 'dashboard') {
-        loadWifiAudit();
-        checkRouterUpdates();
-        updateLiveTrafficChart();
-        loadSecurityScoreForDashboard();
-        loadL7TrafficSummary();
-    } else if (activeTab === 'dns') {
-        if (typeof activeDnsSubTab !== 'undefined' && activeDnsSubTab === 'filter') {
-            loadDnsFilterTab();
-        } else {
-            loadDnsQueries();
-        }
-    } else if (activeTab === 'audits') {
-        loadTrafficAuditsTab();
-    } else if (activeTab === 'smarthome') {
-        loadSmartHome();
-    } else if (activeTab === 'lan') {
-        loadLanTab();
-    } else if (activeTab === 'packets') {
-        loadPacketInspectorLive();
-    } else if (activeTab === 'security') {
-        loadSecurity();
-    } else if (activeTab === 'rules') {
-        if (typeof loadRules === 'function' && !hasUnsavedRuleChanges) loadRules();
-    }
-
-    if (typeof updateRulesBadgeOnly === 'function') {
-        updateRulesBadgeOnly();
-    }
-}
-
 async function loadStatus() {
     try {
         const res = await fetch('/api/status');
@@ -90,7 +52,13 @@ async function loadStatus() {
         safeSetText('router-card-version', osVer);
 
         // Live Sniffer Mode
-        safeSetText('sniffer-active-mode', data.sniffer?.mode === 'active' ? 'ACTIVE (Pcap/Raw)' : 'INACTIVE');
+        const isSnifferRunning = Boolean(data.sniffer?.running || data.sniffer_running);
+        let snifferModeText = 'INACTIVE';
+        if (isSnifferRunning) {
+            const capMode = data.sniffer?.capture_mode || data.sniffer?.mode;
+            snifferModeText = (capMode === 'promiscuous_active' || capMode === 'active') ? 'ACTIVE (Promiscuous)' : 'PASSIVE (Conntrack)';
+        }
+        safeSetText('sniffer-active-mode', snifferModeText);
 
         // Memory usage
         if (data.router.memory && typeof data.router.memory.total_mb === 'number') {

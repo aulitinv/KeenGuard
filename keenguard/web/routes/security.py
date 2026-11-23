@@ -1,4 +1,5 @@
 """Security events, checklist, segments, UPnP, packet inspection, investigator, and firewall routes."""
+import asyncio
 from datetime import datetime, timezone
 import ipaddress
 import json
@@ -10,7 +11,7 @@ from typing import List, Optional, Dict, Any
 import aiosqlite
 import httpx
 
-from fastapi import APIRouter, HTTPException, Body, UploadFile, File
+from fastapi import APIRouter, HTTPException, Body, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -21,13 +22,19 @@ from keenguard.core.classifier import DeviceClassifier
 from keenguard.core.digest import digest_generator
 from keenguard.core.dissector import PacketDissector
 from keenguard.core.dns_tracker import LOCAL_PREFIXES, dns_tracker
-from keenguard.core.domain_analyzer import domain_analyzer
+from keenguard.core.domain_analyzer import (
+    domain_analyzer,
+    FORBIDDEN_SINKHOLE_DOMAINS,
+    is_ip_address_string,
+    is_forbidden_or_local_domain,
+)
 from keenguard.core.investigator import investigator
 from keenguard.core.keenetic import is_unsafe_ip_for_blackhole
 from keenguard.core.lan_tracker import lan_tracker
 from keenguard.core.profiles import profile_manager
 from keenguard.core.routers import router_manager
 from keenguard.core.wids import wids_service
+from keenguard.web.routes.devices import _validate_mutable_mac
 from keenguard.web.state import (
     get_db,
     get_sniffer,
@@ -42,32 +49,6 @@ router = APIRouter(tags=["security"])
 SHARED_CDN_KEYWORDS = [
     "Cloudflare", "Akamai", "Amazon", "AWS", "Google Cloud", "Fastly", "Microsoft", "Azure"
 ]
-
-FORBIDDEN_SINKHOLE_DOMAINS = {
-    "localhost",
-    "my.keenetic.net",
-    "keenetic.net",
-    "router",
-    "router.lan",
-    "gateway",
-}
-
-
-def is_ip_address_string(val: str) -> bool:
-    try:
-        ipaddress.ip_address(val)
-        return True
-    except ValueError:
-        return False
-
-
-def is_forbidden_or_local_domain(domain: str) -> bool:
-    d = domain.lower().strip().strip(".")
-    if d in FORBIDDEN_SINKHOLE_DOMAINS:
-        return True
-    if d.endswith((".keenetic.link", ".keenetic.pro", ".local", ".lan", ".home")):
-        return True
-    return False
 
 
 def check_ip_cdn_status(ip_str: str) -> tuple[bool, str, Dict[str, str]]:
@@ -148,7 +129,7 @@ class IpBlackholeUnblockRequest(BaseModel):
 # --- Events Endpoints ---
 
 @router.get("/api/events")
-async def get_events(limit: int = 50, event_type: Optional[str] = None, severity: Optional[str] = None):
+async def get_events(limit: int = Query(50, ge=1, le=500), event_type: Optional[str] = None, severity: Optional[str] = None):
     db = get_db()
     events = await db.get_recent_events(limit=limit, event_type=event_type, severity=severity)
     return [e.model_dump() for e in events]
@@ -308,7 +289,8 @@ async def get_smarthome_overview():
                     "protocol": proto,
                     "domain": domain or dst,
                     "cloud_vendor": analysis.get("vendor", "Внешний хост"),
-                    "category_title": analysis.get("category_title", "Внешняя связь"),
+                    "category_name": analysis.get("category_name", "Внешняя связь"),
+                    "category_title": analysis.get("category_name", "Внешняя связь"),
                     "risk_level": analysis.get("risk_level", "warning"),
                     "is_blocked_wan": dev.get("is_blocked_wan", False)
                 })
@@ -469,14 +451,15 @@ async def apply_appliances_lan_isolation(req: BulkAppliancesLanRequest):
 async def toggle_checklist_device(req: ChecklistDeviceToggleRequest):
     """Direct 1-click toggle of WAN or LAN for any device from the checklist card."""
     db = get_db()
-    mac = req.mac.upper()
+    mac = _validate_mutable_mac(req.mac)
     if req.target == "wan":
-        success = await profile_manager.toggle_wan(mac, block=req.enabled)
-        is_active = req.enabled
-    elif req.target == "lan":
-        success = await profile_manager.toggle_lan_isolation(mac, isolate=req.enabled)
+        is_active = await profile_manager.toggle_wan(mac, block=req.enabled)
         dev = await db.get_device(mac)
-        is_active = dev.is_isolated_lan if dev else False
+        success = (dev.is_blocked_wan == req.enabled) if dev else is_active == req.enabled
+    elif req.target == "lan":
+        is_active = await profile_manager.toggle_lan_isolation(mac, isolate=req.enabled)
+        dev = await db.get_device(mac)
+        success = (dev.is_isolated_lan == req.enabled) if dev else is_active == req.enabled
     else:
         raise HTTPException(status_code=400, detail="Invalid target: must be 'wan' or 'lan'")
     await ws_manager.broadcast({"type": "refresh"})
@@ -486,9 +469,13 @@ async def toggle_checklist_device(req: ChecklistDeviceToggleRequest):
 @router.post("/api/security/checklist/toggle-quarantine")
 async def toggle_quarantine_policy(req: QuarantineToggleRequest):
     """Toggles new device quarantine policies."""
-    settings.new_device_quarantine_wan = req.enable
-    settings.new_device_isolate_lan = req.enable
-    settings.new_device_continuous_audit = req.enable
+    db = get_db()
+    from keenguard.core.config_service import config_service
+    await config_service.update_bulk({
+        "new_device_quarantine_wan": req.enable,
+        "new_device_isolate_lan": req.enable,
+        "new_device_continuous_audit": req.enable,
+    }, persist_db=True, database=db)
     await ws_manager.broadcast({"type": "refresh"})
     return {"status": "ok", "quarantine_active": req.enable}
 
@@ -496,19 +483,24 @@ async def toggle_quarantine_policy(req: QuarantineToggleRequest):
 @router.post("/api/security/checklist/toggle-quarantine-rule")
 async def toggle_quarantine_rule(req: ModularQuarantineRequest):
     """Modular toggle for individual quarantine and audit rules."""
+    db = get_db()
+    from keenguard.core.config_service import config_service
+    updates = {}
     if req.rule == "wan":
-        settings.new_device_quarantine_wan = req.enabled
+        updates["new_device_quarantine_wan"] = req.enabled
     elif req.rule == "lan":
-        settings.new_device_isolate_lan = req.enabled
+        updates["new_device_isolate_lan"] = req.enabled
     elif req.rule == "auto_audit":
-        settings.new_device_auto_audit = req.enabled
+        updates["new_device_auto_audit"] = req.enabled
     elif req.rule == "continuous_audit":
-        settings.new_device_continuous_audit = req.enabled
+        updates["new_device_continuous_audit"] = req.enabled
     elif req.rule == "all":
-        settings.new_device_quarantine_wan = req.enabled
-        settings.new_device_isolate_lan = req.enabled
-        settings.new_device_auto_audit = req.enabled
-        settings.new_device_continuous_audit = req.enabled
+        updates["new_device_quarantine_wan"] = req.enabled
+        updates["new_device_isolate_lan"] = req.enabled
+        updates["new_device_auto_audit"] = req.enabled
+        updates["new_device_continuous_audit"] = req.enabled
+    if updates:
+        await config_service.update_bulk(updates, persist_db=True, database=db)
     await ws_manager.broadcast({"type": "refresh"})
     return {
         "status": "ok",
@@ -543,10 +535,13 @@ async def apply_security_wizard(req: SecurityWizardApplyRequest):
                 await profile_manager.toggle_wan(d.mac, block=True)
                 sensors_updated.append(d.mac)
 
-    settings.new_device_quarantine_wan = req.quarantine_enabled
-    settings.new_device_isolate_lan = False
-    settings.new_device_continuous_audit = req.quarantine_continuous
-    settings.new_device_auto_audit = req.quarantine_continuous
+    from keenguard.core.config_service import config_service
+    await config_service.update_bulk({
+        "new_device_quarantine_wan": req.quarantine_enabled,
+        "new_device_isolate_lan": False,
+        "new_device_continuous_audit": req.quarantine_continuous,
+        "new_device_auto_audit": req.quarantine_continuous,
+    }, persist_db=True, database=db)
 
     await ws_manager.broadcast({"type": "refresh"})
     return {
@@ -637,7 +632,7 @@ async def _get_devices_dict() -> Dict[str, Any]:
 
 
 @router.get("/api/lan/communications")
-async def get_lan_communications(comm_type: Optional[str] = None, ip: Optional[str] = None, limit: int = 100):
+async def get_lan_communications(comm_type: Optional[str] = None, ip: Optional[str] = None, limit: int = Query(100, ge=1, le=500)):
     """Returns recent inter-device communications, ping requests/replies, and ARP activity."""
     devs_map = await _get_devices_dict()
     recent = lan_tracker.get_recent_communications(comm_type=comm_type, ip=ip, limit=limit, devices_map=devs_map)
@@ -683,8 +678,8 @@ async def get_iot_payloads(
     mac: Optional[str] = None,
     protocol: Optional[str] = None,
     search: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0)
 ):
     """Returns decoded payload events collected from IoT devices."""
     db = get_db()
@@ -725,7 +720,7 @@ async def prune_iot_payloads(payload: Optional[PruneIotPayloadsRequest] = None):
 # --- Deep Packet Inspector Endpoints ---
 
 @router.get("/api/packets/live")
-async def get_live_packets(limit: int = 100, protocol: Optional[str] = None):
+async def get_live_packets(limit: int = Query(100, ge=1, le=500), protocol: Optional[str] = None):
     """Returns recently captured live packets across the entire network, or packets from active PCAP dump."""
     sniffer = get_sniffer()
     is_pcap = bool(sniffer.active_pcap_name)
@@ -793,13 +788,14 @@ async def load_saved_pcap(req: LoadPcapRequest):
     """Loads an existing PCAP file from data/pcaps/ into the Packet Inspector."""
     sniffer = get_sniffer()
     safe_name = Path(req.filename).name
-    file_path = settings.pcap_dir / safe_name
-    if not file_path.is_file():
+    file_path = (settings.pcap_dir / safe_name).resolve()
+    base_dir = settings.pcap_dir.resolve()
+    if not file_path.is_file() or not file_path.is_relative_to(base_dir):
         raise HTTPException(status_code=404, detail="PCAP файл не найден")
 
     try:
         from scapy.all import rdpcap
-        pkts = rdpcap(str(file_path))
+        pkts = await asyncio.to_thread(rdpcap, str(file_path))
     except (OSError, FileNotFoundError, PermissionError, struct.error, ValueError, IndexError, AttributeError) as e:
         logger.error("Failed to parse PCAP file %s: %s", safe_name, e)
         raise HTTPException(status_code=400, detail=f"Ошибка чтения PCAP файла: {e}")
@@ -821,17 +817,48 @@ async def upload_pcap(file: UploadFile = File(...)):
     if not file.filename.lower().endswith((".pcap", ".pcapng", ".cap")):
         raise HTTPException(status_code=400, detail="Поддерживаются только файлы дампов .pcap, .pcapng или .cap")
 
-    contents = await file.read()
-    if len(contents) > 25 * 1024 * 1024:  # 25MB limit
-        raise HTTPException(status_code=400, detail="Размер PCAP-файла превышает лимит 25 МБ")
+    MAX_PCAP_SIZE = 25 * 1024 * 1024  # 25MB limit
+    CHUNK_SIZE = 1024 * 1024          # 1MB chunks
 
     safe_name = f"upload_{int(time.time())}_{Path(file.filename).name}"
     dest = settings.pcap_dir / safe_name
+    total_bytes = 0
+
     try:
-        dest.write_bytes(contents)
+        with open(dest, "wb") as f_out:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_PCAP_SIZE:
+                    raise HTTPException(status_code=413, detail="Размер PCAP-файла превышает лимит 25 МБ")
+                f_out.write(chunk)
+    except HTTPException:
+        if dest.exists():
+            try:
+                dest.unlink()
+            except OSError:
+                pass
+        raise
+    except Exception as e:
+        if dest.exists():
+            try:
+                dest.unlink()
+            except OSError:
+                pass
+        logger.error("Error saving uploaded PCAP file: %s", e)
+        raise HTTPException(status_code=500, detail="Ошибка при сохранении PCAP файла")
+
+    try:
         from scapy.all import rdpcap
-        pkts = rdpcap(str(dest))
-    except (OSError, FileNotFoundError, PermissionError, struct.error, ValueError, IndexError, AttributeError) as e:
+        pkts = await asyncio.to_thread(rdpcap, str(dest))
+    except Exception as e:
+        if dest.exists():
+            try:
+                dest.unlink()
+            except OSError:
+                pass
         logger.error("Failed to parse uploaded PCAP: %s", e)
         raise HTTPException(status_code=400, detail=f"Не удалось разобрать PCAP файл: {e}")
 
@@ -888,7 +915,7 @@ async def get_investigator_incidents():
 
     async with db.get_connection() as db_conn:
         try:
-            cursor = await db_conn.execute("SELECT id, mac, ip, hostname, created_at, duration_seconds, total_bytes, risk_level, summary FROM audit_reports ORDER BY rowid DESC LIMIT 20")
+            cursor = await db_conn.execute("SELECT id, mac, ip, hostname, created_at, duration_seconds, total_bytes, risk_level, summary FROM audit_reports WHERE (mac IS NULL OR mac != '02:00:00:00:00:01') ORDER BY rowid DESC LIMIT 20")
             for r in await cursor.fetchall():
                 incidents.append({
                     "type": "audit",
@@ -905,7 +932,7 @@ async def get_investigator_incidents():
             logger.debug("Error fetching investigator audits: %s", e)
 
         try:
-            cursor = await db_conn.execute("SELECT id, timestamp, event_type, severity, target_mac, target_ip, description FROM events WHERE severity IN ('warning', 'critical') ORDER BY id DESC LIMIT 20")
+            cursor = await db_conn.execute("SELECT id, timestamp, event_type, severity, target_mac, target_ip, description FROM events WHERE severity IN ('warning', 'critical') AND (target_mac IS NULL OR target_mac != '02:00:00:00:00:01') ORDER BY id DESC LIMIT 20")
             for r in await cursor.fetchall():
                 incidents.append({
                     "type": "event",
@@ -923,7 +950,7 @@ async def get_investigator_incidents():
             logger.debug("Error fetching investigator events: %s", e)
 
         try:
-            cursor = await db_conn.execute("SELECT mac, ip, hostname, vendor, profile, is_online FROM devices ORDER BY is_online DESC, last_seen DESC LIMIT 30")
+            cursor = await db_conn.execute("SELECT mac, ip, hostname, vendor, profile, is_online FROM devices WHERE mac != '02:00:00:00:00:01' ORDER BY is_online DESC, last_seen DESC LIMIT 30")
             for r in await cursor.fetchall():
                 devices.append({
                     "mac": r[0],

@@ -1,5 +1,23 @@
 // WebSocket Connection
+let ws = null;
+let wsReconnectTimer = null;
+
 function connectWebSocket() {
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+
+    if (ws) {
+        try {
+            ws.onclose = null; // Prevent reconnect trigger from explicit close
+            ws.onmessage = null;
+            ws.onerror = null;
+            ws.close();
+        } catch (e) {}
+        ws = null;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/live`;
     ws = new WebSocket(wsUrl);
@@ -53,7 +71,10 @@ function connectWebSocket() {
             showLoginModal();
             return;
         }
-        setTimeout(connectWebSocket, 3000);
+        if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+        }
+        wsReconnectTimer = setTimeout(connectWebSocket, 3000);
     };
 }
 

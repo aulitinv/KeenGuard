@@ -1,6 +1,7 @@
 """OpenWrt router backend implementation via /ubus JSON-RPC."""
 import asyncio
 import binascii
+import ipaddress
 import logging
 import re
 import time
@@ -25,7 +26,9 @@ class OpenWrtBackend(BaseRouterBackend):
         password: Optional[str] = None,
         use_https: Optional[bool] = None,
         ubus_path: Optional[str] = None,
-        timeout: float = 6.0
+        timeout: float = 6.0,
+        verify_tls: Optional[bool] = None,
+        mock_mode: bool = False
     ):
         self.host = host or settings.openwrt_host or "192.168.1.1"
         self.port = port or settings.openwrt_port or 80
@@ -34,11 +37,14 @@ class OpenWrtBackend(BaseRouterBackend):
         self.use_https = use_https if use_https is not None else settings.openwrt_use_https
         self.ubus_path = ubus_path or settings.openwrt_ubus_path or "/ubus"
         self.timeout = timeout
+        self.verify_tls: bool = verify_tls if verify_tls is not None else getattr(settings, "openwrt_verify_tls", False)
+        self.mock_mode: bool = mock_mode
 
         self.session_token: Optional[str] = None
         self.session_expires: float = 0.0
         self._rpc_id = 0
         self._lock = asyncio.Lock()
+        self._client: Optional[httpx.AsyncClient] = None
 
         # Cached info
         self.last_model = "OpenWrt Device"
@@ -69,6 +75,27 @@ class OpenWrtBackend(BaseRouterBackend):
         proto = "https" if self.use_https else "http"
         return f"{proto}://{self.host}:{self.port}{self.ubus_path}"
 
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self.timeout, verify=self.verify_tls)
+        return self._client
+
+    async def aclose(self) -> None:
+        """Closes the underlying HTTP client session."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    async def close(self) -> None:
+        """Alias for aclose()."""
+        await self.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.aclose()
+
     async def _call_ubus(self, subsystem: str, method: str, params: Optional[Dict[str, Any]] = None, require_auth: bool = True) -> Any:
         """Executes a JSON-RPC call against OpenWrt /ubus endpoint."""
         if require_auth:
@@ -91,26 +118,26 @@ class OpenWrtBackend(BaseRouterBackend):
             ]
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
-            res = await client.post(self.base_url, json=req_payload)
-            if res.status_code != 200:
-                raise ConnectionError(f"OpenWrt ubus HTTP error: {res.status_code}")
-            data = res.json()
+        client = self._get_client()
+        res = await client.post(self.base_url, json=req_payload)
+        if res.status_code != 200:
+            raise ConnectionError(f"OpenWrt ubus HTTP error: {res.status_code}")
+        data = res.json()
 
-            # Format: {"jsonrpc": "2.0", "id": 1, "result": [status_code, return_data]}
-            result = data.get("result")
-            if not result or not isinstance(result, list) or len(result) < 2:
-                err = data.get("error", "Invalid ubus response")
-                raise RuntimeError(f"OpenWrt RPC error: {err}")
+        # Format: {"jsonrpc": "2.0", "id": 1, "result": [status_code, return_data]}
+        result = data.get("result")
+        if not result or not isinstance(result, list) or len(result) < 2:
+            err = data.get("error", "Invalid ubus response")
+            raise RuntimeError(f"OpenWrt RPC error: {err}")
 
-            status_code = result[0]
-            if status_code != 0:
-                # 4 = UBUS_STATUS_PERMISSION_DENIED
-                if status_code == 4 and require_auth:
-                    self.session_token = None
-                raise RuntimeError(f"OpenWrt ubus call failed: code {status_code} for {subsystem}->{method}")
+        status_code = result[0]
+        if status_code != 0:
+            # 4 = UBUS_STATUS_PERMISSION_DENIED
+            if status_code == 4 and require_auth:
+                self.session_token = None
+            raise RuntimeError(f"OpenWrt ubus call failed: code {status_code} for {subsystem}->{method}")
 
-            return result[1]
+        return result[1]
 
     async def _ensure_authenticated(self) -> Optional[str]:
         """Ensures a valid ubus session token exists, renewing if necessary."""
@@ -547,9 +574,25 @@ class OpenWrtBackend(BaseRouterBackend):
 
     async def add_ip_blackholes(self, ips: List[str]) -> tuple[List[str], List[str]]:
         """Batch adds REJECT firewall rules for destination IPs on OpenWrt."""
+        from keenguard.core.keenetic.models import is_unsafe_ip_for_blackhole
         succeeded, failed = [], []
-        for ip in ips:
-            clean_ip = ip.strip()
+        valid_ips = []
+        for raw_ip in ips:
+            clean_ip = raw_ip.strip()
+            try:
+                ip_obj = ipaddress.ip_address(clean_ip)
+                if is_unsafe_ip_for_blackhole(ip_obj):
+                    logger.warning("SAFETY CHECK: Refusing to blackhole unsafe or local IP %s on OpenWrt", clean_ip)
+                    failed.append(clean_ip)
+                    continue
+                if clean_ip not in valid_ips:
+                    valid_ips.append(clean_ip)
+            except ValueError:
+                logger.warning("Invalid IP address provided for OpenWrt blackhole: %s", clean_ip)
+                failed.append(clean_ip)
+                continue
+
+        for clean_ip in valid_ips:
             rule_name = f"keenguard_blackhole_{clean_ip.replace('.', '_').replace(':', '_')}"
             try:
                 await self._call_ubus("uci", "add", {
@@ -780,7 +823,7 @@ class OpenWrtBackend(BaseRouterBackend):
         }
 
     async def set_wifi_pmf(self, mode: str = "required") -> bool:
-        """Sets PMF (802.11w) on OpenWrt wireless interfaces."""
+        """Sets PMF (802.11w) on OpenWrt wireless interfaces and reloads Wi-Fi."""
         uci_val = "2" if mode == "required" else ("1" if mode == "optional" else "0")
         try:
             await self._call_ubus("uci", "set", {
@@ -789,13 +832,20 @@ class OpenWrtBackend(BaseRouterBackend):
                 "values": {"ieee80211w": uci_val}
             })
             await self._call_ubus("uci", "commit", {"config": "wireless"})
+            try:
+                await self._call_ubus("network", "reload", {})
+            except Exception:
+                try:
+                    await self._call_ubus("luci-rpc", "setInitStatus", {"name": "network", "action": "reload"})
+                except Exception:
+                    pass
             return True
         except Exception as e:
             logger.debug("Failed to set OpenWrt PMF via ubus: %s", e)
             return False
 
     async def set_wifi_wpa3(self, enable: bool = True) -> bool:
-        """Enables WPA3 on OpenWrt."""
+        """Enables WPA3 on OpenWrt and reloads Wi-Fi."""
         enc = "sae" if enable else "psk2"
         try:
             await self._call_ubus("uci", "set", {
@@ -804,6 +854,13 @@ class OpenWrtBackend(BaseRouterBackend):
                 "values": {"encryption": enc}
             })
             await self._call_ubus("uci", "commit", {"config": "wireless"})
+            try:
+                await self._call_ubus("network", "reload", {})
+            except Exception:
+                try:
+                    await self._call_ubus("luci-rpc", "setInitStatus", {"name": "network", "action": "reload"})
+                except Exception:
+                    pass
             return True
         except Exception as e:
             logger.debug("Failed to set OpenWrt WPA3 via ubus: %s", e)
@@ -920,6 +977,42 @@ class OpenWrtBackend(BaseRouterBackend):
     ) -> Any:
         """Starts tcpdump packet capture on OpenWrt router to /tmp/keenguard_capture.pcap."""
         target = target_ip or ip
+
+        # Validate interface (map Bridge0 to br-lan for cross-platform compatibility)
+        iface = (interface or "br-lan").strip()
+        if iface == "Bridge0":
+            iface = "br-lan"
+        if not re.match(r"^[a-zA-Z0-9_.-]+$", iface):
+            return {"status": "error", "message": f"Invalid interface name: {interface}"}
+
+        # Validate target IP
+        target_clean = None
+        if target:
+            try:
+                ipaddress.ip_address(str(target).strip())
+                target_clean = str(target).strip()
+            except ValueError:
+                return {"status": "error", "message": f"Invalid target IP address: {target}"}
+
+        # Validate protocol
+        proto_clean = None
+        if proto:
+            proto_str = str(proto).strip().lower()
+            if proto_str not in {"tcp", "udp", "icmp"}:
+                return {"status": "error", "message": f"Invalid protocol '{proto}', expected tcp, udp, or icmp"}
+            proto_clean = proto_str
+
+        # Validate port
+        port_clean = None
+        if port is not None:
+            try:
+                p_val = int(port)
+                if not (1 <= p_val <= 65535):
+                    return {"status": "error", "message": f"Port out of range (1..65535): {port}"}
+                port_clean = p_val
+            except (ValueError, TypeError):
+                return {"status": "error", "message": f"Invalid port: {port}"}
+
         can_capture = await self.is_packet_capture_supported()
         if not can_capture:
             return {
@@ -928,25 +1021,33 @@ class OpenWrtBackend(BaseRouterBackend):
             }
 
         out_path = "/tmp/keenguard_capture.pcap"
-        cmd_filter = f"host {target}" if target else ""
-        if proto:
-            cmd_filter += f" and {proto.lower()}"
-        if port:
-            cmd_filter += f" and port {port}"
 
-        tcpdump_bin = "/usr/sbin/tcpdump"
-        args = ["-i", "br-lan", "-w", out_path, "-s", "0", "-U"]
-        if cmd_filter:
-            args.extend(cmd_filter.split())
+        # Safely construct BPF filter arguments without raw split
+        bpf_tokens = []
+        if target_clean:
+            bpf_tokens.extend(["host", target_clean])
+        if proto_clean:
+            if bpf_tokens:
+                bpf_tokens.append("and")
+            bpf_tokens.append(proto_clean)
+        if port_clean is not None:
+            if bpf_tokens:
+                bpf_tokens.append("and")
+            bpf_tokens.extend(["port", str(port_clean)])
+
+        duration_clean = max(5, min(int(duration_seconds), 3600))
+        bpf_filter_str = (" " + " ".join(bpf_tokens)) if bpf_tokens else ""
+        # Do not rely on nohup (missing in standard BusyBox). Use timeout and packet/size limits (-c 50000 -C 10) to protect /tmp
+        sh_cmd = f"timeout {duration_clean} /usr/sbin/tcpdump -i {iface} -c 50000 -C 10 -w {out_path} -s 0 -U{bpf_filter_str} >/dev/null 2>&1 &"
 
         try:
             await self._call_ubus("file", "exec", {
-                "command": tcpdump_bin,
-                "params": args
+                "command": "/bin/sh",
+                "params": ["-c", sh_cmd]
             })
             self._current_capture_file = out_path
-            logger.info("OpenWrt tcpdump capture started for target %s -> %s", target, out_path)
-            return {"status": "running", "pcap_file": out_path}
+            logger.info("OpenWrt tcpdump capture started on %s for target %s -> %s", iface, target_clean, out_path)
+            return {"status": "ok", "pcap_file": out_path, "interface": iface}
         except (httpx.ConnectError, httpx.TimeoutException, ConnectionError) as e:
             logger.warning("OpenWrt unreachable during packet capture start: %s", e)
             return {"status": "error", "message": str(e)}

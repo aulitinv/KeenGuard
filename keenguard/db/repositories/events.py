@@ -41,23 +41,23 @@ class EventRepository(BaseRepository):
         )
 
     async def record_event(self, event: SecurityEvent) -> int:
-        details_str = json.dumps(event.details or {})
+        severity = str(event.severity or "info").lower()
+        details_dict = dict(event.details or {})
         target_mac = event.target_mac.upper() if event.target_mac else None
         source_mac = event.source_mac.upper() if event.source_mac else None
 
         async with self.get_connection() as conn:
             valid_target_mac = None
-            if target_mac:
-                if target_mac != "NETWORK":
-                    cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (target_mac,))
-                    if not await cursor.fetchone():
-                        await conn.execute(
-                            "INSERT OR IGNORE INTO devices (mac, ip, first_seen, last_seen) VALUES (?, ?, ?, ?)",
-                            (target_mac, event.target_ip, event.timestamp, event.timestamp)
-                        )
+            if target_mac and target_mac != "NETWORK":
+                cursor = await conn.execute("SELECT 1 FROM devices WHERE mac = ?", (target_mac,))
+                if await cursor.fetchone():
                     valid_target_mac = target_mac
                 else:
+                    # Do not create phantom devices; keep original MAC in details_json
+                    details_dict.setdefault("original_target_mac", target_mac)
                     valid_target_mac = None
+
+            details_str = json.dumps(details_dict, ensure_ascii=False)
 
             cursor = await conn.execute("""
                 INSERT INTO events (
@@ -66,7 +66,7 @@ class EventRepository(BaseRepository):
                     matched_rule_id, matched_rule_name
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                event.timestamp, event.event_type, event.severity,
+                event.timestamp, event.event_type, severity,
                 valid_target_mac,
                 event.target_ip,
                 source_mac,
@@ -86,8 +86,8 @@ class EventRepository(BaseRepository):
             clauses.append("event_type = ?")
             params.append(event_type)
         if severity:
-            clauses.append("severity = ?")
-            params.append(severity)
+            clauses.append("LOWER(severity) = ?")
+            params.append(severity.lower())
         if target_mac:
             clauses.append("target_mac = ?")
             params.append(target_mac.upper())

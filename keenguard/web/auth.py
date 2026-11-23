@@ -4,11 +4,12 @@ import hmac
 import logging
 import os
 import secrets
+import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any, Union
 from fastapi import Request
 
-from keenguard.config import settings, persist_web_auth_settings
+from keenguard.config import settings, persist_web_auth_settings, set_env_file_permissions, ENV_FILE
 
 logger = logging.getLogger("keenguard.web.auth")
 
@@ -22,6 +23,7 @@ _active_sessions: Dict[str, float] = {}
 _failed_attempts: Dict[str, List[float]] = {}
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_DURATION = 900  # 15 minutes
+MAX_TRACKED_IPS = 1000
 
 
 def hash_password(password: str, salt: Optional[str] = None) -> str:
@@ -74,22 +76,38 @@ def is_auth_required() -> bool:
 def is_localhost_ip(ip: str) -> bool:
     """Checks if client IP is a local loopback address."""
     clean_ip = (ip or "").strip().lower()
-    return clean_ip in ("127.0.0.1", "::1", "localhost", "testclient")
+    return clean_ip in ("127.0.0.1", "::1", "localhost")
 
 
-def get_client_ip(request: Request) -> str:
-    """Extracts client IP address safely from FastAPI request."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
-        if parts:
-            return parts[0]
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
-    if request.client and request.client.host:
-        return request.client.host.strip()
-    return "127.0.0.1"
+def get_client_ip(request: Any) -> str:
+    """Extracts client IP address safely from FastAPI request or WebSocket.
+    Only trusts X-Forwarded-For / X-Real-IP if peer host is in settings.trusted_proxies.
+    Traverses X-Forwarded-For right-to-left to return first untrusted client IP.
+    """
+    client = getattr(request, "client", None)
+    if not client or not getattr(client, "host", None):
+        return ""
+    peer_ip = client.host.strip()
+    if not peer_ip:
+        return ""
+
+    trusted = getattr(settings, "trusted_proxies", []) or []
+    trusted_set = set(trusted)
+    if peer_ip in trusted_set:
+        headers = getattr(request, "headers", {})
+        forwarded = headers.get("x-forwarded-for")
+        if forwarded:
+            parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+            for ip_candidate in reversed(parts):
+                if ip_candidate not in trusted_set:
+                    return ip_candidate
+            if parts:
+                return parts[0]
+        real_ip = headers.get("x-real-ip")
+        if real_ip and real_ip.strip():
+            return real_ip.strip()
+
+    return peer_ip
 
 
 # --- Session Management ---
@@ -121,6 +139,17 @@ def revoke_session(token: Optional[str]) -> None:
         _active_sessions.pop(token, None)
 
 
+def revoke_all_sessions(except_token: Optional[str] = None) -> None:
+    """Revokes all active sessions to invalidate stale logins, optionally keeping the caller's token."""
+    global _active_sessions
+    if except_token and except_token in _active_sessions:
+        current_exp = _active_sessions[except_token]
+        _active_sessions.clear()
+        _active_sessions[except_token] = current_exp
+    else:
+        _active_sessions.clear()
+
+
 def clean_expired_sessions() -> None:
     """Removes expired tokens to prevent memory growth."""
     now = time.time()
@@ -138,6 +167,8 @@ class BruteForceGuard:
     def is_locked(cls, ip: str) -> Tuple[bool, int]:
         """Returns (is_locked, remaining_seconds)."""
         cls._prune(ip)
+        if len(_failed_attempts) >= MAX_TRACKED_IPS:
+            cls._prune_all()
         attempts = _failed_attempts.get(ip, [])
         if len(attempts) >= MAX_FAILED_ATTEMPTS:
             elapsed = time.time() - attempts[-1]
@@ -150,6 +181,8 @@ class BruteForceGuard:
         """Records a failed attempt for IP and returns remaining attempts allowed."""
         now = time.time()
         cls._prune(ip)
+        if len(_failed_attempts) >= MAX_TRACKED_IPS:
+            cls._prune_all()
         if ip not in _failed_attempts:
             _failed_attempts[ip] = []
         _failed_attempts[ip].append(now)
@@ -172,6 +205,29 @@ class BruteForceGuard:
             _failed_attempts[ip] = valid
         else:
             _failed_attempts.pop(ip, None)
+
+    @classmethod
+    def _prune_all(cls) -> None:
+        """Prunes expired attempts across all tracked IPs and enforces maximum size limit."""
+        now = time.time()
+        expired_ips = []
+        for ip_addr, attempts in list(_failed_attempts.items()):
+            valid = [t for t in attempts if now - t < LOCKOUT_DURATION]
+            if valid:
+                _failed_attempts[ip_addr] = valid
+            else:
+                expired_ips.append(ip_addr)
+        for ip_addr in expired_ips:
+            _failed_attempts.pop(ip_addr, None)
+
+        if len(_failed_attempts) >= MAX_TRACKED_IPS:
+            excess = len(_failed_attempts) - MAX_TRACKED_IPS + 1
+            sorted_ips = sorted(
+                _failed_attempts.keys(),
+                key=lambda k: max(_failed_attempts[k]) if _failed_attempts[k] else 0.0
+            )[:excess]
+            for k in sorted_ips:
+                _failed_attempts.pop(k, None)
 
     @classmethod
     def _notify_lockout(cls, ip: str) -> None:
@@ -214,5 +270,10 @@ def ensure_initial_credentials() -> Optional[str]:
     new_hash = hash_password(generated)
     settings.web_password_hash = new_hash
     persist_web_auth_settings(web_password_hash=new_hash)
-    logger.info("Generated initial Web UI password for LAN protection: %s", generated)
+    set_env_file_permissions(ENV_FILE)
+
+    logger.info("Generated initial Web UI credentials. Credentials saved to .env (hash only)")
+    if sys.stdout and sys.stdout.isatty():
+        print(f"\n[KeenGuard] Initial Web UI password generated: {generated}\n[KeenGuard] Saved to: {ENV_FILE}\n", flush=True)
+
     return generated

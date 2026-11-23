@@ -46,6 +46,22 @@ class AnomalyDetector:
         self.dedup_cache[key] = now
         return False
 
+    async def _dispatch_alert(self, event: SecurityEvent):
+        """Sends security alert to Telegram bot and broadcasts to WebSocket clients."""
+        try:
+            from keenguard.core.notifier import notifier
+            await notifier.send_alert(event)
+        except Exception as e:
+            logger.debug("Failed sending alert to Telegram: %s", e)
+        try:
+            from keenguard.web.ws import ws_manager
+            await ws_manager.broadcast({
+                "type": "security_event",
+                "event": event.model_dump() if hasattr(event, "model_dump") else (event.dict() if hasattr(event, "dict") else event.__dict__)
+            })
+        except Exception as e:
+            logger.debug("Failed broadcasting alert via WebSocket: %s", e)
+
     async def check_mac_ip_binding(self, mac: Optional[str], ip: Optional[str]):
         """
         Detects MAC conflict / ARP spoofing:
@@ -89,6 +105,7 @@ class AnomalyDetector:
                         }
                     )
                     await self.db.record_event(event)
+                    await self._dispatch_alert(event)
 
         # 2. Check single MAC active concurrently on multiple IPs
         if clean_mac in self.mac_ip_tracker:
@@ -113,6 +130,7 @@ class AnomalyDetector:
                         }
                     )
                     await self.db.record_event(event)
+                    await self._dispatch_alert(event)
 
         # Update bindings
         self.ip_mac_tracker[ip] = (clean_mac, now)
@@ -130,27 +148,31 @@ class AnomalyDetector:
             # Find device by internal IP
             matching_dev = next((d for d in devices.values() if d.ip == rule.int_ip), None)
             if matching_dev and matching_dev.profile in ["camera", "iot", "smart_home_hub"]:
-                desc = f"CRITICAL: {matching_dev.profile.upper()} '{matching_dev.hostname or matching_dev.ip}' has an open UPnP WAN port {rule.ext_port}->{rule.int_port}/{rule.protocol}!"
-                logger.warning(desc)
+                dedup_key = f"upnp_anomaly:{matching_dev.mac}:{rule.protocol}:{rule.ext_port}"
+                if not self._is_deduped(dedup_key):
+                    desc = f"CRITICAL: {matching_dev.profile.upper()} '{matching_dev.hostname or matching_dev.ip}' has an open UPnP WAN port {rule.ext_port}->{rule.int_port}/{rule.protocol}!"
+                    logger.warning(desc)
 
-                # Record critical security event
-                event = SecurityEvent(
-                    event_type="upnp_detected",
-                    severity="critical",
-                    target_mac=matching_dev.mac,
-                    target_ip=matching_dev.ip,
-                    description=desc,
-                    details={
-                        "ext_port": rule.ext_port,
-                        "int_port": rule.int_port,
-                        "protocol": rule.protocol,
-                        "description": rule.description
-                    }
-                )
-                await self.db.record_event(event)
+                    # Record critical security event
+                    event = SecurityEvent(
+                        event_type="upnp_detected",
+                        severity="critical",
+                        target_mac=matching_dev.mac,
+                        target_ip=matching_dev.ip,
+                        description=desc,
+                        details={
+                            "ext_port": rule.ext_port,
+                            "int_port": rule.int_port,
+                            "protocol": rule.protocol,
+                            "description": rule.description
+                        }
+                    )
+                    await self.db.record_event(event)
+                    await self._dispatch_alert(event)
 
-                # Auto-delete dangerous UPnP rule on router (REQ-3: UPnP auto-audit and ban)
-                await router_manager.delete_upnp_mapping(rule.protocol, rule.ext_port)
+                    # Auto-delete dangerous UPnP rule on router if explicitly configured by user
+                    if getattr(settings, "upnp_auto_delete", False):
+                        await router_manager.delete_upnp_mapping(rule.protocol, rule.ext_port)
 
     async def check_camera_upload_leak(
         self,
@@ -190,8 +212,8 @@ class AnomalyDetector:
 
         if active_nat_flows:
             for flow in active_nat_flows:
-                src = flow.get("src_ip")
-                dst = flow.get("dst_ip")
+                src = flow.get("src_ip") or flow.get("src")
+                dst = flow.get("dst_ip") or flow.get("dst")
                 if src == device.ip:
                     if dst and is_lan_ip(dst):
                         if target_nvr and dst == target_nvr:
@@ -226,6 +248,7 @@ class AnomalyDetector:
                     }
                 )
                 await self.db.record_event(event)
+                await self._dispatch_alert(event)
 
         # LAN streaming notification
         if lan_stream_detected and getattr(settings, "camera_notify_lan_stream", False):
@@ -281,6 +304,7 @@ class AnomalyDetector:
                 details={"probed_ips_count": len(unique_targets)}
             )
             await self.db.record_event(event)
+            await self._dispatch_alert(event)
 
     async def record_iot_packet(self, mac: str, ip: str, hostname: Optional[str] = None):
         """Detects DDoS or flood activity from IoT devices."""
@@ -302,6 +326,7 @@ class AnomalyDetector:
                 details={"rate_pps": settings.iot_packet_rate_threshold}
             )
             await self.db.record_event(event)
+            await self._dispatch_alert(event)
 
 anomaly_detector = AnomalyDetector()
 
@@ -309,24 +334,34 @@ anomaly_detector = AnomalyDetector()
 def _on_anomaly_config_change(key: str, value: Any) -> None:
     if key == "camera_upload_threshold_kbps" and value is not None:
         try:
-            anomaly_detector.camera_upload_threshold_kbps = float(value)
+            val = float(value)
+            setattr(settings, key, val)
+            anomaly_detector.camera_upload_threshold_kbps = val
         except (ValueError, TypeError):
             pass
     elif key == "notification_dedup_window_seconds" and value is not None:
         try:
-            anomaly_detector.notification_dedup_window_seconds = int(value)
+            val = int(value)
+            setattr(settings, key, val)
+            anomaly_detector.notification_dedup_window_seconds = val
         except (ValueError, TypeError):
             pass
     elif key == "mac_conflict_detection_enabled" and value is not None:
-        anomaly_detector.mac_conflict_detection_enabled = bool(value)
+        val = bool(value)
+        setattr(settings, key, val)
+        anomaly_detector.mac_conflict_detection_enabled = val
     elif key == "iot_packet_rate_threshold" and value is not None:
         try:
-            anomaly_detector.iot_packet_rate_threshold = int(value)
+            val = int(value)
+            setattr(settings, key, val)
+            anomaly_detector.iot_packet_rate_threshold = val
         except (ValueError, TypeError):
             pass
     elif key == "lan_scan_threshold" and value is not None:
         try:
-            anomaly_detector.lan_scan_threshold = int(value)
+            val = int(value)
+            setattr(settings, key, val)
+            anomaly_detector.lan_scan_threshold = val
         except (ValueError, TypeError):
             pass
 

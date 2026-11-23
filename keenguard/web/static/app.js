@@ -44,24 +44,37 @@ window.refreshAllData = refreshAllData;
 
 // Lifecycle Bootstrapping
 document.addEventListener('DOMContentLoaded', async () => {
-    // 0. Initialize authentication status
+    // 0. Initialize UI controls & preferences
+    if (typeof initSidebarState === 'function') initSidebarState();
+    if (typeof updateDeviceViewModeButtons === 'function') updateDeviceViewModeButtons();
+    if (typeof updateSnifferDisplayModeButtons === 'function') updateSnifferDisplayModeButtons();
+    const hideOfflineSaved = localStorage.getItem('kg_hide_offline') === 'true';
+    const hideOfflineCb = document.getElementById('toggle-hide-offline-devices');
+    if (hideOfflineCb) hideOfflineCb.checked = hideOfflineSaved;
+    if (typeof initSourceFilterCheckboxes === 'function') initSourceFilterCheckboxes();
+    if (typeof initCommandPaletteInput === 'function') initCommandPaletteInput();
+
+    // 1. Initialize authentication status
     await checkAuthStatus();
 
-    // 1. Initialize modal dismiss event handlers
+    // 2. Initialize modal dismiss event handlers
     initModalDismissHandlers();
 
-    // 2. Establish live WebSocket stream
+    // 3. Establish live WebSocket stream
     connectWebSocket();
 
-    // 3. Initial full data fetch
+    // 4. Load LAN presets
+    if (typeof loadLanPresets === 'function') loadLanPresets();
+
+    // 5. Initial full data fetch
     await refreshAllData();
 
-    // 4. Render Lucide icons
-    if (window.lucide) {
+    // 6. Render Lucide icons
+    if (window.lucide && typeof lucide.createIcons === 'function') {
         lucide.createIcons();
     }
 
-    // 5. Setup periodic background refresh intervals
+    // 7. Setup periodic background refresh intervals
     setInterval(() => {
         refreshAllData();
         if (activeTab === 'tv_forensics') loadTvForensics();

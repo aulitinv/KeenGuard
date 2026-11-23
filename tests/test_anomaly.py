@@ -8,10 +8,49 @@ from keenguard.db.database import Database
 
 @pytest.mark.asyncio
 async def test_upnp_camera_detection(tmp_path):
+    from keenguard.config import settings
     test_db = Database(db_path=tmp_path / "test.db")
     await test_db.init_db()
 
     # Enable mock mode for Keenetic
+    keenetic_client.mock_mode = True
+    keenetic_client._mock_upnp = [
+        {"interface": "ISP", "protocol": "tcp", "ext_port": 554, "int_ip": "192.168.1.150", "int_port": 554, "description": "IP-Camera RTSP"}
+    ]
+
+    # Explicitly enable auto-deletion for this test
+    orig_auto_delete = settings.upnp_auto_delete
+    settings.upnp_auto_delete = True
+    try:
+        detector = AnomalyDetector(database=test_db)
+        devices = {
+            "C4:2F:90:11:22:33": DeviceRecord(
+                mac="C4:2F:90:11:22:33",
+                ip="192.168.1.150",
+                hostname="Backyard-Camera",
+                profile="camera"
+            )
+        }
+
+        # Run check
+        await detector.check_upnp_anomalies(await keenetic_client.get_upnp_mappings(), devices)
+
+        # After check with auto-delete enabled, UPnP mapping should be deleted from Keenetic client
+        remaining = await keenetic_client.get_upnp_mappings()
+        assert len(remaining) == 0
+    finally:
+        settings.upnp_auto_delete = orig_auto_delete
+
+
+@pytest.mark.asyncio
+async def test_upnp_default_safe_no_auto_delete(tmp_path):
+    """Verify that by default (AGENTS.md Rule #4), UPnP mappings are NOT auto-deleted without explicit permission."""
+    from keenguard.config import settings
+    assert settings.upnp_auto_delete is False, "AGENTS.md Rule #4 requires upnp_auto_delete to be False by default"
+
+    test_db = Database(db_path=tmp_path / "test_safe.db")
+    await test_db.init_db()
+
     keenetic_client.mock_mode = True
     keenetic_client._mock_upnp = [
         {"interface": "ISP", "protocol": "tcp", "ext_port": 554, "int_ip": "192.168.1.150", "int_port": 554, "description": "IP-Camera RTSP"}
@@ -27,12 +66,18 @@ async def test_upnp_camera_detection(tmp_path):
         )
     }
 
-    # Run check
+    # Run check with default settings
     await detector.check_upnp_anomalies(await keenetic_client.get_upnp_mappings(), devices)
 
-    # After check, UPnP mapping should be deleted from Keenetic client
+    # Verify security event was recorded...
+    events = await test_db.get_recent_events()
+    assert len(events) >= 1
+    assert any(e.event_type == "upnp_detected" for e in events)
+
+    # ...but router UPnP mapping was NOT deleted
     remaining = await keenetic_client.get_upnp_mappings()
-    assert len(remaining) == 0
+    assert len(remaining) == 1
+
 
 @pytest.mark.asyncio
 async def test_arp_scan_detection(tmp_path):

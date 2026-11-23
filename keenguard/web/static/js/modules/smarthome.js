@@ -177,7 +177,7 @@ function renderSmartHomeDeviceCard(d, cat, cloudCount) {
                             <h4 class="font-bold text-sm text-white truncate" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</h4>
                             ${isHub ? '<span class="px-1.5 py-0.2 rounded text-[9px] bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">ХАБ</span>' : ''}
                         </div>
-                        <p class="text-xs text-slate-400 font-mono truncate">${d.ip || 'Нет IP'} • ${d.mac}</p>
+                        <p class="text-xs text-slate-400 font-mono truncate">${escapeHtml(d.ip || 'Нет IP')} • ${escapeHtml(d.mac)}</p>
                     </div>
                     <div class="flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-900 text-slate-300 border border-slate-800 shrink-0">
                         <span class="w-1.5 h-1.5 rounded-full ${onlineDot}"></span>
@@ -227,14 +227,14 @@ function renderSmartHomeDeviceCard(d, cat, cloudCount) {
 
             <!-- Individual Step-by-Step Reversible Controls -->
             <div class="pt-3 border-t border-slate-800/60 space-y-2">
-                <button onclick="toggleSmartHomeWan('${d.mac}', ${!d.is_blocked_wan})"
+                <button data-mac="${escapeHtml(d.mac)}" data-block="${!d.is_blocked_wan}" onclick="toggleSmartHomeWan(this.dataset.mac, this.dataset.block === 'true')"
                         class="w-full px-2 py-1.5 rounded-xl text-xs font-medium transition flex items-center justify-center space-x-1.5 ${d.is_blocked_wan ? 'bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30'}"
                         title="${d.is_blocked_wan ? 'Разблокировать интернет: вернуть устройству доступ к облаку' : 'Безопасно заблокировать интернет (Zero-Internet). Опрос хабом SprutHub сохранится.'}">
                     <i data-lucide="${d.is_blocked_wan ? 'unlock' : 'shield-alert'}" class="w-3.5 h-3.5"></i>
                     <span>${d.is_blocked_wan ? 'Разблокировать интернет (Вернуть WAN)' : 'Включить Zero-Internet (Блок WAN)'}</span>
                 </button>
 
-                <button onclick="openDeviceModal('${d.mac}')"
+                <button data-mac="${escapeHtml(d.mac)}" onclick="openDeviceModal(this.dataset.mac)"
                         class="w-full py-1 text-center text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-900/80 rounded-lg transition flex items-center justify-center space-x-1">
                     <i data-lucide="sliders" class="w-3 h-3 text-indigo-400"></i>
                     <span>Параметры и аудит трафика →</span>
@@ -377,8 +377,8 @@ function sortSmartHomeCloudConnections(conns) {
             const hB = b.domain || b.dst_ip || '';
             cmp = hA.localeCompare(hB, 'ru');
         } else if (col === 'service') {
-            const sA = a.cloud_vendor || a.category_title || '';
-            const sB = b.cloud_vendor || b.category_title || '';
+            const sA = a.cloud_vendor || a.category_title || a.category_name || '';
+            const sB = b.cloud_vendor || b.category_title || b.category_name || '';
             cmp = sA.localeCompare(sB, 'ru');
         } else if (col === 'port') {
             cmp = (a.dport || 0) - (b.dport || 0);
@@ -429,26 +429,26 @@ function renderSmartHomeCloudTable(cloudConns) {
             <tr class="border-b border-slate-800/40 hover:bg-surface-950/40 transition">
                 <td class="py-2.5 px-3">
                     <div class="font-medium text-slate-200">${escapeHtml(c.device_name)}</div>
-                    <div class="text-[11px] text-slate-400 font-mono">${c.src_ip}</div>
+                    <div class="text-[11px] text-slate-400 font-mono">${escapeHtml(c.src_ip)}</div>
                 </td>
                 <td class="py-2.5 px-3 font-mono text-[11px] text-slate-300">
                     <div class="truncate max-w-[200px]" title="${escapeHtml(c.domain)}">${escapeHtml(c.domain)}</div>
-                    <div class="text-[10px] text-slate-500">${c.dst_ip}</div>
+                    <div class="text-[10px] text-slate-500">${escapeHtml(c.dst_ip)}</div>
                 </td>
                 <td class="py-2.5 px-3 text-slate-300">
-                    <div class="font-medium">${escapeHtml(c.cloud_vendor)}</div>
-                    <div class="text-[10px] text-slate-500">${escapeHtml(c.category_title)}</div>
+                    <div class="font-medium">${escapeHtml(c.cloud_vendor || 'Внешний хост')}</div>
+                    <div class="text-[10px] text-slate-500">${escapeHtml(c.category_title || c.category_name || 'Внешняя связь')}</div>
                 </td>
                 <td class="py-2.5 px-3 font-mono text-[11px] text-slate-400">
-                    ${c.dport} / ${c.protocol}
+                    ${Number(c.dport || 0)} / ${escapeHtml(c.protocol || '')}
                 </td>
                 <td class="py-2.5 px-3">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] ${riskClass}">${c.risk_level.toUpperCase()}</span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] ${riskClass}">${escapeHtml(String(c.risk_level || '').toUpperCase())}</span>
                 </td>
                 <td class="py-2.5 px-3 text-right">
                     ${c.is_blocked_wan 
                         ? `<span class="text-[10px] text-emerald-400 font-medium">WAN заблокирован</span>`
-                        : `<button onclick="toggleSmartHomeWan('${c.mac}', true)" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-medium transition" title="Заблокировать выход в интернет для этого устройства">
+                        : `<button data-mac="${escapeHtml(c.mac)}" onclick="toggleSmartHomeWan(this.dataset.mac, true)" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-medium transition" title="Заблокировать выход в интернет для этого устройства">
                              Блок WAN
                            </button>`
                     }

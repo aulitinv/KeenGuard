@@ -28,6 +28,20 @@ class ConfigService:
     Priority: SQLite (app_settings) > .env environment variables > Pydantic defaults.
     """
 
+    SECRET_KEYS: set[str] = {
+        "router_password",
+        "openwrt_password",
+        "telegram_bot_token",
+        "nextdns_api_key",
+        "controld_api_key",
+        "adguard_password",
+        "pihole_api_token",
+        "pihole_password",
+        "web_password",
+        "web_password_hash",
+        "web_session_secret",
+    }
+
     def __init__(self, settings_instance: Settings = pydantic_settings):
         # Use object.__setattr__ to avoid triggering custom __setattr__ during init
         object.__setattr__(self, "_settings", settings_instance)
@@ -107,10 +121,16 @@ class ConfigService:
         current_dump = self._settings.model_dump()
         self._cache.update(current_dump)
 
-        # 2. Overlay values from SQLite app_settings table
+        # 2. Overlay values from SQLite app_settings table (excluding sensitive credentials stored strictly in .env)
         try:
             db_settings = await database.get_all_settings()
             for k, str_val in db_settings.items():
+                if k in self.SECRET_KEYS:
+                    continue
+                if k == "web_password_hash" and getattr(self._settings, "web_password_hash", ""):
+                    # Prefer authoritative .env hash if already loaded
+                    continue
+
                 coerced = self._coerce_type(k, str_val)
                 self._cache[k] = coerced
                 if hasattr(self._settings, k):
@@ -119,9 +139,7 @@ class ConfigService:
                     except (ValueError, TypeError, AttributeError) as ex:
                         logger.warning("Could not set attribute '%s' on Settings: %s", k, ex)
 
-            # Seed database if credentials exist in .env but not yet in SQLite
-            if getattr(self._settings, "telegram_bot_token", None) and "telegram_bot_token" not in db_settings:
-                await database.save_setting("telegram_bot_token", self._settings.telegram_bot_token)
+            # Seed non-secret chat ID if present in .env
             if getattr(self._settings, "telegram_chat_id", None) and "telegram_chat_id" not in db_settings:
                 await database.save_setting("telegram_chat_id", self._settings.telegram_chat_id)
         except (aiosqlite.Error, KeyError, TypeError, ValueError, OSError) as e:
@@ -160,7 +178,7 @@ class ConfigService:
             except (ValueError, TypeError, AttributeError) as ex:
                 logger.warning("Could not update '%s' on Settings instance: %s", key, ex)
 
-        if persist_db:
+        if persist_db and key not in self.SECRET_KEYS:
             if database is None:
                 from keenguard.db.database import db
                 database = db
@@ -202,7 +220,9 @@ class ConfigService:
             if database is None:
                 from keenguard.db.database import db
                 database = db
-            await database.set_settings_bulk(settings_dict)
+            non_secret_settings = {k: v for k, v in settings_dict.items() if k not in self.SECRET_KEYS}
+            if non_secret_settings:
+                await database.set_settings_bulk(non_secret_settings)
 
         if persist_env:
             for k, v in settings_dict.items():
@@ -220,6 +240,25 @@ class ConfigService:
                     user=self.get("router_user", "admin"),
                     password=self.get("router_password", ""),
                     port=self.get("router_port", 80),
+                )
+            elif key.startswith("openwrt_"):
+                from keenguard.config import save_env_openwrt_credentials
+                save_env_openwrt_credentials(
+                    host=self.get("openwrt_host", "192.168.1.1"),
+                    user=self.get("openwrt_username", "root"),
+                    password=self.get("openwrt_password", ""),
+                    port=self.get("openwrt_port", 80),
+                    use_https=bool(self.get("openwrt_use_https", False)),
+                    verify_tls=bool(self.get("openwrt_verify_tls", False)),
+                )
+            elif key.startswith("web_"):
+                from keenguard.config import persist_web_auth_settings
+                persist_web_auth_settings(
+                    web_host=self.get("web_host"),
+                    web_auth_enabled=self.get("web_auth_enabled"),
+                    web_password_hash=self.get("web_password_hash"),
+                    web_auth_exempt_localhost=self.get("web_auth_exempt_localhost"),
+                    web_session_secret=self.get("web_session_secret"),
                 )
             elif key.startswith("telegram_"):
                 save_env_telegram_settings(

@@ -149,7 +149,7 @@ class SettingsRepository(BaseRepository):
                 try:
                     rules = json.loads(r["rules_json"])
                 except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning("Failed to decode rules_json for preset %s: %s", r.get("id"), e)
+                    logger.warning("Failed to decode rules_json for preset %s: %s", r["id"], e)
                 presets.append(LanPolicyPreset(
                     id=r["id"],
                     name=r["name"],

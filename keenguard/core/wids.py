@@ -25,7 +25,6 @@ DEAUTH_SIGNATURES = [
     re.compile(r"AP-STA-DISCONNECTED\s+([0-9a-fA-F:]{17})", re.IGNORECASE),
     re.compile(r"deauth request from\s+([0-9a-fA-F:]{17})", re.IGNORECASE),
     re.compile(r"unicast deauth", re.IGNORECASE),
-    re.compile(r"disassociated due to inactivity", re.IGNORECASE),
     re.compile(r"Station\s+([0-9a-fA-F:]{17})\s+disassociated", re.IGNORECASE),
 ]
 
@@ -47,6 +46,8 @@ class DeauthFloodDetector:
         self.window_seconds = window_seconds
 
     def parse_log_line(self, line: str, reference_year: Optional[int] = None) -> Optional[DeauthEvent]:
+        if "disassociated due to inactivity" in line.lower():
+            return None
         is_deauth = any(sig.search(line) for sig in DEAUTH_SIGNATURES)
         if not is_deauth:
             return None
@@ -327,6 +328,8 @@ class WIDSService:
         self.rogue_detector = RogueApDetector()
         self.deauth_silenced_until: Optional[datetime] = None
         self._last_notified: Dict[str, datetime] = {}
+        self._last_recorded: Dict[str, datetime] = {}
+        self._seen_deauth_fingerprints: Set[str] = set()
 
     def silence_deauth(self, seconds: int = 3600):
         """Silences deauth flood alerts for specified duration in seconds."""
@@ -374,19 +377,40 @@ class WIDSService:
 
         evil_twin_incidents = self.rogue_detector.detect(scanned_aps, networks)
 
-        # 4. Record detected incidents in DB and send notifications
+        # 4. Record detected incidents in DB and send notifications (deduplicated)
         recorded_ids = []
         now_dt = datetime.now(timezone.utc)
         now_iso = now_dt.isoformat()
 
+        # Prune memory caches if needed
+        if len(self._last_recorded) > 200:
+            self._last_recorded = {k: v for k, v in self._last_recorded.items() if (now_dt - v).total_seconds() < 3600}
+        if len(self._last_notified) > 200:
+            self._last_notified = {k: v for k, v in self._last_notified.items() if (now_dt - v).total_seconds() < 3600}
+
         events_to_notify = []
         for incident in deauth_incidents + evil_twin_incidents:
+            if incident.get("type") == "wifi_deauth_flood":
+                ifaces = tuple(sorted(incident.get("interfaces", [])))
+                fp = f"deauth:{incident.get('start_time')}:{incident.get('end_time')}:{incident.get('event_count')}:{ifaces}"
+                if fp in self._seen_deauth_fingerprints:
+                    continue
+                self._seen_deauth_fingerprints.add(fp)
+                if len(self._seen_deauth_fingerprints) > 1000:
+                    self._seen_deauth_fingerprints = set(list(self._seen_deauth_fingerprints)[-500:])
+
+            incident_key = f"{incident['type']}:{incident.get('bssid') or incident.get('mac') or 'ALL'}:{incident.get('title') or ''}"
+            last_recorded_time = self._last_recorded.get(incident_key)
+            if last_recorded_time and (now_dt - last_recorded_time).total_seconds() < 900:
+                continue
+            self._last_recorded[incident_key] = now_dt
+
             ev = SecurityEvent(
                 timestamp=now_iso,
                 event_type=incident["type"],
                 severity=incident["severity"],
-                target_mac="NETWORK",
-                source_mac=incident.get("bssid"),
+                target_mac=None,
+                source_mac=incident.get("bssid") or incident.get("mac"),
                 source_name="WIDS Monitor",
                 description=incident["title"],
                 details=incident

@@ -17,6 +17,38 @@ def isolate_keenetic_router():
     keenetic_client.mock_mode = orig_mock
 
 @pytest.fixture(autouse=True)
+def testclient_localhost_resolution():
+    """
+    Ensures TestClient ('testclient' peer) is resolved as 127.0.0.1 in tests
+    without adding 'testclient' back into the production is_localhost_ip() whitelist.
+    """
+    from unittest.mock import patch
+    import keenguard.web.auth
+    import keenguard.web.routes.auth
+
+    orig_is_localhost_ip = keenguard.web.auth.is_localhost_ip
+
+    def test_is_localhost_ip(ip: str) -> bool:
+        clean = (ip or "").strip().lower()
+        if clean == "testclient":
+            return True
+        return orig_is_localhost_ip(ip)
+
+    orig_get_client_ip = keenguard.web.auth.get_client_ip
+
+    def test_get_client_ip(request):
+        ip = orig_get_client_ip(request)
+        if ip == "testclient":
+            return "127.0.0.1"
+        return ip
+
+    with patch("keenguard.web.auth.is_localhost_ip", side_effect=test_is_localhost_ip), \
+         patch("keenguard.web.routes.auth.is_localhost_ip", side_effect=test_is_localhost_ip), \
+         patch("keenguard.web.auth.get_client_ip", side_effect=test_get_client_ip), \
+         patch("keenguard.web.routes.auth.get_client_ip", side_effect=test_get_client_ip):
+        yield
+
+@pytest.fixture(autouse=True)
 def isolate_test_env_file(tmp_path):
     """
     Guarantees that tests never write into or mutate the production .env file.

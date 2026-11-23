@@ -83,6 +83,13 @@ async def create_rule(req: RuleCreateRequest):
     db = get_db()
     existing_rules = await db.get_rules()
 
+    category = (req.category or "custom").strip().lower()
+    if category == "core":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Создание правил с категорией 'core' запрещено"
+        )
+
     rule_id = f"rule_custom_{uuid.uuid4().hex[:8]}"
 
     # Determine order_index in Zone 2 pool (before Zone 3 fallback)
@@ -98,7 +105,7 @@ async def create_rule(req: RuleCreateRequest):
         description=req.description or "",
         enabled=req.enabled,
         is_builtin=False,
-        category="custom",
+        category=category,
         temporary_until=req.temporary_until,
         source=req.source,
         destination=req.destination,
@@ -259,16 +266,21 @@ async def update_rule(rule_id: str, req: RuleUpdateRequest):
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Правило не найдено")
 
+    req_cat = req.category.strip().lower() if req.category is not None else None
     if existing.category == "core":
-        if req.category and req.category != "core":
+        if req_cat is not None and req_cat != "core":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя изменить категорию системного правила ядра")
         if req.enabled is False:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя отключить системное правило ядра")
+    elif req_cat == "core":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя назначить категорию 'core' пользовательскому правилу")
 
     updated_dict = existing.model_dump()
     req_dict = req.model_dump(exclude_unset=True)
+    if req_cat is not None:
+        req_dict["category"] = req_cat
     for k, v in req_dict.items():
-        if v is not None:
+        if v is not None or k in ("temporary_until", "description"):
             updated_dict[k] = v
 
     updated_dict["updated_at"] = datetime.now(timezone.utc).isoformat()

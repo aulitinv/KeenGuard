@@ -140,7 +140,7 @@ async function loadSettings() {
 
         const owSavedBadge = document.getElementById('cfg-openwrt-password-saved-badge');
         const owPassInput = document.getElementById('cfg-openwrt-password');
-        if (s.openwrt_has_password) {
+        if (s.has_openwrt_password || s.openwrt_has_password) {
             if (owSavedBadge) owSavedBadge.classList.remove('hidden');
             if (owPassInput) owPassInput.placeholder = "•••••••• (сохранен)";
         } else {
@@ -212,10 +212,19 @@ async function loadSettings() {
         await loadNewDevicePolicySettings();
 
         // Telegram Settings
+        window.telegramBotTokenSet = Boolean(s.telegram_bot_token_set || (s.telegram_bot_token && s.telegram_bot_token.includes('••')));
         const tgEn = document.getElementById('cfg-telegram-enabled');
         if (tgEn) tgEn.checked = Boolean(s.telegram_enabled);
         const tgToken = document.getElementById('cfg-telegram-token');
-        if (tgToken) tgToken.value = s.telegram_bot_token || '';
+        if (tgToken) {
+            if (window.telegramBotTokenSet) {
+                tgToken.value = '';
+                tgToken.placeholder = "•••••••• (сохранен)";
+            } else {
+                tgToken.value = s.telegram_bot_token || '';
+                tgToken.placeholder = "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ";
+            }
+        }
         const tgChat = document.getElementById('cfg-telegram-chat');
         if (tgChat) tgChat.value = s.telegram_chat_id || '';
         const tgUrl = document.getElementById('cfg-telegram-url');
@@ -755,36 +764,46 @@ async function saveScheduleSettings() {
 window.saveScheduleSettings = saveScheduleSettings;
 
 async function testTelegram() {
-    const token = document.getElementById('cfg-telegram-token').value.trim();
+    let token = document.getElementById('cfg-telegram-token').value.trim();
+    if (token.startsWith('••') || token.includes('••')) token = '';
     const chat = document.getElementById('cfg-telegram-chat').value.trim();
     const apiUrl = (document.getElementById('cfg-telegram-url')?.value || '').trim();
     const proxy = (document.getElementById('cfg-telegram-proxy')?.value || '').trim();
     const statusElem = document.getElementById('tg-test-status');
 
-    if (!token || !chat) {
+    if (!token && !window.telegramBotTokenSet) {
         alert('Заполните Bot Token и Chat ID перед отправкой тестового сообщения.');
+        return;
+    }
+    if (!chat) {
+        alert('Заполните Chat ID перед отправкой тестового сообщения.');
         return;
     }
 
     statusElem.textContent = 'Отправка тестового пуша в Telegram...';
     statusElem.className = 'text-[11px] text-cyan-400';
 
+    const payload = { chat_id: chat };
+    if (token) payload.token = token;
+    if (apiUrl) payload.api_url = apiUrl;
+    if (proxy) payload.proxy = proxy;
+
     try {
         const res = await fetch('/api/telegram/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: token, chat_id: chat, api_url: apiUrl, proxy: proxy })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.status === 'ok') {
             statusElem.textContent = '✓ Сообщение успешно доставлено!';
             statusElem.className = 'text-[11px] text-emerald-400 font-medium';
         } else {
-            statusElem.textContent = `Ошибка: ${data.message}`;
+            statusElem.textContent = `Ошибка: ${data.detail || data.message}`;
             statusElem.className = 'text-[11px] text-rose-400 font-medium';
         }
     } catch (e) {
-        statusElem.textContent = `Ошибка: ${e}`;
+        statusElem.textContent = `Ошибка: ${e.message || e}`;
         statusElem.className = 'text-[11px] text-rose-400';
     }
 }
